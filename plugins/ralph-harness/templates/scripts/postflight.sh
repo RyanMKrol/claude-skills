@@ -22,13 +22,17 @@ mkdir -p worklog
 git fetch origin --quiet 2>/dev/null || true
 
 # All reads come from origin/main (mirrors loop.sh), so the board matches what runs.
+# TASKS.json (schema: docs/HARNESS.md §8.1) is parsed with jq — same as loop.sh.
+command -v jq >/dev/null 2>&1 || { echo "[postflight] jq is required to parse TASKS.json — install it (e.g. brew install jq)" >&2; exit 0; }
 blob()         { git show "$TASKS_REF:$1" 2>/dev/null || true; }
-task_done()    { blob TASKS.md | grep -qE "^- \[x\] $1( |\$)"; }
-all_tasks()    { blob TASKS.md | grep -oE '^- \[[ x~]\] T[0-9]{3,}' | grep -oE 'T[0-9]{3,}'; }
-task_title()   { blob TASKS.md | grep -m1 -E "^- \[[ x~]\] $1 " | sed -E "s/^- \[[ x~]\] $1 +//" | sed -E 's/[[:space:]]*🚦.*$//; s/[[:space:]]*🔒.*$//'; }
-deps_for()     { blob TASKS.md | sed -n "/^### $1 /,/^### T[0-9]/p" | grep -im1 'Depends on' | grep -oE 'T[0-9]{3,}' | tr '\n' ' '; }
-is_gate()      { blob TASKS.md | grep -m1 -E "^- \[[ x~]\] $1 " | grep -q '🚦'; }
-needs_human()  { blob TASKS.md | grep -m1 -E "^- \[[ x~]\] $1 " | grep -q '🔒'; }
+tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }
+all_tasks()    { tj -r '.tasks[].id'; }
+task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
+task_title()   { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.title'; }
+task_model()   { tj -r --arg id "$1" '(.defaults.model // "") as $dm | .tasks[]|select(.id==$id)|(.model // $dm)'; }
+deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
+is_gate()      { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="gate"' >/dev/null; }
+needs_human()  { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="needs-human"' >/dev/null; }
 task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; }
 inprogress()   { git branch --format='%(refname:short)' | grep -E '^t[0-9]{3,}$' | head -1 || true; }
 
@@ -49,7 +53,8 @@ for t in $(all_tasks); do
     if [ -n "$unmet" ]; then
       board+=("  ⏳ waiting deps  $t  (needs:${unmet} )")
     else
-      board+=("  ▶︎  ready         $t  $title")
+      m="$(task_model "$t")"; [ -n "$m" ] && m=" [$m]"
+      board+=("  ▶︎  ready         $t  $title$m")
       ready=$((ready + 1))
     fi
   fi

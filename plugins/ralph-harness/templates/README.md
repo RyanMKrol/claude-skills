@@ -89,6 +89,7 @@ deliberately *not* parallel).
 - **`gh`** (GitHub CLI), authenticated with `repo` + `workflow` scopes — the loop watches CI
   runs and integrates via push.
 - **`git`** with worktree support, and a GitHub remote named `origin` for `main`.
+- **`jq`** — the loop and status board parse `TASKS.json` with it (`brew install jq`).
 - **`bash`** (the scripts target bash, not POSIX sh).
 
 ## Gates — what the loop won't do on its own

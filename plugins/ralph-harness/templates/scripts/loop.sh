@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# loop.sh — the single SEQUENTIAL "Ralph loop" that builds a TASKS.md backlog.
+# loop.sh — the single SEQUENTIAL "Ralph loop" that builds a TASKS.json backlog.
 #
 # Exactly ONE task is built at a time, fully verified, and merged into `main` only on
 # green GitHub CI — so an interruption (token limit, crash) can ever damage at most one
@@ -23,7 +23,8 @@
 #   SELECT (shell)  — from origin/main: a resumable in-progress `tNNN` branch if one
 #                     exists, else the next not-done task whose Depends-on are all done
 #                     and which is NOT a 🚦 gate / 🔒 needs-human / blocked task. None → stop.
-#   WORK   (claude) — one `claude -p` (pinned model/effort) builds that task in the isolated
+#   WORK   (claude) — one `claude -p` on the task's OWN model/effort (TASKS.json, defaults
+#                     applied) builds that task in the isolated
 #                     worktree on branch `tNNN`, runs the Definition of Done, commits, pushes.
 #   GATE   (shell)  — watch that branch's GitHub CI run; green → fast-forward `main` (push)
 #                     and tear the worktree/branch down; red → soft failure (agent fixes on resume).
@@ -62,6 +63,9 @@ read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
 board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
 
+# TASKS.json is parsed with jq throughout — fail fast if it's missing.
+command -v jq >/dev/null 2>&1 || { log "jq is required to parse TASKS.json — install it (e.g. brew install jq)"; exit 3; }
+
 # --- Concurrency guard: only one loop at a time (exit, don't queue) ---------
 acquire_lock() {
   while ! mkdir "$LOCK" 2>/dev/null; do
@@ -80,13 +84,27 @@ release_lock() {
     && { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true; } || true
 }
 
-# --- TASKS.md / worklog helpers (read from origin/main, NOT any working tree) -
+# --- TASKS.json / worklog helpers (read from origin/main, NOT any working tree) -
+# TASKS.json is the structured backlog (schema: docs/HARNESS.md §8.1), parsed with jq.
 blob()         { git -C "$ROOT" show "$TASKS_REF:$1" 2>/dev/null || true; }
-task_done()    { blob TASKS.md | grep -qE "^- \[x\] $1( |\$)"; }
-all_tasks()    { blob TASKS.md | grep -oE '^- \[[ x~]\] T[0-9]{3,}' | grep -oE 'T[0-9]{3,}'; }
-deps_for()     { blob TASKS.md | sed -n "/^### $1 /,/^### T[0-9]/p" | grep -im1 'Depends on' | grep -oE 'T[0-9]{3,}' | tr '\n' ' '; }
-task_gated()   { blob TASKS.md | grep -m1 -E "^- \[[ x~]\] $1 " | grep -qE '🚦|🔒'; }
+tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }                 # query TASKS.json
+all_tasks()    { tj -r '.tasks[].id'; }                                   # in array (=dependency) order
+task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
+deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
+task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
 task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; }
+
+# task_rung <id> — echo "MODEL EFFORT" for the task's PRIMARY build rung: the per-task
+# model/effort if set, else .defaults, else the shell MODEL/EFFORT fallback. (The escalation
+# ladder — extra rungs tried after this one fails — is layered on in a later change.)
+task_rung() {
+  local r m e
+  r="$(tj -r --arg id "$1" '
+        (.defaults.model // "")  as $dm | (.defaults.effort // "") as $de |
+        .tasks[] | select(.id==$id) | "\(.model // $dm)\t\(.effort // $de)"')"
+  m="${r%%$'\t'*}"; e="${r##*$'\t'}"
+  printf '%s %s' "${m:-$MODEL}" "${e:-$EFFORT}"
+}
 
 task_branch()  { printf 't%s' "${1#T}"; }                              # T014 -> t014
 branch_task()  { printf '%s' "$1" | sed -E 's/^t([0-9]{3,})$/T\1/'; }  # t014 -> T014
@@ -175,14 +193,15 @@ prompt() {
   printf 'You are in a DEDICATED git worktree already checked out on branch `%s`. Work HERE only — do NOT switch branches, create branches, or touch any other checkout on this machine.\n' "$branch"
   cat <<'EOF'
 
-Obey CLAUDE.md, TASKS.md, and docs/HARNESS.md exactly. You run head-less and unattended.
+Obey CLAUDE.md, TASKS.json, and docs/HARNESS.md exactly. You run head-less and unattended.
 
 1. RESUME, DON'T RESTART. This branch may already hold partial work from an interrupted
    attempt (commits and/or uncommitted changes) — keep it and CONTINUE. Read
-   `worklog/<TASK>.md` (prior attempts) and the task's TASKS.md block; if that block has a
-   `Design:` field pointing to a `docs/designs/…` doc, READ and follow it. RECONCILE THE
-   DELTA: inspect what already exists/passes and do ONLY the outstanding work vs the task's
-   `Done-when:`. Trust the code over the worklog. Stay within the task's `Scope:` files.
+   `worklog/<TASK>.md` (prior attempts) and this task's object in TASKS.json (find it with
+   `jq '.tasks[]|select(.id=="<TASK>")' TASKS.json`); if its `design` field points to a
+   `docs/designs/…` doc, READ and follow it. RECONCILE THE DELTA: inspect what already
+   exists/passes and do ONLY the outstanding work vs the task's `doneWhen`. Trust the code
+   over the worklog. Stay within the task's `scope` files.
 2. DEFINITION OF DONE (docs/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
       docs/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
@@ -191,11 +210,12 @@ Obey CLAUDE.md, TASKS.md, and docs/HARNESS.md exactly. You run head-less and una
       met. Tests that need credentials, funds, or external resources you don't have: leave
       them as they are and record `failed:blocked` if the task's core needs them — never
       silently skip a required check and call it "passed".
-   c. If the task's `Verify:` field names extra EMPIRICAL checks (e.g. run the app against
+   c. If the task's `verify` field names extra EMPIRICAL checks (e.g. run the app against
       real input for a bounded window and observe it behaves), perform them and record what
       you OBSERVED in the worklog. The bar is the behaviour the task specifies.
-3. DOCS IN LOCKSTEP (same commit): tick this task's index box in TASKS.md, flip its README.md
-   status row, and add any new trade-off/limitation to docs/LIMITATIONS.md.
+3. DOCS IN LOCKSTEP (same commit): set this task's `"status"` to `"done"` in TASKS.json (edit
+   the JSON; keep it valid — `jq empty TASKS.json` must pass), flip its README.md status row,
+   and add any new trade-off/limitation to docs/LIMITATIONS.md.
 4. COMMIT `<TASK>: <summary>` (INCLUDING `worklog/<TASK>.md` with a dated entry: what you did,
    checks run, what remains). Then push THIS branch: `git push -u origin HEAD`. Do NOT merge
    into `main` — the loop watches GitHub CI and fast-forwards main on green. If a previous
@@ -232,7 +252,7 @@ bump() {   # count a soft failure for $1; stop for a human past the cap
   sleep "$WAIT_SECONDS"
 }
 
-log "starting — model=$MODEL effort=$EFFORT, isolated worktree=$LOOP_WT, ci_gate=$REQUIRE_CI"
+log "starting — default model=$MODEL effort=$EFFORT (per-task overrides from TASKS.json), isolated worktree=$LOOP_WT, ci_gate=$REQUIRE_CI"
 for ((i = 1; i <= MAX_ITERS; i++)); do
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   sel="$(select_task || true)"
@@ -241,14 +261,15 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     board; exit 0
   fi
   read -r task branch mode <<<"$sel"
-  log "iteration $i/$MAX_ITERS → $task (branch $branch, $mode)"
+  read -r tmodel teffort <<<"$(task_rung "$task")"   # per-task model/effort (defaults applied)
+  log "iteration $i/$MAX_ITERS → $task (branch $branch, $mode) on $tmodel/$teffort"
 
   fresh=0; [ "$mode" = "fresh" ] && fresh=1
   prepare_wt "$branch" "$fresh"
 
   RESULT="$LOOP_WT/worklog/.result"; rm -f "$RESULT"
   if ! ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$(prompt "$task" "$branch")" \
-           --model "$MODEL" --effort "$EFFORT" "${FLAGS[@]}" ); then
+           --model "$tmodel" --effort "$teffort" "${FLAGS[@]}" ); then
     log "claude exited non-zero (crash / out of tokens) — backing off ${WAIT_SECONDS}s"
     sleep "$WAIT_SECONDS"; continue
   fi
