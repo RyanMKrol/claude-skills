@@ -2,12 +2,13 @@
 name: ralph-loop-create-harness
 description: >-
   Use when the user wants to set up the autonomous build harness (the Ralph-style single-loop
-  TASKS.md builder) in a project — phrases like "scaffold the harness", "add the build loop to
+  TASKS.json builder) in a project — phrases like "scaffold the harness", "add the build loop to
   this repo", "set up ralph", "install loop.sh / supervise.sh". Runs a short interview (project
   name, purpose, stack, the format/lint/test/build Definition-of-Done commands, build artifacts,
-  CI workflow name, model/effort, optional empirical run/backtest check), copies the verbatim
-  harness files in, and writes the personalized CLAUDE.md, ci.yml, .gitignore, harness.env,
-  README.md, and an initial TASKS.md. Leaves the project ready to run scripts/supervise.sh.
+  CI workflow name, default model/effort + optional escalation ladder, optional empirical
+  run/backtest check), copies the verbatim harness files in, and writes the personalized CLAUDE.md,
+  ci.yml, .gitignore, harness.env, README.md, and an initial TASKS.json. Leaves the project ready to
+  run scripts/supervise.sh.
 argument-hint: "[target project dir — defaults to cwd]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -15,8 +16,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 # Scaffold the Ralph harness into a project
 
 You are installing a self-contained autonomous build harness into a target project and
-**personalizing** it. The harness is a single sequential shell loop that builds a `TASKS.md`
-backlog one fully-verified task at a time, gated on green GitHub CI. Read this whole file,
+**personalizing** it. The harness is a single sequential shell loop that builds a `TASKS.json`
+backlog one fully-verified task at a time, on a per-task model, gated on green GitHub CI. Read this whole file,
 then execute the steps **in order**. Be conversational and concise; confirm before anything
 destructive.
 
@@ -29,7 +30,7 @@ by context) and cache the path as `TPL`:
 TPL="${CLAUDE_PLUGIN_ROOT:-}/templates"
 [ -d "$TPL" ] || TPL="${CLAUDE_SKILL_DIR}/../../templates"
 TPL="$(cd "$TPL" && pwd)"   # normalize
-ls "$TPL"                    # sanity: expect scripts/ docs/ .github/ worklog/ CLAUDE.md TASKS.md README.md gitignore
+ls "$TPL"                    # sanity: expect scripts/ docs/ .github/ worklog/ CLAUDE.md TASKS.json README.md gitignore
 ```
 
 If `TPL` doesn't resolve to a dir containing `scripts/loop.sh`, stop and tell the user the
@@ -49,13 +50,14 @@ plugin install looks broken (templates not found).
 
 ## 2. Pre-flight: don't clobber existing work
 
-Glob the target for: `scripts/loop.sh`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.md`,
-`.github/workflows/ci.yml`, `README.md`.
+Glob the target for: `scripts/loop.sh`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.json`,
+`.github/workflows/ci.yml`, `README.md`. Also require `jq` on PATH (the loop parses
+`TASKS.json` with it) — if missing, tell the user to `brew install jq`.
 
 - **Harness already present** (`scripts/loop.sh` or `docs/HARNESS.md` exists) → switch to
   **update mode**: offer (a) refresh the verbatim files from templates, (b) re-personalize
   specific files, (c) abort. Do only what's chosen. Never blast over personalized files silently.
-- **User content present but no harness** (`CLAUDE.md` / `TASKS.md` / `README.md` exist) → these
+- **User content present but no harness** (`CLAUDE.md` / `TASKS.json` / `README.md` exist) → these
   belong to the user. For each, ask: back up to `<file>.pre-harness` and replace, **merge** the
   harness content into the existing file, or **skip** it. Default to backup-then-write only with
   explicit consent.
@@ -79,12 +81,18 @@ Use `AskUserQuestion`, batching related questions. Gather:
    project-specific, e.g. local DB files, captures).
 5. **CI workflow name** — default `CI`. It must equal `name:` in `ci.yml` **and** `CI_WORKFLOW` in
    `harness.env`; you keep them in lockstep. Only ask if they want a non-default.
-6. **Model / effort** — default `claude-opus-4-8` / `high`. Allow override; warn against
-   `max`/`xhigh` (HARNESS §3 — not worth the cost on a days-long loop).
+6. **Default model / effort + escalation** — these become `defaults` in `TASKS.json` and the
+   fallback in `harness.env`. Default `claude-opus-4-8` / `high`; allow override but warn against
+   `max`/`xhigh` (HARNESS §3 — not worth the cost on a days-long loop). Explain that **individual
+   tasks can override the model** (a cheaper model for mechanical/validation work) and carry an
+   **escalation ladder** that bumps to a stronger model after repeated failure — set per task via
+   `/ralph-loop-add-to-backlog`. Optionally capture a **default escalation ladder** (e.g.
+   `[{"model":"claude-opus-4-8","effort":"high"}]`) for `defaults.escalation`; default is none
+   (`[]`).
 7. **Caps** — `MAX_ATTEMPTS` (3), `MAX_ITERS` (100). Defaults are fine; only ask if they care.
 8. **Empirical Verify step** — "Is there a way to run the app / a backtest to watch it behave?"
    If yes, capture the command and a short label (e.g. `run-app`). This seeds `Verify:` on relevant
-   tasks; remember it for the initial TASKS.md and to pass to `ralph-loop-add-to-backlog`.
+   tasks; remember it for the initial TASKS.json and to pass to `ralph-loop-add-to-backlog`.
 9. **GitHub remote** — check `git -C "<target>" remote get-url origin`. The loop integrates by
    pushing to `origin/main`, required when `REQUIRE_CI=1`. If there's no `origin`, warn and offer
    `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `docs/LIMITATIONS.md`), or guide them
@@ -119,7 +127,8 @@ Build each from the corresponding template, substituting the interview answers. 
   `actions/setup-go`, `actions/setup-python`) and an install step where needed. Delete the
   "REPLACE the steps below" comment block.
 - **`scripts/harness.env`** — from `$TPL/scripts/harness.env`. Set `MODEL`, `EFFORT`,
-  `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI` to the answers. Keep the
+  `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI` to the answers (these `MODEL`/`EFFORT`
+  are the fallback default rung — per-task models live in `TASKS.json`). Keep the
   `: "${VAR:=…}"` form so real-env overrides still win.
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen
   build-artifact lines, de-duplicated against any pre-existing `.gitignore` in the target. Write
@@ -131,16 +140,19 @@ Build each from the corresponding template, substituting the interview answers. 
   table seeded from the tasks you write in step 6. (Honor step-2 choice if a README existed —
   offer to inject a "Build status" section rather than overwrite.)
 
-## 6. Initial `TASKS.md`
+## 6. Initial `TASKS.json`
 
-From `$TPL/TASKS.md`, keep the header/"how the loop works"/schema sections, and **replace the
-illustrative T001–T005** with a minimal real backlog:
+From `$TPL/TASKS.json`, keep the top-level shape (`_doc`, `version`, `defaults`) and **replace the
+illustrative T001–T005 in `.tasks`** with a minimal real backlog. Set `defaults.model` /
+`defaults.effort` / `defaults.escalation` from the step-3 answers.
 
-- Always include **T001 = "Project scaffold + CI green on an empty build"** (deps: none) — its job
-  is to prove the CI gate end-to-end before any feature work. Give it a proper detail block.
+- Always include **T001 = "Project scaffold + CI green on an empty build"** (`dependsOn: []`) — its
+  job is to prove the CI gate end-to-end before any feature work. Give it a full task object
+  (it's mechanical, so a cheaper `model` with an escalation rung is a reasonable default).
 - If the user described features, offer to **chain into `ralph-loop-add-to-backlog`** now to draft
   the rest of the backlog rather than leaving only T001. If they decline, leave just T001.
 - Never leave the shipped example T002–T005 unless the user explicitly wants them.
+- Keep it valid: end with `jq empty "$T/TASKS.json"` and fix any error before continuing.
 
 ## 7. Validation gate — refuse to report success otherwise
 
@@ -152,6 +164,9 @@ W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]
 grep -q "CI_WORKFLOW:=${W}" "$T/scripts/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
 test -x "$T/scripts/loop.sh" && test -x "$T/scripts/supervise.sh" && test -x "$T/scripts/postflight.sh" || echo "FAIL: scripts not executable"
 grep -q 'worklog/.result' "$T/.gitignore" && grep -q 'worklog/STATUS.md' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
+jq empty "$T/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
+command -v jq >/dev/null || echo "FAIL: jq not installed (the loop needs it to parse TASKS.json)"
+DRY_RUN=1 "$T/scripts/loop.sh" >/dev/null 2>&1 || true   # smoke: selection parses the backlog
 ```
 
 If `ci.yml` still contains `exit 1` or `TODO: replace`, the scaffold is **not** complete — fix it
