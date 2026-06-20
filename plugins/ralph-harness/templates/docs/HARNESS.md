@@ -66,33 +66,55 @@ them on its own).
 
 Every headless invocation **explicitly pins** the model and effort. A bare `claude -p`
 silently inherits whatever the CLI default is — an uncontrolled variable in the one place
-you most want control. The backlog is sized to be achievable by a single context window of
-the chosen model, so the harness must *guarantee* that model, not hope for it.
+you most want control. Each task is sized to be achievable by a single context window of
+**its chosen** model, so the harness must *guarantee* that model, not hope for it.
+
+The pin is **per task**, resolved from `TASKS.json` (schema §8.1): a task's `model`/`effort`,
+else the file's `defaults`, else the `harness.env` `MODEL`/`EFFORT` fallback. The loop reads
+that rung and passes it through:
 
 ```sh
 claude -p "<task prompt>" \
-  --model claude-opus-4-8 \   # pin the FULL id (the alias `opus` drifts to "latest")
-  --effort high \             # high reasoning, NOT max — quality without the max-effort cost
+  --model "<the task's model>" \   # pin the FULL id (the alias `opus` drifts to "latest")
+  --effort "<the task's effort>" \ # low|medium|high|xhigh|max
   --dangerously-skip-permissions
 ```
 
-- **`--model claude-opus-4-8`** — the full name pins the version forever; the bare alias
-  resolves to "latest" and will drift. Configure it in `scripts/harness.env` (`MODEL=`).
-- **`--effort high`** (`low|medium|high|xhigh|max`). Pin **`high`** explicitly; deliberately
-  **avoid `max`/`xhigh`** — the marginal quality isn't worth the token cost on a loop that
-  runs for days. (`EFFORT=` in `harness.env`.)
+- **`--model`** — always the FULL id (the bare alias resolves to "latest" and will drift).
+  The default rung is `claude-opus-4-8` (`MODEL=` in `harness.env`); a task overrides it with
+  its own `model` (e.g. `claude-sonnet-4-6` for cheap, mechanical validation).
+- **`--effort`** (`low|medium|high|xhigh|max`). Default **`high`** — deliberately **avoid
+  `max`/`xhigh`** on a loop that runs for days; the marginal quality isn't worth the cost.
+  (`EFFORT=` in `harness.env`; per-task `effort` overrides.)
 - **`--dangerously-skip-permissions`** — deliberate. A headless loop has no human at the
   keyboard to answer permission prompts; the safety comes from the review gates and the
   bounded, reviewable per-task branches, not from per-action prompts.
 
-Rationale for spending more per iteration: low-quality work that has to be redone is itself
-a top source of churn. Getting the task *right the first time* is the cheaper path when
-interruption/resume is the thing you're optimising against. (Zero-stakes helpers — the
-status board, cleanup — use **no** model at all.)
+Rationale for choosing the model per task: spend the cheap model where the work is mechanical
+(a manual-validation pass, a docs tick) and the strong model where judgement is needed
+(coding, testing, reflection). Low-quality work that has to be redone is itself a top source
+of churn, so getting judgement-heavy tasks *right the first time* on a strong model is the
+cheaper path — while routing the easy tasks to a cheaper one keeps total spend down.
+(Zero-stakes helpers — the status board, cleanup — use **no** model at all.)
+
+### Escalation — climb to a stronger model on repeated failure
+
+A task may carry an **`escalation`** ladder (§8.1): extra `{model, effort}` rungs the loop
+climbs to when the rung below keeps failing. The mechanism reuses the soft-failure cap (§7):
+after **`MAX_ATTEMPTS`** `failed:soft` attempts on the current rung, the loop advances to the
+next rung (logging `escalating TNNN → rung N: <model>/<effort>`) and resets the per-rung
+counter. Only once the **top** rung has also exhausted its attempts is the task treated as
+`failed:blocked` and surfaced for a human. With no `escalation` set, there is exactly one rung
+— identical to the prior single-model behaviour. This lets a backlog *try cheap first* (e.g.
+Sonnet) and automatically fall back to Opus only for the tasks that actually need it.
+
+> The current rung is tracked **in-memory per `loop.sh` run** (like the attempt counter): a
+> fresh run after an interruption restarts the task at rung 0. Deriving the rung durably from
+> the worklog's soft-failure count is a possible future hardening, not a guarantee today.
 
 ### Planning vs building — where `max` effort lives
 
-The loop **only ever builds**, always at `--effort high`; it never runs a planning pass. The
+The loop **only ever builds**, at each task's chosen effort (`high` by default); it never runs a planning pass. The
 `Design:` field (§8.1) is an **optional** pointer to a fuller design/plan doc: if one exists
 the build pass **reads it** before coding; if not, the agent works from the `Do:`/`Done-when:`
 brief on its own judgement — a doc is **never required**. When you *do* want a task explored
@@ -230,9 +252,12 @@ Therefore:
   `failed:blocked` (needs-human / unmet prerequisite — do **not** retry) · `waiting` (a dep
   isn't merged yet) · `idle` (no eligible task left). The worker writes exactly one of these
   to `worklog/.result` as its final action; the loop acts on it.
-- **Caps:** `MAX_ATTEMPTS` per task (default 3) of `failed:soft` → then treated as
-  `failed:blocked` for a human. A global `MAX_ITERS` and the heartbeat cadence bound total
-  spend. Token exhaustion needs no special case (§4).
+- **Caps & escalation:** `MAX_ATTEMPTS` per **rung** (default 3) of `failed:soft` → the loop
+  **escalates** to the next model in the task's `escalation` ladder (§3) and resets the
+  counter; only after the **top** rung is exhausted is the task treated as `failed:blocked`
+  for a human. (No ladder = one rung = straight to `failed:blocked` at the cap.) A global
+  `MAX_ITERS` and the heartbeat cadence bound total spend. Token exhaustion needs no special
+  case (§4).
 - **Stops cleanly for review** at every 🚦 gate and 🔒 needs-human task — the loop surfaces it
   on the status board and halts/moves on rather than spinning.
 
@@ -320,7 +345,8 @@ The loop **skips** both kinds during selection and surfaces them on the status b
 
 1. Never commit directly to `main`; always a `tNNN` branch off **latest** `origin/main`.
 2. One task per iteration. Never batch.
-3. The model is **always pinned** (`--model`, `--effort`) — never inherited.
+3. The model is **always pinned per task** (`--model`, `--effort`) — never inherited; on
+   repeated soft-failure the loop escalates up the task's ladder before stopping for a human.
 4. Never mark `done` with any §5 gate red (including a red or unobserved CI run).
 5. Touch only the task's scope; update docs in the **same** commit.
 6. **Resume**, never restart, interrupted work.
@@ -361,6 +387,11 @@ The loop **skips** both kinds during selection and surfaces them on the status b
   path; the check verifies clean operation, not exhaustive coverage.
 - **`--dangerously-skip-permissions` means no per-action guardrail.** Accepted for headless
   runs; the gates + reviewable branches are the backstop.
+- **Per-task model routing & escalation trade attempts for cost.** A task that starts on too
+  weak a model burns up to `MAX_ATTEMPTS` soft-failures (and their CI runs) before escalating
+  — so pick the starting rung realistically; escalation is a safety net, not a substitute for
+  sizing. The current rung is tracked in-memory per `loop.sh` run (§3), so a fresh run after
+  an interruption restarts the task at its cheapest rung.
 
 ---
 

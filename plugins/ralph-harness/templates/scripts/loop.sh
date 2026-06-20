@@ -94,14 +94,25 @@ deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' |
 task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
 task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; }
 
-# task_rung <id> — echo "MODEL EFFORT" for the task's PRIMARY build rung: the per-task
-# model/effort if set, else .defaults, else the shell MODEL/EFFORT fallback. (The escalation
-# ladder — extra rungs tried after this one fails — is layered on in a later change.)
-task_rung() {
+# task_ladder <id> — print the task's build rungs, one "MODEL<TAB>EFFORT" per line, in order:
+#   rung 0 = the primary (per-task model/effort, else .defaults); then each escalation rung.
+# Escalation rungs (per-task `escalation`, else `defaults.escalation`) are the stronger models
+# the loop climbs to after MAX_ATTEMPTS soft-failures on the rung below (docs/HARNESS.md §3,§7).
+task_ladder() {
+  tj -r --arg id "$1" '
+    (.defaults.model // "") as $dm | (.defaults.effort // "") as $de |
+    (.defaults.escalation // []) as $desc |
+    .tasks[] | select(.id==$id) |
+    ( [ { model:(.model // $dm), effort:(.effort // $de) } ]
+      + ( (.escalation // $desc) | map({ model:(.model // $dm), effort:(.effort // $de) }) )
+    ) | .[] | "\(.model)\t\(.effort)"'
+}
+ladder_len() { task_ladder "$1" | grep -c .; }
+# rung_at <id> <index> — echo "MODEL EFFORT" for that rung, with the shell MODEL/EFFORT as a
+# final fallback for any empty field (e.g. a backlog that sets no defaults).
+rung_at() {
   local r m e
-  r="$(tj -r --arg id "$1" '
-        (.defaults.model // "")  as $dm | (.defaults.effort // "") as $de |
-        .tasks[] | select(.id==$id) | "\(.model // $dm)\t\(.effort // $de)"')"
+  r="$(task_ladder "$1" | sed -n "$(( ${2:-0} + 1 ))p")"
   m="${r%%$'\t'*}"; e="${r##*$'\t'}"
   printf '%s %s' "${m:-$MODEL}" "${e:-$EFFORT}"
 }
@@ -242,13 +253,21 @@ fi
 acquire_lock
 trap 'release_lock' EXIT INT TERM
 
-cur_task=""; cur_attempts=0
-bump() {   # count a soft failure for $1; stop for a human past the cap
-  local t="$1"
-  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; }
+cur_task=""; cur_attempts=0; cur_rung=0
+bump() {   # count a soft failure for $1; ESCALATE to the next rung at the cap, stop only past the top
+  local t="$1" last
+  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; }
+  last=$(( $(ladder_len "$t") - 1 ))
   cur_attempts=$((cur_attempts + 1))
-  log "soft failure $cur_attempts/$MAX_ATTEMPTS on $t"
-  if (( cur_attempts >= MAX_ATTEMPTS )); then log "max attempts on $t — stopping for a human"; board; exit 2; fi
+  log "soft failure $cur_attempts/$MAX_ATTEMPTS on $t (rung $cur_rung/$last)"
+  if (( cur_attempts >= MAX_ATTEMPTS )); then
+    if (( cur_rung < last )); then
+      cur_rung=$((cur_rung + 1)); cur_attempts=0
+      log "escalating $t → rung $cur_rung: $(rung_at "$t" "$cur_rung")"
+    else
+      log "max attempts on $t at top rung ($((last + 1)) rung(s) tried) — stopping for a human"; board; exit 2
+    fi
+  fi
   sleep "$WAIT_SECONDS"
 }
 
@@ -261,8 +280,9 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     board; exit 0
   fi
   read -r task branch mode <<<"$sel"
-  read -r tmodel teffort <<<"$(task_rung "$task")"   # per-task model/effort (defaults applied)
-  log "iteration $i/$MAX_ITERS → $task (branch $branch, $mode) on $tmodel/$teffort"
+  [ "$task" = "$cur_task" ] || { cur_task="$task"; cur_attempts=0; cur_rung=0; }   # new task → start at rung 0
+  read -r tmodel teffort <<<"$(rung_at "$task" "$cur_rung")"   # current escalation rung (defaults applied)
+  log "iteration $i/$MAX_ITERS → $task (branch $branch, $mode) on $tmodel/$teffort (rung $cur_rung)"
 
   fresh=0; [ "$mode" = "fresh" ] && fresh=1
   prepare_wt "$branch" "$fresh"
@@ -283,7 +303,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "CI not green for $task — soft (agent fixes on resume)"; bump "$task"; board; continue
       fi
       if integrate "$branch"; then
-        log "integrated $task → main"; cleanup_task "$branch"; cur_task=""; cur_attempts=0
+        log "integrated $task → main"; cleanup_task "$branch"; cur_task=""; cur_attempts=0; cur_rung=0
       else
         bump "$task"
       fi
