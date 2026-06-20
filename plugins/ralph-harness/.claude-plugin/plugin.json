@@ -1,6 +1,6 @@
 {
   "name": "ralph-harness",
-  "version": "0.1.0",
-  "description": "Scaffold the Ralph-style single-loop, CI-gated TASKS.md build harness into any project, and author its task backlog — via interview skills. Distinct from the official ralph-loop plugin.",
+  "version": "0.2.0",
+  "description": "Scaffold the Ralph-style single-loop, CI-gated TASKS.json build harness into any project, and author its task backlog — via interview skills. Supports per-task model selection and automatic escalation to a stronger model on repeated failure. Distinct from the official ralph-loop plugin.",
   "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" }
 }
