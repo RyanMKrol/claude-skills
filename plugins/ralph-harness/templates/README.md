@@ -1,13 +1,13 @@
 # Ralph Loop
 
 A generic **autonomous build harness**: a single, sequential shell loop that builds a
-`TASKS.md` backlog **one fully-verified task at a time**, using a fresh-context headless
+`TASKS.json` backlog **one fully-verified task at a time**, using a fresh-context headless
 Claude (`claude -p`) per task, with **all durable memory in the repo**. It's optimised to
 **waste as few tokens as possible when a run is interrupted**, and to never mark a task done
 until it is *empirically* done — it builds, tests pass, remote CI is green, and (where the
 task asks) the thing was observed actually running.
 
-It is language- and project-agnostic. You bring a `TASKS.md` backlog and a CI workflow that
+It is language- and project-agnostic. You bring a `TASKS.json` backlog and a CI workflow that
 encodes your Definition of Done; the loop does the rest.
 
 > **Full design:** [`docs/HARNESS.md`](./docs/HARNESS.md) is the source of truth for how the
@@ -24,7 +24,7 @@ supervise.sh (heartbeat, runs for days)
         RECORD  refresh the zero-token status board, repeat
 ```
 
-The conversation is disposable; the repo is the memory. Statuses live in `TASKS.md`,
+The conversation is disposable; the repo is the memory. Statuses live in `TASKS.json`,
 per-task history in `worklog/TNNN.md`, the work in git. Nothing important lives in a context
 window, so every invocation is cheap to (re)start and an interruption is survivable.
 
@@ -55,14 +55,14 @@ deliberately *not* parallel).
 | `docs/HARNESS.md` | Authoritative design of the harness. |
 | `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
 | `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
-| `TASKS.md` | The backlog: schema + example tasks (replace with your own). |
+| `TASKS.json` | The backlog: schema + example tasks (replace with your own). |
 | `.github/workflows/ci.yml` | CI template — wire your real Definition of Done here. |
 | `worklog/` | Per-task append-only memory (`TNNN.md`) + generated scratch. |
 
 ## Quick start
 
 1. **Get the files into your repo** — start your project from this one, or copy `scripts/`,
-   `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.md`, `.github/workflows/ci.yml`, `.gitignore`, and
+   `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.json`, `.github/workflows/ci.yml`, `.gitignore`, and
    `worklog/`.
 2. **Wire your Definition of Done.** Put your real format/lint/test/build commands into
    `.github/workflows/ci.yml` **and** describe them in [`docs/HARNESS.md`](./docs/HARNESS.md)
@@ -70,7 +70,7 @@ deliberately *not* parallel).
    until you replace the placeholder steps.)*
 3. **Set the knobs** in `scripts/harness.env` — `MODEL`, `EFFORT`, caps, and `CI_WORKFLOW`
    (must equal the `name:` of your CI workflow).
-4. **Write the backlog.** Replace the example tasks in `TASKS.md` with your own atomic,
+4. **Write the backlog.** Replace the example tasks in `TASKS.json` with your own atomic,
    dependency-ordered tasks (schema in `docs/HARNESS.md` §8.1). Mark gated work 🚦 / 🔒.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run (a remote is required when
    `REQUIRE_CI=1`).
@@ -93,7 +93,7 @@ deliberately *not* parallel).
 
 ## Gates — what the loop won't do on its own
 
-Mark a task in the `TASKS.md` index line to stop autonomous execution:
+Set a task's `gate` field in `TASKS.json` to stop autonomous execution:
 
 - **🚦 Gate** — the deliverable must be **reviewed by a human** before dependents proceed.
 - **🔒 needs-human** — needs a one-time human step (credentials, provisioning, anything that

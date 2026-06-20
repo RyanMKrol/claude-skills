@@ -10,7 +10,7 @@ that drives autonomous runs is described in [`docs/HARNESS.md`](./docs/HARNESS.m
 - **What it is / what you're building:** see `README.md` and (if present) `PLAN.md` or
   `docs/designs/`. `README.md` is the source of truth for **what is currently
   implemented** — read it first to understand the present state.
-- **What's planned:** `TASKS.md` is the implementation backlog, executed one atomic task
+- **What's planned:** `TASKS.json` is the implementation backlog, executed one atomic task
   at a time by a **single sequential loop** (`scripts/loop.sh`; see
   [`docs/HARNESS.md`](./docs/HARNESS.md)).
 - **How it's built:** [`docs/HARNESS.md`](./docs/HARNESS.md) is the authoritative design of
@@ -49,7 +49,7 @@ the same commit** — never as a follow-up. A task is **done when its branch is 
 
 - **`README.md`** — update the implementation-status section in the same commit so it always
   reflects what the code does. Flip a task's status row to ✅ in the commit that completes it.
-- **`TASKS.md`** — in the same commit, tick the task's index box `- [x]`.
+- **`TASKS.json`** — in the same commit, set the task's `"status"` to `"done"`.
 - **`PLAN.md` / design docs** — update only if the change alters the design or an
   architectural decision. Day-to-day implementation usually doesn't touch them.
 - If a change introduces a convention or decision worth remembering, note it here in
@@ -77,9 +77,9 @@ the same commit** — never as a follow-up. A task is **done when its branch is 
    `origin/main` and works in an isolation worktree — you don't switch branches yourself.)*
 2. Create a fresh branch off `main` (or, under the harness, work in the worktree/branch the
    loop already checked out for you).
-3. Read `README.md` (current state) and the relevant `TASKS.md` entry.
+3. Read `README.md` (current state) and the relevant `TASKS.json` entry.
 4. Make the change, keeping it atomic and within the task's `Scope:`.
-5. Update docs in the same commit: `README.md`, `TASKS.md`, `docs/LIMITATIONS.md` (any new
+5. Update docs in the same commit: `README.md`, `TASKS.json`, `docs/LIMITATIONS.md` (any new
    trade-off, golden rule 5), and design docs / `CLAUDE.md` if applicable.
 6. **Verify the Definition of Done** ([`docs/HARNESS.md`](./docs/HARNESS.md) §5): your
    project's format/lint/test/build all pass, integration/empirical checks where the task
@@ -119,7 +119,7 @@ them, don't abandon the task:**
 1. **Resolve on your own branch** (`git fetch origin && git merge origin/main`), preserving
    **both sides' intent** — union docs/status rows (keep every task's ✅), union dependency /
    manifest lines, and *integrate* (never discard) code changes. Read the other commit's
-   `TASKS.md` spec + `worklog/` to understand what it was doing.
+   `TASKS.json` spec + `worklog/` to understand what it was doing.
 2. **Re-run the full Definition of Done** on the merged result. A resolution that builds but
    fails a test — yours *or* theirs — is not done. For lockfile conflicts, resolve the
    manifest first, then regenerate a consistent lock.

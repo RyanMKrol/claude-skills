@@ -1,6 +1,6 @@
 # HARNESS.md — the Ralph Loop autonomous build harness
 
-> **In one line:** a single, **sequential** loop that builds a `TASKS.md` backlog
+> **In one line:** a single, **sequential** loop that builds a `TASKS.json` backlog
 > **one fully-verified task at a time**, on a **pinned model**, with all memory in
 > the repo — optimised to **waste as few tokens as possible when a run is
 > interrupted**, and to never mark a task done until it is *empirically* done
@@ -17,7 +17,7 @@ the scripts match it.** A harness change that isn't reflected here is a bug in t
 ## 1. What the harness is
 
 A **Ralph loop**: a shell loop that repeatedly invokes a **fresh-context, headless**
-Claude (`claude -p`) that completes **exactly one** `TASKS.md` task per invocation and
+Claude (`claude -p`) that completes **exactly one** `TASKS.json` task per invocation and
 records all durable state in the repository. The conversation is disposable; the repo is
 the memory. Because nothing important lives in a context window, every invocation is cheap
 to (re)start and interruption is survivable.
@@ -40,7 +40,7 @@ them on its own).
 
 ## 2. Design principles (the "why" behind every rule below)
 
-1. **Durable state in the repo, not the conversation.** Statuses in `TASKS.md`, per-task
+1. **Durable state in the repo, not the conversation.** Statuses in `TASKS.json`, per-task
    memory in `worklog/`, the work itself in git. A fresh agent reconstructs everything it
    needs from disk.
 2. **One task per iteration, fresh context.** No batching. Bounded scope per invocation
@@ -164,7 +164,7 @@ A task is **done** only when **all** of the following hold. The loop will **not*
 4. **Remote CI is green.** Push the branch; the loop **watches the branch's GitHub Actions
    run** (`gh run watch`, the workflow named by `CI_WORKFLOW`) and merges **only on success**.
    A red run is a `failed:soft` → the model inspects `gh run view --log-failed`, fixes, repeats.
-5. **Docs in lockstep.** In the **same commit**: `TASKS.md` index box flipped to done, the
+5. **Docs in lockstep.** In the **same commit**: the task's `TASKS.json` `status` set to `"done"`, the
    `README.md` status row updated, and any new trade-off added to `docs/LIMITATIONS.md`
    (`CLAUDE.md` golden rules 3 & 5).
 
@@ -210,7 +210,7 @@ Sequential execution removes the *parallelism* reason for worktrees, but **not t
 may occupy the **primary checkout** at any moment, so the loop must never work there.
 Therefore:
 
-- **The loop reads its decisions from `origin/main`** (`git show origin/main:TASKS.md`), not
+- **The loop reads its decisions from `origin/main`** (`git show origin/main:TASKS.json`), not
   from any working tree — so whatever is checked out anywhere is irrelevant to it.
 - **Every task is built in the loop's own dedicated sibling worktree** (`../<repo>-loop`),
   created off `origin/main` per task (reused in place when resuming an interrupted one).
@@ -242,57 +242,72 @@ Therefore:
 
 | Artifact | Role |
 |---|---|
-| `TASKS.md` | Backlog + **statuses** (source of truth for done/pending + dependency order). |
+| `TASKS.json` | Backlog + **statuses** + **per-task model** (source of truth for done/pending, dependency order, and which model/effort builds each task). |
 | `worklog/TNNN.md` | Append-only **per-task memory**: every attempt, what passed/failed, what's left. **Read before every (re)attempt.** |
 | `worklog/.result` | The loop's **last-iteration verdict** (one line). Git-ignored scratch. |
 | git history + the single task branch | The work itself. At most one `tNNN` branch at a time, built in the isolation worktree. |
 | `worklog/STATUS.md` | Zero-token **status board** written by `postflight.sh`. Git-ignored. |
 
-### 8.1 — Task schema (the shape of a `TASKS.md` entry)
+### 8.1 — Task schema (the shape of a `TASKS.json` entry)
 
-Status lives in **one** place — the phase-grouped **index list**:
+`TASKS.json` is a single JSON document: a `version`, a `defaults` object (the fallback model
+rung + escalation ladder), and an ordered `tasks` array. **Order in the array is the
+dependency walk order.** A `_doc` string at the top carries the human note (JSON has no
+comments). One task object:
 
-```
-- [ ] T014 Replay harness (offline feed through the core module)
-```
-
-Each task then has **one detail block** — no duplicated status:
-
-```
-### T014 — Replay harness (offline feed through the core module)
-- **Depends on:** T009, T013
-- **Scope:** `src/replay.*`, `tests/fixtures/replay_*`
-- **Design:** docs/designs/T014-replay.md  # OPTIONAL — a fuller plan doc, only if you wrote one
-- **Verify:** run-app                       # optional; extra empirical checks
-- **Do:** <the work, 1–3 sentences>
-- **Done-when:** <task-specific acceptance criteria>
+```jsonc
+{
+  "id": "T014",
+  "title": "Replay harness (offline feed through the core module)",
+  "status": "pending",                 // "pending" | "done"  — the ONLY status source
+  "dependsOn": ["T009", "T013"],
+  "gate": null,                         // null | "gate" | "needs-human"
+  "scope": ["src/replay.*", "tests/fixtures/replay_*"],
+  "design": "docs/designs/T014-replay.md",   // optional; null = build from do/doneWhen
+  "verify": ["run-app"],               // optional empirical checks
+  "do": "<the work, 1–3 sentences>",
+  "doneWhen": "<task-specific acceptance criteria>",
+  "model": "claude-sonnet-4-6",        // optional; per-task override of defaults.model
+  "effort": "medium",                  // optional; per-task override of defaults.effort
+  "escalation": [                      // optional; extra rungs tried after the primary fails
+    { "model": "claude-opus-4-8", "effort": "high" }
+  ],
+  "tags": ["validation"]               // optional, freeform
+}
 ```
 
 | Field | Meaning |
 |---|---|
-| index `- [ ]`/`- [x]` | The **only** status source (done vs not). Runtime failure/retry state lives in `worklog/` + `.result`, not here. |
-| `Depends on:` | Task IDs that must be **done + merged** before this task is eligible. |
-| `Scope:` | Files this task should touch — a hint that keeps diffs tight for the CI gate (not a hard lock; only one agent runs). |
-| `Design:` | **Optional** pointer to a fuller design doc. Omitted = the agent builds from `Do:`/`Done-when:` on its own judgement. A path = the build pass **reads that doc** first. Never required. |
-| `Verify:` | Optional. Names extra **empirical** checks this task must pass (e.g. `run-app`, `live-api`) — these drive the §5 Definition of Done. Omitted = unit/integration + CI suffice. |
-| `Do:` | The work, kept short. The deep version (when warranted) is the `Design:` doc. |
-| `Done-when:` | The **task-specific** acceptance bar. The **universal** bar (format/lint/test, CI green, docs lockstep) lives once in §5 and is not repeated per task. |
+| `id` | Task identifier, zero-padded, ≥ three digits (`T001`…`T999`). The branch is `tNNN`. |
+| `title` | One-line human summary (shown on the status board). |
+| `status` | `"pending"` or `"done"` — the **only** status source. Runtime failure/retry state lives in `worklog/` + `.result`, not here. The build pass sets `"done"` in the same commit as the work. |
+| `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
+| `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
+| `scope` | Files this task should touch — a hint that keeps diffs tight for the CI gate (not a hard lock; only one agent runs). |
+| `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from `do`/`doneWhen` on its own judgement. Never required. |
+| `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §5 Definition of Done. Empty = unit/integration + CI suffice. |
+| `do` | The work, kept short. The deep version (when warranted) is the `design` doc. |
+| `doneWhen` | The **task-specific** acceptance bar. The **universal** bar (format/lint/test, CI green, docs lockstep) lives once in §5 and is not repeated per task. |
+| `model` / `effort` | **Optional** per-task override of `defaults.model` / `defaults.effort` — the **primary rung** the loop builds this task on. Omitted = inherit `defaults`. This is how a simple validation task runs on a cheaper model while coding/reflection tasks run on Opus (§3). |
+| `escalation` | **Optional** ordered array of extra `{model, effort}` rungs tried, in order, **after** the primary rung fails `MAX_ATTEMPTS` times — the auto-escalation ladder (§3, §7). Omitted = inherit `defaults.escalation` (empty = no escalation; the loop stops for a human after the primary, today's behaviour). |
+| `tags` | Optional freeform labels; the `add-to-backlog` skill uses them to suggest a model. |
 
-Task IDs are zero-padded and at least three digits (`T001`…`T999`). When design docs exist
-they live in **`docs/designs/TNNN-slug.md`** and are written with Claude at `--effort max`
-(§3); the loop only ever *consumes* one — it never requires or writes one.
+The top-level `defaults` object holds `model`, `effort`, and `escalation` applied to any task
+that doesn't override them. When design docs exist they live in **`docs/designs/TNNN-slug.md`**
+and are written with Claude at `--effort max` (§3); the loop only ever *consumes* one — it
+never requires or writes one.
 
 ---
 
 ## 9. Gates — the boundaries the loop will not cross
 
-Some work must not happen autonomously. Two markers in the `TASKS.md` index line stop the
-loop:
+Some work must not happen autonomously. Two values of a task's `gate` field in `TASKS.json`
+stop the loop:
 
-- **🚦 Gate** — the task's deliverable must be **reviewed by a human** before any dependent
-  task proceeds. Use it where a downstream commitment rides on this result being right (an
-  approach is validated, an interface is frozen, an experiment's data is trusted).
-- **🔒 needs-human** — the task needs a one-time human step the agent can't or shouldn't do
+- **🚦 Gate** (`gate: "gate"`) — the task's deliverable must be **reviewed by a human** before
+  any dependent task proceeds. Use it where a downstream commitment rides on this result being
+  right (an approach is validated, an interface is frozen, an experiment's data is trusted).
+- **🔒 needs-human** (`gate: "needs-human"`) — the task needs a one-time human step the agent can't or shouldn't do
   (credentials, provisioning, anything spending real money or touching production). The agent
   prepares everything *around* it, then records `failed:blocked` and hands off.
 
@@ -319,12 +334,12 @@ The loop **skips** both kinds during selection and surfaces them on the status b
 
 ## 11. Adopting this harness in a project
 
-1. **Copy** `scripts/`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.md`, `.github/workflows/ci.yml`,
+1. **Copy** `scripts/`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.json`, `.github/workflows/ci.yml`,
    `.gitignore`, and the `worklog/` dir into your repo (or start your repo from this one).
 2. **Wire the Definition of Done.** Put your real format/lint/test/build commands into
    `.github/workflows/ci.yml` **and** describe them in §5 above. They must match.
 3. **Set the knobs.** Edit `scripts/harness.env` (`MODEL`, `EFFORT`, caps, `CI_WORKFLOW`).
-4. **Write the backlog.** Replace the example tasks in `TASKS.md` with your own atomic,
+4. **Write the backlog.** Replace the example tasks in `TASKS.json` with your own atomic,
    dependency-ordered tasks (schema in §8.1). Mark gated work 🚦 / 🔒.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run. The loop integrates by
    pushing to `origin/main`, so a remote is required when `REQUIRE_CI=1`.
