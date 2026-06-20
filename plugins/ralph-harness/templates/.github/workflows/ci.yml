@@ -1,0 +1,45 @@
+name: CI
+# ▲ The loop gates on a workflow whose `name:` matches CI_WORKFLOW (default "CI").
+#   If you rename this, set CI_WORKFLOW to match in scripts/harness.env.
+
+# Run on every push (so the loop's per-task branches get a run to watch) and on PRs
+# to main. The loop merges a branch into `main` ONLY when this workflow goes green.
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Definition of Done
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ───────────────────────────────────────────────────────────────────────
+      # REPLACE the steps below with YOUR project's Definition of Done.
+      # They MUST match docs/HARNESS.md §6 and what the builder runs locally —
+      # CI is the authoritative gate, so anything not checked here is not enforced.
+      #
+      # Examples by stack (delete these comments once you've wired yours):
+      #   Node:    npm ci && npm run lint && npm test && npm run build
+      #   Rust:    cargo fmt --all --check && cargo clippy --all-targets -- -D warnings && cargo test
+      #   Python:  pip install -e '.[dev]' && ruff format --check . && ruff check . && pytest
+      #   Go:      test -z "$(gofmt -l .)" && go vet ./... && go test ./...
+      # ───────────────────────────────────────────────────────────────────────
+
+      - name: Format check
+        run: |
+          echo "TODO: replace with your formatter check (e.g. npm run format:check)"
+          exit 1   # remove this once a real check is in place
+
+      - name: Lint
+        run: echo "TODO: replace with your linter (e.g. npm run lint)"
+
+      - name: Test
+        run: echo "TODO: replace with your test command (e.g. npm test)"

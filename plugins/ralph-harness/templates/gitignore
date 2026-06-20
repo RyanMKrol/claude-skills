@@ -1,0 +1,12 @@
+# Transient loop scratch (last-iteration verdict) + the generated status board.
+worklog/.result
+worklog/STATUS.md
+worklog/*.log
+
+# Add your language's build / dependency output below, e.g.:
+# /target          # Rust
+# /node_modules    # Node
+# /dist
+# /build
+# __pycache__/
+# *.pyc

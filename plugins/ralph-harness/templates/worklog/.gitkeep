@@ -1,0 +1,8 @@
+# worklog/ — per-task, append-only memory across fresh agent invocations.
+#
+# One file per task: worklog/TNNN.md. Each (re)attempt appends a dated entry —
+# what it tried, what passed/failed, the reason/blocker, and what's left. The
+# builder MUST read worklog/TNNN.md before every (re)attempt of a task.
+#
+# Generated scratch (git-ignored): .result (last-iteration verdict), STATUS.md
+# (the status board postflight.sh writes). This .gitkeep just keeps the dir in git.

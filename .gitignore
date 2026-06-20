@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Editor cruft
+*.swp
+*~
+.idea/
+.vscode/
+
+# Note: plugins/ralph-harness/templates/gitignore is shipped dot-less ON PURPOSE
+# (it becomes the scaffolded project's .gitignore) — it must NOT be ignored here.

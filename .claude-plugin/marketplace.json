@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-skills",
+  "description": "Ryan Krol's personal Claude Code plugins and skills.",
+  "owner": {
+    "name": "Ryan Krol",
+    "email": "ryankrol.m@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "ralph-harness",
+      "description": "Scaffold the Ralph-style single-loop, CI-gated TASKS.json build harness into any project, and author its task backlog — via interview skills. Supports per-task model selection and automatic escalation. Distinct from the official ralph-loop plugin.",
+      "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" },
+      "category": "workflow",
+      "source": "./plugins/ralph-harness"
+    }
+  ]
+}
