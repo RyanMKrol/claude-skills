@@ -51,6 +51,7 @@ WAIT_SECONDS="${WAIT_SECONDS:-30}"               # backoff between retries / CI 
 CI_TIMEOUT="${CI_TIMEOUT:-1200}"                 # max seconds to wait for a CI run to finish
 CI_WORKFLOW="${CI_WORKFLOW:-CI}"                 # MUST match `name:` in your CI workflow yaml
 REQUIRE_CI="${REQUIRE_CI:-1}"                     # 1 = never merge without green CI
+INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"             # optional cmd run after each task integrates (deploy/restart)
 TASKS_REF="${TASKS_REF:-origin/main}"            # decisions are read from here, never a worktree
 LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolation worktree
 LOCK="$GIT_COMMON/${NAME}-loop.lock"
@@ -197,6 +198,13 @@ integrate() {
   log "ff to main rejected (main moved under us) — soft"; return 1
 }
 
+# Optional post-integration hook (deploy/restart so the running product matches main).
+run_integrate_hook() {
+  [ -n "$INTEGRATE_HOOK" ] || return 0
+  log "integrate hook: $INTEGRATE_HOOK"
+  ( cd "$ROOT" && eval "$INTEGRATE_HOOK" ) || log "WARN: integrate hook failed (non-fatal)"
+}
+
 # --- Per-task build prompt --------------------------------------------------
 prompt() {
   local tid="$1" branch="$2"
@@ -303,7 +311,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "CI not green for $task — soft (agent fixes on resume)"; bump "$task"; board; continue
       fi
       if integrate "$branch"; then
-        log "integrated $task → main"; cleanup_task "$branch"; cur_task=""; cur_attempts=0; cur_rung=0
+        log "integrated $task → main"; cleanup_task "$branch"; run_integrate_hook; cur_task=""; cur_attempts=0; cur_rung=0
       else
         bump "$task"
       fi
