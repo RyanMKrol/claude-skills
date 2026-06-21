@@ -66,6 +66,18 @@ Glob the target for: `scripts/loop.sh`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.j
 
 Use `AskUserQuestion`, batching related questions. Gather:
 
+0. **Isolation mode (ask first — it decides which loop variant is installed).** "Can the loop
+   build **and** verify entirely from what's committed to the remote, or does it need untracked /
+   gitignored local state (private files, local datasets, secrets-driven fixtures)?"
+   - *Everything committed* → **worktree** variant (default; max isolation; safe to run while other
+     work happens in the checkout). Installs `scripts/loop.sh`.
+   - *Needs local state* → **in-place** variant: works directly on `main` in the primary checkout
+     so it can see that state; safety = one-commit-per-task + a load-bearing pre-push sensitive-path
+     guard. Installs `scripts/loop.in-place.sh` as `scripts/loop.sh`. (See docs/HARNESS.md
+     "In-place variant".)
+   Record the answer as `ISOLATION=worktree|in-place`; steps 4 and 7 branch on it. Note that the
+   `../<repo>-loop` worktree/lock naming surfaced in step 1 applies to the **worktree** variant only.
+
 1. **Project name** (default = `NAME`) and a one-line **purpose**.
 2. **Stack**: Rust / Node / Python / Go / Other. This drives the default DoD commands and
    `.gitignore` lines. The template's `docs/HARNESS.md` §5 and `.github/workflows/ci.yml` comments
@@ -105,7 +117,13 @@ Byte-identical copies from `$TPL` into the target (do **not** template these):
 ```bash
 T="<target>"
 mkdir -p "$T/scripts" "$T/docs" "$T/.github/workflows" "$T/worklog"
-cp -p "$TPL/scripts/loop.sh" "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$T/scripts/"
+# Install the loop variant chosen in step 0 — BOTH install as scripts/loop.sh.
+if [ "${ISOLATION:-worktree}" = in-place ]; then
+  cp -p "$TPL/scripts/loop.in-place.sh" "$T/scripts/loop.sh"
+else
+  cp -p "$TPL/scripts/loop.sh" "$T/scripts/loop.sh"
+fi
+cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$T/scripts/"
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$T/docs/"
 cp -p "$TPL/worklog/.gitkeep" "$T/worklog/"
 chmod +x "$T/scripts/"*.sh
@@ -163,11 +181,18 @@ grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
 grep -q "CI_WORKFLOW:=${W}" "$T/scripts/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
 test -x "$T/scripts/loop.sh" && test -x "$T/scripts/supervise.sh" && test -x "$T/scripts/postflight.sh" || echo "FAIL: scripts not executable"
+for s in loop.sh supervise.sh postflight.sh; do bash -n "$T/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
 grep -q 'worklog/.result' "$T/.gitignore" && grep -q 'worklog/STATUS.md' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 command -v jq >/dev/null || echo "FAIL: jq not installed (the loop needs it to parse TASKS.json)"
-DRY_RUN=1 "$T/scripts/loop.sh" >/dev/null 2>&1 || true   # smoke: selection parses the backlog
+DRY_RUN=1 "$T/scripts/loop.sh" >/dev/null 2>&1 || echo "FAIL: DRY_RUN loop.sh errored (selection/backlog won't parse)"
+# in-place variant only: prove the load-bearing pre-push guard regex is correct
+grep -q -- '--guard-selftest' "$T/scripts/loop.sh" && { "$T/scripts/loop.sh" --guard-selftest >/dev/null || echo "FAIL: pre-push guard self-test failed"; }
 ```
+
+The `bash -n` + `DRY_RUN` smoke catch a generated/edited script that won't parse or run **at
+install time** rather than on the first real cycle — e.g. a `set -u` unbound-variable trap. For an
+in-place install, the guard self-test must pass before you declare done.
 
 If `ci.yml` still contains `exit 1` or `TODO: replace`, the scaffold is **not** complete — fix it
 (the placeholder CI fails by design until the real DoD commands are in). Resolve every `FAIL`
