@@ -244,6 +244,43 @@ Therefore:
   reclamation) ensures only one `loop.sh` runs at once — a second invocation exits immediately
   rather than racing.
 
+### In-place variant (when the build needs untracked local state)
+
+The worktree model above rests on one assumption: **everything the loop needs to build and
+verify is committed to `origin/main`.** It reads `TASKS.json` from `origin/main` and builds in a
+fresh worktree off `origin/main`, so it only ever sees *tracked* files. When the build or its
+verification depends on **untracked or gitignored local state** — private code in a public repo,
+local datasets/fixtures, secrets-driven tests — a clean worktree literally can't see it, and the
+worktree model can't work. For those projects the harness ships an **in-place variant**
+(`scripts/loop.in-place.sh`, installed as `scripts/loop.sh`), selected at scaffold time.
+
+It differs from the worktree loop as follows:
+
+- **Works directly on `main` in the primary checkout** — no sibling worktree, no per-task `tNNN`
+  branches. So it *can* see the untracked local state the build needs.
+- **Reads `TASKS.json` from the local working file**, not `origin/main`.
+- **The shell owns task status.** The worker commits the task but does **not** edit `TASKS.json`;
+  after CI is green the loop sets `status:"done"` itself (a `[skip ci]` commit) and pushes — and
+  sweeps `worklog/` into that commit so a stray note can't dirty the tree.
+- **Fresh vs resume** is detected from the working tree (`git status --porcelain`) rather than a
+  leftover branch.
+
+**Safety model.** Without worktree isolation, two things stand in for it: (1) every task is one
+commit on `main`, so a bad one is a one-line `git revert`; and (2) a **load-bearing pre-push
+guard** — before pushing, the loop refuses if any pending commit touches a sensitive/gitignored
+path (`data/`, real `.env*`, `chrome-profile/`, `*.pem`/`*.key`/`*.p12`, `service-account*`,
+`credentials.json`). The tracked `.env.example` template is explicitly allowed. The guard is
+self-testable (`scripts/loop.sh --guard-selftest`) and a trip **halts the run for a human**. The
+worker is therefore instructed to stage files **explicitly** (never `git add -A`).
+
+**Trade-off.** The in-place loop works *on* the shared checkout, so it isn't safe to run while
+other work happens there (unlike the worktree loop). Choose it only when the local-state
+requirement forces it; prefer the worktree variant otherwise.
+
+The in-place variant also adds **rate-limit auto-resume** (on a Claude usage limit it sleeps and
+resumes the same task, not a soft failure) and honours the optional `INTEGRATE_HOOK` (a
+deploy/restart command run after each task integrates, so the running product matches `main`).
+
 ---
 
 ## 7. Failure handling & caps
