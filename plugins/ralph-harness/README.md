@@ -5,7 +5,8 @@ A personal Claude Code plugin that **scaffolds an autonomous build harness into 
 
 The harness it installs (the "Ralph Loop") is a single **sequential** shell loop that builds a
 `TASKS.json` backlog **one fully-verified task at a time** — fresh-context `claude -p` per task,
-git-worktree isolation, a **green-GitHub-CI merge gate**, and `gate`/`needs-human` review stops.
+worktree **or** in-place isolation (chosen at scaffold), a **green-GitHub-CI merge gate**, and
+`gate`/`needs-human` review stops.
 Each task names **its own model** (run cheap, mechanical work on Sonnet, judgement-heavy work on
 Opus) and can carry an **escalation ladder** that climbs to a stronger model after repeated
 failure. All durable state lives in the repo, so an interrupted run wastes at most one task.
@@ -17,7 +18,7 @@ failure. All durable state lives in the repo, so an interrupted run wastes at mo
 
 | Skill | Invoke | What it does |
 |---|---|---|
-| `ralph-loop-create-harness` | `/ralph-loop-create-harness [dir]` | One-time setup. Interview (name, stack, format/lint/test/build commands, CI name, default model/effort + escalation, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `scripts/supervise.sh`. |
+| `ralph-loop-create-harness` | `/ralph-loop-create-harness [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, default model/effort + escalation, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `scripts/supervise.sh`. |
 | `ralph-loop-add-to-backlog` | `/ralph-loop-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `docs/HARNESS.md` §8.1) with per-task model/escalation and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
 
 Both are also model-invocable (Claude triggers them from the descriptions when you ask in plain
@@ -33,7 +34,7 @@ ralph-harness/
 │   ├── ralph-loop-create-harness/SKILL.md
 │   └── ralph-loop-add-to-backlog/SKILL.md
 └── templates/                 ← the harness itself (single source of truth), vendored here
-    ├── scripts/{loop,supervise,postflight}.sh, harness.env
+    ├── scripts/{loop,loop.in-place,supervise,postflight}.sh, harness.env
     ├── docs/{HARNESS,LIMITATIONS}.md
     ├── .github/workflows/ci.yml
     ├── CLAUDE.md, TASKS.json, README.md, gitignore   (gitignore ships dot-less; written as .gitignore on scaffold)
@@ -67,3 +68,12 @@ repo, or just asking Claude to "set up the build harness here".
 - `loop.sh` and `postflight.sh` parse `TASKS.json` with **`jq`** — the scaffolded project needs it
   on PATH (`brew install jq`).
 - `loop.sh` derives its worktree/lock name from the repo directory basename — nothing to configure.
+- **Two isolation variants.** The default **worktree** loop builds each task in an isolated sibling
+  worktree off `origin/main` (it only sees tracked files). The **in-place** loop works directly on
+  `main` in the primary checkout — pick it when the build/verify needs **untracked or gitignored
+  local state** (private code, local datasets, secrets-driven tests) a worktree can't see;
+  `create-harness` asks and installs the right one as `scripts/loop.sh`. In-place adds a
+  load-bearing pre-push sensitive-path guard (self-testable via `scripts/loop.sh --guard-selftest`)
+  plus rate-limit auto-resume. See `templates/docs/HARNESS.md` "In-place variant".
+- Optional **`INTEGRATE_HOOK`** (in `harness.env`) runs a deploy/restart command after each task
+  integrates, so the running product matches `main`.
