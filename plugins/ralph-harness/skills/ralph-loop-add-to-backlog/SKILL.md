@@ -16,12 +16,16 @@ allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 
 You are turning a feature or phase description into well-formed `TASKS.json` task objects that the
 single-loop harness can build. Read this whole file, then execute in order. The cardinal rule:
-**append, never clobber** — existing task objects and their `status` are sacred.
+**append, never clobber** — existing *pending / in-flight* task objects and their `status` are
+sacred. (Completed `done` tasks may be deliberately pruned to keep the backlog readable — see §7 —
+but are never silently altered during an append.)
 
 ## 1. Pre-flight
 
 - Require the harness: `TASKS.json`, `docs/HARNESS.md`, and `scripts/loop.sh` must exist in the
   project. If any is missing, stop and point the user at `/ralph-loop-create-harness` first.
+  (Either loop variant — worktree or in-place — installs as `scripts/loop.sh` and keeps
+  `TASKS.json` at the repo root, so this skill is identical for both.)
 - Require `jq` (the loop and this skill use it). If absent, tell the user to `brew install jq`.
 - **Read `docs/HARNESS.md` §8.1** (the task schema) live — bind to the actual schema in this
   project, in case it has evolved. Don't rely on a hardcoded copy.
@@ -60,11 +64,17 @@ Use `AskUserQuestion`. Establish:
      omit `model`/`effort` to inherit `defaults`;
    - tag tasks with `tags` (e.g. `["validation"]`, `["coding"]`) to make the routing legible.
    When unsure, default to the strong model — a redone task costs more than the cheaper run saved.
-5. **Gates.** Ask which tasks:
+5. **Gates.** The loop's selection **skips any task with a non-null `gate` entirely** — it never
+   builds it, and a gated task still blocks its dependents until a human clears it. So mark as
+   gated anything that isn't a clean autonomous build. Ask which tasks:
    - freeze an interface, validate an approach, or rely on experimental data others will trust →
      `"gate": "gate"` (human reviews the deliverable before dependents proceed);
-   - need credentials, provisioning, real money, or production access → `"gate": "needs-human"`.
+   - need credentials, provisioning, real money, or production access, hinge on a human **decision**
+     first, or aren't **machine-verifiable** (subjective "make it nicer" UI work, taste calls) →
+     `"gate": "needs-human"`. Use it liberally — a needs-human task is parked safely, not lost.
    - otherwise `"gate": null`.
+   Tip: if a task *feels* subjective but has a checkable proxy (e.g. "looks good on mobile" → an
+   emulated-viewport check for overflow/truncation), prefer making it buildable with that `verify`.
 6. **Sizing.** Push back on any task too big for a single context window (HARNESS §12) — offer to
    split it. Remember a too-weak starting model burns MAX_ATTEMPTS attempts before escalating, so
    size the model honestly too.
@@ -125,3 +135,26 @@ whitespace for the whole file — that's fine; the content of prior tasks is pre
 Tell the user the loop will pick these up in dependency order on the next `scripts/loop.sh` /
 `scripts/supervise.sh` pass — building one at a time on each task's chosen model, escalating on
 repeated failure, and stopping at any `gate` / `needs-human` task for them.
+
+## 7. (Optional) Prune completed tasks
+
+Over a long-lived backlog, finished tasks pile up and bury the live work. Pruning `status:"done"`
+tasks is a legitimate operation **separate from the append above** — it keeps the backlog (and a
+dashboard that renders it) readable. Only do it when the user asks. It is safe as long as **no
+remaining task's `dependsOn` references a pruned id** — dropping a done task that a pending task
+still lists as a dependency would dangle it forever.
+
+```sh
+# Drop completed tasks, but ABORT if that would leave a dangling dependsOn or invalid JSON.
+jq '.tasks |= map(select(.status != "done"))' TASKS.json > TASKS.json.tmp \
+  && jq -e '([.tasks[].id]) as $ids | all(.tasks[].dependsOn[]?; . as $d | $ids|index($d))' TASKS.json.tmp >/dev/null \
+  && jq empty TASKS.json.tmp && mv TASKS.json.tmp TASKS.json \
+  || { echo "ABORT: pruning would dangle a dependsOn (or invalid JSON) — left TASKS.json untouched"; rm -f TASKS.json.tmp; }
+```
+
+- **Keep ids monotonic.** Never renumber the survivors or reuse a pruned id — `worklog/<id>.md`
+  files and git history still reference the originals. New tasks continue from the highest id ever
+  used, even if it was pruned.
+- **The shell owns `status`.** Prune only from a quiet loop (no `scripts/loop.sh` running), and
+  commit the pruned `TASKS.json` like any backlog edit. To keep a record instead of deleting, move
+  the done tasks into a `TASKS.done.json` archive rather than dropping them.
