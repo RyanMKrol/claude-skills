@@ -10,3 +10,6 @@ worklog/*.log
 # /build
 # __pycache__/
 # *.pyc
+
+# harness: atomic-write temp for TASKS.json (in-place variant)
+TASKS.json.tmp

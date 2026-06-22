@@ -140,7 +140,7 @@ task_blocked() { [ -f "$WORKLOG/$1.md" ] && grep -qiE 'failed:blocked|needs-huma
 # worklog/ into the same commit so a stray worklog the agent forgot to stage can't dirty the tree
 # (which would mislabel the next iteration as a "resume").
 mark_done() {
-  local id="$1" tmp; tmp="$(mktemp)"
+  local id="$1" tmp="$BACKLOG.tmp"   # same-dir temp → mv is an atomic rename (no cross-fs partial reads)
   jq --arg id "$id" '(.tasks[]|select(.id==$id)|.status)="done"' "$BACKLOG" >"$tmp" \
     && mv "$tmp" "$BACKLOG" || { rm -f "$tmp"; log "WARN: failed to mark $id done"; return 1; }
   git -C "$ROOT" add "$BACKLOG" "$WORKLOG" 2>/dev/null || true
