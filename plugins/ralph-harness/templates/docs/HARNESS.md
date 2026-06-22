@@ -270,7 +270,8 @@ commit on `main`, so a bad one is a one-line `git revert`; and (2) a **load-bear
 guard** — before pushing, the loop refuses if any pending commit touches a sensitive/gitignored
 path (`data/`, real `.env*`, `chrome-profile/`, `*.pem`/`*.key`/`*.p12`, `service-account*`,
 `credentials.json`). The tracked `.env.example` template is explicitly allowed. The guard is
-self-testable (`scripts/loop.sh --guard-selftest`) and a trip **halts the run for a human**. The
+self-testable (`scripts/loop.sh --guard-selftest`) and a trip makes the loop **discard that commit,
+block the task, and move on** (the sensitive path is never pushed; a human reviews the block). The
 worker is therefore instructed to stage files **explicitly** (never `git add -A`).
 
 **Trade-off.** The in-place loop works *on* the shared checkout, so it isn't safe to run while
@@ -291,10 +292,16 @@ deploy/restart command run after each task integrates, so the running product ma
   to `worklog/.result` as its final action; the loop acts on it.
 - **Caps & escalation:** `MAX_ATTEMPTS` per **rung** (default 3) of `failed:soft` → the loop
   **escalates** to the next model in the task's `escalation` ladder (§3) and resets the
-  counter; only after the **top** rung is exhausted is the task treated as `failed:blocked`
-  for a human. (No ladder = one rung = straight to `failed:blocked` at the cap.) A global
-  `MAX_ITERS` and the heartbeat cadence bound total spend. Token exhaustion needs no special
-  case (§4).
+  counter; only after the **top** rung is exhausted is the task `failed:blocked`. (No ladder =
+  one rung = straight to `failed:blocked` at the cap.) A global `MAX_ITERS` and the heartbeat
+  cadence bound total spend.
+- **One bad task never halts the loop.** A `failed:blocked` task — whether the agent reported it,
+  the ladder was exhausted, or a pre-push guard tripped — is **recorded in its worklog and skipped**,
+  and the loop moves on to the next eligible task (a human reviews blocked tasks later). A **red CI**
+  is handled the same way: the loop **reverts the pushed commit** (restoring `main`) and soft-retries,
+  blocking-and-moving-on only once the ladder is exhausted. The only hard stops are an empty/all-gated
+  backlog (exit 0), `MAX_ITERS` (exit 4), or a prolonged usage limit (exit 5 → `supervise.sh`
+  relaunches). So leaving the loop unattended for hours can't lose progress to a single failure.
 - **Usage / session limits are not failures.** When `claude` reports a usage/session limit, the
   loop **polls every `RL_POLL` (default 15 min) and resumes the same task** — so it picks back up
   shortly after the quota resets rather than idling for hours on a coarse backoff. Only after

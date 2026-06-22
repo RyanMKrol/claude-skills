@@ -279,7 +279,28 @@ acquire_lock
 trap 'release_lock' EXIT INT TERM
 
 cur_task=""; cur_attempts=0; cur_rung=0
-bump() {   # count a soft failure for $1; ESCALATE to the next rung at the cap, stop only past the top
+
+# Give up on ONE task WITHOUT halting the loop: tear down its branch/worktree, record a
+# failed:blocked marker on main (select_task reads worklog from origin/main, so it then skips the
+# task), and move on. A human reviews blocked tasks later; the loop keeps progressing on the rest.
+block_task() {
+  local id="$1" reason="$2" br; br="$(task_branch "$id")"
+  cleanup_task "$br"                                   # remove the loop worktree + delete tNNN (local+remote)
+  git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
+  remove_wt
+  if git -C "$ROOT" worktree add --quiet --force --detach "$LOOP_WT" origin/main 2>/dev/null; then
+    mkdir -p "$LOOP_WT/worklog"
+    printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$LOOP_WT/worklog/$id.md"
+    git -C "$LOOP_WT" add "worklog/$id.md" 2>/dev/null || true
+    git -C "$LOOP_WT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
+    git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push block marker for $id"
+    remove_wt
+  fi
+  log "BLOCKED $id ($reason) — recorded on main; moving on to the next task."
+  cur_task=""; cur_attempts=0; cur_rung=0
+}
+
+bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
   local t="$1" last
   [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; }
   last=$(( $(ladder_len "$t") - 1 ))
@@ -290,7 +311,8 @@ bump() {   # count a soft failure for $1; ESCALATE to the next rung at the cap, 
       cur_rung=$((cur_rung + 1)); cur_attempts=0
       log "escalating $t → rung $cur_rung: $(rung_at "$t" "$cur_rung")"
     else
-      log "max attempts on $t at top rung ($((last + 1)) rung(s) tried) — stopping for a human"; board; exit 2
+      block_task "$t" "exhausted $MAX_ATTEMPTS attempts at the top model rung"
+      return 0
     fi
   fi
   sleep "$WAIT_SECONDS"
@@ -348,7 +370,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       fi
       ;;
     failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; bump "$task" ;;
-    failed:blocked) log "hard blocker on $rtask: ${extra:-} — stopping for a human"; board; exit 2 ;;
+    failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
     idle)           log "agent reports idle — nothing to do"; board; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;

@@ -253,7 +253,9 @@ You run head-less and unattended. Obey CLAUDE.md, TASKS.json, and docs/HARNESS.m
    and add any new trade-off to docs/LIMITATIONS.md. Do NOT edit TASKS.json — the loop owns task
    status. Write your notes to worklog/<TASK>.md (a dated entry: what you did, checks run, what remains).
 
-5. COMMIT `<TASK>: <summary>` (do NOT push), staging your intended files explicitly.
+5. COMMIT `<TASK>: <summary>` (do NOT push), staging your intended files explicitly. Your commit
+   MUST include `worklog/<TASK>.md` — stage it alongside your code. A task is not complete if its
+   worklog isn't committed.
 
 6. As your FINAL action, OVERWRITE worklog/.result with exactly ONE line:
      done <TASK>                     # built + committed (NOT pushed) — loop pushes + gates CI
@@ -278,7 +280,24 @@ acquire_lock
 trap 'release_lock' EXIT INT TERM
 
 cur_task=""; cur_attempts=0; cur_rung=0
-bump() {   # count a soft failure for $1; escalate at the cap; stop past the top rung
+
+# Give up on ONE task WITHOUT halting the loop: discard any local unpushed work, record a
+# failed:blocked marker in the task's worklog (so select_task skips it from now on), push that,
+# and move on. A human reviews blocked tasks later; the loop keeps making progress on everything
+# else — one bad task never costs hours of idle.
+block_task() {
+  local id="$1" reason="$2"
+  git -C "$ROOT" reset --hard "origin/$MAIN_BRANCH" 2>/dev/null || true   # drop any local unpushed commit/changes
+  mkdir -p "$WORKLOG"
+  printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$WORKLOG/$id.md"
+  git -C "$ROOT" add "$WORKLOG/$id.md" 2>/dev/null || true
+  git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
+  git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
+  log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
+  cur_task=""; cur_attempts=0; cur_rung=0
+}
+
+bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
   local t="$1" last
   [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; }
   last=$(( $(ladder_len "$t") - 1 ))
@@ -289,7 +308,8 @@ bump() {   # count a soft failure for $1; escalate at the cap; stop past the top
       cur_rung=$((cur_rung + 1)); cur_attempts=0
       log "escalating $t → rung $cur_rung: $(rung_at "$t" "$cur_rung")"
     else
-      log "max attempts on $t at top rung — stopping for a human"; board; exit 2
+      block_task "$t" "exhausted $MAX_ATTEMPTS attempts at the top model rung"
+      return 0
     fi
   fi
   sleep "$WAIT_SECONDS"
@@ -336,22 +356,34 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   case "$status" in
     done)
       log "agent reports $task built + committed"
-      if ! guard_clean; then log "guard tripped — STOPPING for a human (inspect the staged/committed sensitive paths)"; board; exit 2; fi
+      if ! guard_clean; then
+        log "PRE-PUSH GUARD tripped on $task — sensitive path staged; discarding the commit + blocking."
+        block_task "$task" "pre-push guard tripped (sensitive path staged)"; board; continue
+      fi
       if ! git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH"; then
-        log "push to $MAIN_BRANCH failed (remote moved or network) — STOPPING for a human"; board; exit 2
+        log "push to $MAIN_BRANCH failed (remote moved / network) — soft retry."
+        bump "$task"; board; continue
       fi
       if [ "$REQUIRE_CI" = "1" ]; then
         if wait_ci_green; then
           mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; cur_task=""; cur_attempts=0; cur_rung=0
         else
-          log "CI RED for $task — STOPPING for a human. Revert with: git revert HEAD && git push"; board; exit 2
+          # NEVER halt the whole loop on one red CI: revert the pushed commit to restore main, then
+          # soft-retry the task. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
+          log "CI RED for $task — reverting the pushed commit to restore $MAIN_BRANCH, then retrying."
+          if git -C "$ROOT" revert --no-edit HEAD 2>/dev/null && git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null; then
+            log "reverted $task; $MAIN_BRANCH is clean again."
+          else
+            log "WARN: auto-revert/push failed — main may need a manual: git revert HEAD && git push"
+          fi
+          bump "$task"
         fi
       else
         mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; cur_task=""; cur_attempts=0; cur_rung=0
       fi
       ;;
     failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; bump "$task" ;;
-    failed:blocked) log "hard blocker on $rtask: ${extra:-} — stopping for a human"; board; exit 2 ;;
+    failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
     idle)           log "agent reports idle — nothing to do"; board; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
