@@ -109,6 +109,14 @@ Use `AskUserQuestion`, batching related questions. Gather:
    pushing to `origin/main`, required when `REQUIRE_CI=1`. If there's no `origin`, warn and offer
    `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `docs/LIMITATIONS.md`), or guide them
    to create the remote.
+10. **Long-running product / deploy hook (`INTEGRATE_HOOK`).** "Does this project run a long-lived
+    process — a daemon, server, or preview — that must be restarted/redeployed to reflect new code?"
+    The loop builds and commits but does **not** restart anything, so a running instance keeps
+    serving **stale code** after a task lands — an easy-to-miss outage (e.g. a DB-schema rename
+    merges, but the live process still queries the old tables). If yes, capture the restart/deploy
+    command and set it as `INTEGRATE_HOOK` in `harness.env`; the loop runs it after each task
+    integrates so what's running always matches `main`. If no (a library/CLI with nothing
+    long-lived), leave it empty.
 
 ## 4. Copy the verbatim files
 
@@ -145,9 +153,10 @@ Build each from the corresponding template, substituting the interview answers. 
   `actions/setup-go`, `actions/setup-python`) and an install step where needed. Delete the
   "REPLACE the steps below" comment block.
 - **`scripts/harness.env`** — from `$TPL/scripts/harness.env`. Set `MODEL`, `EFFORT`,
-  `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI` to the answers (these `MODEL`/`EFFORT`
-  are the fallback default rung — per-task models live in `TASKS.json`). Keep the
-  `: "${VAR:=…}"` form so real-env overrides still win.
+  `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI`, and — if the step-10 deploy/restart
+  command was given — `INTEGRATE_HOOK`, to the answers (these `MODEL`/`EFFORT` are the fallback
+  default rung — per-task models live in `TASKS.json`). Keep the `: "${VAR:=…}"` form so real-env
+  overrides still win.
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen
   build-artifact lines, de-duplicated against any pre-existing `.gitignore` in the target. Write
   the result as `<target>/.gitignore`.
