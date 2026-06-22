@@ -295,6 +295,11 @@ deploy/restart command run after each task integrates, so the running product ma
   for a human. (No ladder = one rung = straight to `failed:blocked` at the cap.) A global
   `MAX_ITERS` and the heartbeat cadence bound total spend. Token exhaustion needs no special
   case (§4).
+- **Usage / session limits are not failures.** When `claude` reports a usage/session limit, the
+  loop **polls every `RL_POLL` (default 15 min) and resumes the same task** — so it picks back up
+  shortly after the quota resets rather than idling for hours on a coarse backoff. Only after
+  `RL_MAX_WAIT` (~6h) still-limited does it exit (code 5); `supervise.sh` then relaunches after a
+  short `RETRY_INTERVAL` instead of waiting out the full window.
 - **Stops cleanly for review** at every 🚦 gate and 🔒 needs-human task — the loop surfaces it
   on the status board and halts/moves on rather than spinning.
 

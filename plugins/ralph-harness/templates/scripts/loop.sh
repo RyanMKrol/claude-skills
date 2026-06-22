@@ -57,6 +57,10 @@ LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolati
 LOCK="$GIT_COMMON/${NAME}-loop.lock"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
+# Rate-limit handling: poll + resume the SAME task on a usage/session limit (don't exit), so we
+# resume shortly after the quota resets rather than waiting out supervise's full cadence.
+RL_POLL="${RL_POLL:-900}"                         # poll again every 15 min while limited
+RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise after ~6h limited
 FORCE_TASK="${1:-}"
 POSTFLIGHT="$ROOT/scripts/postflight.sh"
 
@@ -248,6 +252,19 @@ Obey CLAUDE.md, TASKS.json, and docs/HARNESS.md exactly. You run head-less and u
 EOF
 }
 
+# --- Claude invocation with rate-limit detection ----------------------------
+RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|resets? (at|in)|try again later|overloaded|quota|insufficient.*credit|exceeded your'
+# run_claude <model> <effort> <prompt> → 0 ok | 10 rate/usage-limited | other = failure
+run_claude() {
+  local model="$1" effort="$2" pr="$3" out="$LOOP_WT/worklog/.claude-out" rc
+  set +e
+  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" "${FLAGS[@]}" ) 2>&1 | tee "$out"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [ "$rc" -ne 0 ] && grep -qiE "$RL_RE" "$out"; then return 10; fi
+  return "$rc"
+}
+
 # --- Dry run: print the task SELECT would build next, then exit (no lock, no work) ---
 if [ "${DRY_RUN:-0}" = "1" ]; then
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
@@ -296,9 +313,23 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   prepare_wt "$branch" "$fresh"
 
   RESULT="$LOOP_WT/worklog/.result"; rm -f "$RESULT"
-  if ! ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$(prompt "$task" "$branch")" \
-           --model "$tmodel" --effort "$teffort" "${FLAGS[@]}" ); then
-    log "claude exited non-zero (crash / out of tokens) — backing off ${WAIT_SECONDS}s"
+  # Run Claude, polling + auto-resuming on usage/session limits (NOT a failure) so we resume soon
+  # after the quota resets rather than waiting out supervise's full cadence.
+  rl_waited=0
+  while :; do
+    set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task" "$branch")"; rc=$?; set -e
+    if [ "$rc" = 10 ]; then
+      if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
+        log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
+        board; exit 5
+      fi
+      log "Claude usage/session limit hit — RESUMING the same task in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
+      sleep "$RL_POLL"; rl_waited=$(( rl_waited + RL_POLL )); continue
+    fi
+    break
+  done
+  if [ "$rc" -ne 0 ]; then
+    log "claude exited $rc (crash / out of tokens) — backing off ${WAIT_SECONDS}s"
     sleep "$WAIT_SECONDS"; continue
   fi
   [ -f "$RESULT" ] || { log "no result file written — backing off"; sleep "$WAIT_SECONDS"; continue; }

@@ -49,9 +49,10 @@ MAIN_BRANCH="${MAIN_BRANCH:-main}"
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"               # optional cmd run after each task integrates (deploy/restart)
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
-# Rate-limit-aware backoff: when Claude hits the usage limit, sleep and resume the SAME task.
-RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # first backoff (5 min)
-RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap (~5h = the quota window)
+# Rate-limit-aware handling: when Claude hits a usage/session limit, POLL on a fixed short
+# interval and resume the SAME task — so we retry soon after the quota resets, not hours later.
+RL_POLL="${RL_POLL:-900}"                          # poll again every 15 min while limited
+RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervise after ~6h limited
 FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$ROOT/scripts/postflight.sh"
 
@@ -205,7 +206,7 @@ wait_ci_green() {   # 0=green 1=red 2=indeterminate
 }
 
 # --- Claude invocation with rate-limit detection ----------------------------
-RL_RE='usage limit|rate.?limit|429|resets at|try again later|overloaded|quota|insufficient.*credit|exceeded your'
+RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|resets? (at|in)|try again later|overloaded|quota|insufficient.*credit|exceeded your'
 # run_claude <model> <effort> <prompt> → 0 ok | 10 rate-limited | other = failure
 run_claude() {
   local model="$1" effort="$2" pr="$3" out="$WORKLOG/.claude-out" rc
@@ -311,15 +312,18 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
 
   RESULT="$WORKLOG/.result"; rm -f "$RESULT"
 
-  # Run Claude, pausing + auto-resuming on usage/rate limits (NOT counted as a failure).
-  rl_sleep="$RL_BACKOFF_MIN"
+  # Run Claude, polling + auto-resuming on usage/session limits (NOT counted as a failure) so we
+  # pick the task back up shortly after the quota resets rather than waiting out a long backoff.
+  rl_waited=0
   while :; do
     set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task")"; rc=$?; set -e
     if [ "$rc" = 10 ]; then
-      log "Claude usage/rate limit hit — backing off ${rl_sleep}s, will RESUME the same task (not a failure)."
-      sleep "$rl_sleep"
-      rl_sleep=$(( rl_sleep * 2 )); [ "$rl_sleep" -gt "$RL_BACKOFF_MAX" ] && rl_sleep="$RL_BACKOFF_MAX"
-      continue
+      if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
+        log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
+        board; exit 5
+      fi
+      log "Claude usage/session limit hit — RESUMING the same task in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
+      sleep "$RL_POLL"; rl_waited=$(( rl_waited + RL_POLL )); continue
     fi
     break
   done
