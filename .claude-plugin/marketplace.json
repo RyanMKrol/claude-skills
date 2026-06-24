@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "ralph-harness",
-      "description": "Scaffold the Ralph-style single-loop, CI-gated TASKS.json build harness into any project, and author its task backlog — via interview skills. Supports per-task model selection and automatic escalation. Distinct from the official ralph-loop plugin.",
+      "description": "Scaffold the Ralph-style single-loop, CI-gated TASKS.json build harness into any project, and author its task backlog — via interview skills. Data-driven difficulty auto-tuning (faceted escalation calibration). Distinct from the official ralph-loop plugin.",
       "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" },
       "category": "workflow",
       "source": "./plugins/ralph-harness"
