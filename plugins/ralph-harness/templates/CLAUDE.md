@@ -70,6 +70,19 @@ the same commit** — never as a follow-up. A task is **done when its branch is 
   re-deriving them from the code. A capped scope, a hardcoded assumption, an "un-handled for
   now" — that's exactly what belongs there.
 
+### 6. Tests never touch production state
+
+A task's Definition-of-Done **test** run must execute against a **scratch / throwaway** resource —
+a temp database, a fake or sandboxed endpoint, a tmp working dir — **never** the project's real
+database, live services, or real data/output files. A test that mutates production state can
+corrupt the running product, and the usual culprit is a stray *direct* test invocation
+(`pytest path/to/x`, `node --test foo`, `cargo test x`) run outside the normal harness env.
+**Build the guard into the code, not into discipline:** detect a test context from the environment
+and **redirect to a scratch resource** (e.g. an `isTestEnv()` / `resolveXxxPath()` that refuses the
+production default under tests). This matters most under the **in-place loop variant**
+([`docs/HARNESS.md`](./docs/HARNESS.md) §6), which works directly in the primary checkout and shares
+the live local DB / daemon — there a leaky test pollutes real state immediately.
+
 ## Standard workflow for a change
 
 1. `git checkout main && git pull` — **always** sync `main` first, so the new branch is based

@@ -75,6 +75,22 @@ Use `AskUserQuestion`. Establish:
    - otherwise `"gate": null`.
    Tip: if a task *feels* subjective but has a checkable proxy (e.g. "looks good on mobile" → an
    emulated-viewport check for overflow/truncation), prefer making it buildable with that `verify`.
+
+   **Pair every "options to choose between" task with a review + a hardcode follow-up.** When a
+   task builds MULTIPLE options for the owner to pick among (toggleable styles, strategy variants,
+   A/B layouts), author — **in the same edit** — *three* linked tasks, never the chooser alone:
+   (a) the **chooser** that builds the options behind a switch; (b) a paired **`needs-human`
+   review** task that `dependsOn` the chooser (the human picks a winner and records it); and (c) a
+   buildable **hardcode-the-winner** follow-up that `dependsOn` the review (bakes in the chosen
+   option and deletes the switch + unused paths). Otherwise the evaluation scaffolding becomes
+   permanent cruft. *Worked chain: T040 "build 5 caret styles behind a toggle" → T041 (needs-human)
+   "review the styles, pick one" → T042 "hardcode the chosen caret, remove the toggle".*
+
+   **Split a decision/unknown into its own `needs-human` task.** When a task hinges on a human
+   **decision**, or on an **unknown that needs probing** before the real work can even be specified,
+   don't ship one big task the loop will burn `MAX_ATTEMPTS` on — split it: a **`needs-human`
+   decision/investigation** task that records the answer, plus a **dependent buildable** follow-up
+   that implements it from the now-settled spec.
 6. **Sizing.** Push back on any task too big for a single context window (HARNESS §12) — offer to
    split it. Remember a too-weak starting model burns MAX_ATTEMPTS attempts before escalating, so
    size the model honestly too.
@@ -106,6 +122,27 @@ Rules: ids monotonic from the existing max, zero-padded; `dependsOn` references 
 (existing or newly-added-above); omit `model`/`effort`/`escalation` to inherit `defaults` rather
 than restating them; `status` is always `"pending"` (the loop flips it to `"done"`).
 
+### Writing `do` / `doneWhen` so a fresh agent gets it right
+
+The building agent is a **fresh agent** with **none** of this interview's context — `do` and
+`doneWhen` are the entire brief it binds to. Make them self-contained and unambiguous, or it will
+confidently build the wrong thing:
+
+- **No ambiguous referents.** Name the exact artifact/identifier; avoid bare words like "the ID",
+  "the page", "the value". (A real miss: *"the ID of the workflow"* got built against the workflow
+  **name** when the workflow-**run** id was meant — write "the workflow-RUN id (e.g. `wr_…`), NOT
+  the workflow name".)
+- **Cite concrete anchors** where you know them — `path/to/file.ts:NNN`, a component/function name,
+  the exact endpoint/table — so the agent edits the right place instead of guessing.
+- **For UI / behavioural tasks, require verification against the *real running* thing**, not just
+  "build/tests pass": e.g. *"load `<page>` and confirm `<element>` shows `<expected>`"*. Put it in
+  `doneWhen` (or as a `verify` label) so a plausible-but-wrong build can't slip through green CI.
+- **Self-contained.** No "as we discussed" / "like the other one" — the fresh agent can't see this
+  conversation.
+- **Tests stay hermetic.** If the task adds tests, `doneWhen` should require they run against a
+  scratch/temp resource, never the real DB / services / files (CLAUDE.md golden rule) — never
+  author a task whose verification mutates production state.
+
 ## 4. Append, don't clobber — via jq
 
 Append the new objects so existing tasks and their `status` are untouched. Build the new objects as
@@ -119,6 +156,13 @@ jq --slurpfile add new-tasks.json '.tasks += $add[0]' TASKS.json > TASKS.json.tm
 
 Never hand-edit existing task objects, and never change any existing `status`. (jq normalises
 whitespace for the whole file — that's fine; the content of prior tasks is preserved verbatim.)
+
+**Ordering matters — the loop builds in array order.** Selection walks `.tasks` in **array order**
+and takes the first eligible task; `dependsOn` only *blocks*, it does **not** reorder (HARNESS
+§8.1). Appending (above) puts new tasks at the **end**, which is almost always right. The case to
+watch: a **destructive / rename / migration** task must run **after** everything that references the
+old name/shape — so keep it at the **end** of the array (don't hand-move it earlier), and remember
+that any tasks you add *later* will append *after* it, so re-check that the rename still sits last.
 
 ## 5. Validate before finishing
 

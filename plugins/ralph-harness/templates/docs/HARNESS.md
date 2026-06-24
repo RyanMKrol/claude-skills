@@ -326,8 +326,14 @@ deploy/restart command run after each task integrates, so the running product ma
 
 `TASKS.json` is a single JSON document: a `version`, a `defaults` object (the fallback model
 rung + escalation ladder), and an ordered `tasks` array. **Order in the array is the
-dependency walk order.** A `_doc` string at the top carries the human note (JSON has no
-comments). One task object:
+dependency walk order** — and it is *load-bearing*: selection picks the **first** not-done,
+non-gated, deps-satisfied task in **array order** (§4/§9). It is **not** id-sorted and **not** a
+full topological sort — `dependsOn` only *blocks* a task until its deps are done, it does **not**
+reorder the array. So **array position itself decides what runs first** among otherwise-eligible
+tasks. Practical consequence: place **destructive / rename / migration / cleanup** tasks at the
+**END** of `.tasks` (so everything that still references the old name/shape builds first), and
+**append new tasks at the end** unless an earlier slot is deliberately intended. A `_doc` string at
+the top carries the human note (JSON has no comments). One task object:
 
 ```jsonc
 {
