@@ -1,44 +1,103 @@
 {
-  "_about": "Canonical, controlled facet vocabulary for the difficulty auto-tuning system (see docs/designs/difficulty-autotune.md). SOURCE OF TRUTH: the add-to-backlog authoring step picks facet values ONLY from this file; the calibration/policy validate against it; it self-curates via the poor-fit gate. Facets are the join key that lets the policy generalise escalation history from past tasks to new ones. needs-human (gated) tasks are CARVED OUT entirely — no facets, never calibrated. The `work-type` + `risk` axes are UNIVERSAL (rarely change); the `layer` axis is PROJECT-SPECIFIC — the create-harness step tailors it to this repo's structure, and the poor-fit gate evolves it over time.",
+  "_about": "Canonical, controlled facet vocabulary for the difficulty auto-tuning system (see docs/designs/difficulty-autotune.md). SOURCE OF TRUTH: the add-to-backlog authoring step picks facet values ONLY from this file; the calibration/policy validate against it; it self-curates via the poor-fit gate. Facets are the join key that lets the policy generalise escalation history from past tasks to new ones. needs-human (gated) tasks are CARVED OUT entirely — no facets, never calibrated. The `work-type` + `risk` axes are UNIVERSAL (rarely change); the `layer` axis is PROJECT-SPECIFIC — the create-harness step tailors it to this repo's structure, and the poor-fit gate evolves it over time. ⚠️ The difficultyHint on each value is ADVISORY ONLY — human/LLM-readable taxonomy intuition; the policy NEVER reads it. Model selection is driven entirely by the outcomes ledger, the tier ladder (.tiers.ladder), and the floor/minN knobs (.policy). Do NOT wire difficultyHint into any code.",
   "version": 1,
   "facets": {
     "layer": {
       "cardinality": "exactly-one",
       "desc": "WHERE the change lives — inferable largely from the task's scope file paths. PROJECT-SPECIFIC: this is a generic STARTER set; tailor it to this repo at setup (and it self-evolves via the poor-fit gate).",
       "values": {
-        "frontend": { "desc": "UI / client components / styling / views", "difficulty": "low-med" },
-        "backend":  { "desc": "server / API routes / business logic", "difficulty": "med" },
-        "data":     { "desc": "database schema / migrations / data access / models", "difficulty": "high" },
-        "infra":    { "desc": "deploy / CI / ops / runtime config", "difficulty": "varies" },
-        "build":    { "desc": "build system / tooling / dependencies", "difficulty": "med" },
-        "meta":     { "desc": "docs / the harness itself / project scaffolding", "difficulty": "low" }
+        "frontend": {
+          "desc": "UI / client components / styling / views",
+          "difficultyHint": "low-med"
+        },
+        "backend": {
+          "desc": "server / API routes / business logic",
+          "difficultyHint": "med"
+        },
+        "data": {
+          "desc": "database schema / migrations / data access / models",
+          "difficultyHint": "high"
+        },
+        "infra": {
+          "desc": "deploy / CI / ops / runtime config",
+          "difficultyHint": "varies"
+        },
+        "build": {
+          "desc": "build system / tooling / dependencies",
+          "difficultyHint": "med"
+        },
+        "meta": {
+          "desc": "docs / the harness itself / project scaffolding",
+          "difficultyHint": "low"
+        }
       }
     },
     "work-type": {
       "cardinality": "exactly-one",
       "desc": "WHAT KIND of change it is — the main thing the authoring LLM reasons about. UNIVERSAL across projects.",
       "values": {
-        "style":      { "desc": "visual / CSS / layout only", "difficulty": "very-easy" },
-        "logging":    { "desc": "log verbosity / messages / observability text", "difficulty": "very-easy" },
-        "docs":       { "desc": "README / docs / spec text", "difficulty": "very-easy" },
-        "config":     { "desc": "env / config knobs / flags", "difficulty": "easy" },
-        "component":  { "desc": "new/changed UI component or page", "difficulty": "med" },
-        "endpoint":   { "desc": "new/changed API route / handler", "difficulty": "med" },
-        "bugfix":     { "desc": "fix a specific defect", "difficulty": "med-varies" },
-        "feature":    { "desc": "multi-file new capability", "difficulty": "high" },
-        "migration":  { "desc": "schema / data migration", "difficulty": "high" },
-        "llm-prompt": { "desc": "LLM / prompt / agent logic", "difficulty": "high" },
-        "refactor":   { "desc": "rename / move / restructure", "difficulty": "high" }
+        "style": {
+          "desc": "visual / CSS / layout only",
+          "difficultyHint": "very-easy"
+        },
+        "logging": {
+          "desc": "log verbosity / messages / observability text",
+          "difficultyHint": "very-easy"
+        },
+        "docs": {
+          "desc": "README / docs / spec text",
+          "difficultyHint": "very-easy"
+        },
+        "config": {
+          "desc": "env / config knobs / flags",
+          "difficultyHint": "easy"
+        },
+        "component": {
+          "desc": "new/changed UI component or page",
+          "difficultyHint": "med"
+        },
+        "endpoint": {
+          "desc": "new/changed API route / handler",
+          "difficultyHint": "med"
+        },
+        "bugfix": {
+          "desc": "fix a specific defect",
+          "difficultyHint": "med-varies"
+        },
+        "feature": {
+          "desc": "multi-file new capability",
+          "difficultyHint": "high"
+        },
+        "migration": {
+          "desc": "schema / data migration",
+          "difficultyHint": "high"
+        },
+        "llm-prompt": {
+          "desc": "LLM / prompt / agent logic",
+          "difficultyHint": "high"
+        },
+        "refactor": {
+          "desc": "rename / move / restructure",
+          "difficultyHint": "high"
+        }
       }
     },
     "risk": {
       "cardinality": "zero-or-more",
       "desc": "Danger modifiers; each pushes difficulty UP. Used by the policy only once a cell is dense. UNIVERSAL.",
       "values": {
-        "touches-schema": { "desc": "changes a DB schema / migration / persistent-data shape" },
-        "touches-core":   { "desc": "changes a critical-path / framework / shared-runtime module" },
-        "full-stack":     { "desc": "spans multiple layers (e.g. data + backend + frontend) in one task" },
-        "cross-cutting":  { "desc": "many files / a shared convention" }
+        "touches-schema": {
+          "desc": "changes a DB schema / migration / persistent-data shape"
+        },
+        "touches-core": {
+          "desc": "changes a critical-path / framework / shared-runtime module"
+        },
+        "full-stack": {
+          "desc": "spans multiple layers (e.g. data + backend + frontend) in one task"
+        },
+        "cross-cutting": {
+          "desc": "many files / a shared convention"
+        }
       }
     }
   },
@@ -51,13 +110,34 @@
   "tiers": {
     "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). Example below uses Sonnet (cheap) → Opus (expensive).",
     "ladder": [
-      { "model": "claude-sonnet-4-6", "effort": "low" },
-      { "model": "claude-sonnet-4-6", "effort": "medium" },
-      { "model": "claude-sonnet-4-6", "effort": "high" },
-      { "model": "claude-opus-4-8", "effort": "medium" },
-      { "model": "claude-opus-4-8", "effort": "high" },
-      { "model": "claude-opus-4-8", "effort": "xhigh" },
-      { "model": "claude-opus-4-8", "effort": "max" }
+      {
+        "model": "claude-sonnet-4-6",
+        "effort": "low"
+      },
+      {
+        "model": "claude-sonnet-4-6",
+        "effort": "medium"
+      },
+      {
+        "model": "claude-sonnet-4-6",
+        "effort": "high"
+      },
+      {
+        "model": "claude-opus-4-8",
+        "effort": "medium"
+      },
+      {
+        "model": "claude-opus-4-8",
+        "effort": "high"
+      },
+      {
+        "model": "claude-opus-4-8",
+        "effort": "xhigh"
+      },
+      {
+        "model": "claude-opus-4-8",
+        "effort": "max"
+      }
     ]
   }
 }
