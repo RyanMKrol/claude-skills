@@ -413,7 +413,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   fresh=0; [ "$mode" = "fresh" ] && fresh=1
   prepare_wt "$branch" "$fresh"
 
-  RESULT="$LOOP_WT/.harness/.harness/worklog/.result"; rm -f "$RESULT"
+  RESULT="$LOOP_WT/.harness/worklog/.result"; rm -f "$RESULT"
   # Run Claude, polling + auto-resuming on usage/session limits (NOT a failure) so we resume soon
   # after the quota resets rather than waiting out supervise's full cadence.
   rl_waited=0
