@@ -135,7 +135,7 @@ i.e. exactly when editing `TASKS.json`, telling it to invoke the add-to-backlog 
 ```bash
 T="<target>"          # the REPO ROOT
 H="$T/.harness"       # the self-contained harness folder (everything but ci.yml lives here)
-mkdir -p "$H/designs" "$H/worklog" "$T/.github/workflows"
+mkdir -p "$H/designs" "$H/tasks" "$H/worklog" "$T/.github/workflows"
 # Install the loop variant chosen in step 0 — BOTH install as .harness/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
   cp -p "$TPL/scripts/loop.in-place.sh" "$H/loop.sh"
@@ -147,6 +147,7 @@ cp -p "$TPL/policy.jq" "$H/policy.jq"                  # difficulty auto-tuning 
 cp -p "$TPL/facets.json" "$H/facets.json"             # facet vocabulary + tier ladder + policy knobs (tailored below)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/"          # flat in .harness/ (not .harness/docs/)
 cp -p "$TPL/docs/designs/difficulty-autotune.md" "$H/designs/"
+cp -p "$TPL/tasks/"*.md "$H/tasks/"                    # per-task Markdown specs (## Do / ## Done when), one per example task — replace with yours in §6
 cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 chmod +x "$H/"*.sh
@@ -198,7 +199,15 @@ Build each from the corresponding template, substituting the interview answers. 
 From `$TPL/TASKS.json`, keep the top-level shape (`_doc`, `version`, `defaults`) and **replace the
 illustrative T001–T005 in `.tasks`** with a minimal real backlog. Set `defaults.model` /
 `defaults.effort` to the cold-start floor from the interview (cheapest — `claude-sonnet-4-6` /
-`low`); leave `defaults.escalation` as `[]` (escalation rides the global tier ladder).
+`low`). A task carries NO per-task `model`/`effort`/`escalation`; difficulty is auto-tuned from
+`facets` + the outcomes ledger.
+
+**Each task's `do` + `done-when` do NOT live in the JSON** — they go in a per-task Markdown spec at
+`.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`), referenced by the task's `spec` field.
+Every BUILDABLE task also carries `facets: { layer, workType, risk[] }` (values from
+`.harness/facets.json`); gated (gate / needs-human) tasks carry neither facets nor a real spec body.
+The shipped `.harness/tasks/T00N.md` are examples — when you replace the example tasks, write a
+matching `.harness/tasks/TNNN.md` for each new task and delete the unused example specs.
 
 - Always include **T001 = "Project scaffold + CI green on an empty build"** (`dependsOn: []`) — its
   job is to prove the CI gate end-to-end before any feature work. Give it a full task object
@@ -220,6 +229,8 @@ test -x "$T/.harness/loop.sh" && test -x "$T/.harness/supervise.sh" && test -x "
 for s in loop.sh supervise.sh postflight.sh; do bash -n "$T/.harness/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
+for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done
+for t in $(jq -r '.tasks[]|select(.gate==null)|select(.facets|not)|.id' "$T/.harness/TASKS.json"); do echo "WARN: buildable task $t has no facets (no auto-tuning)"; done
 command -v jq >/dev/null || echo "FAIL: jq not installed (the loop needs it to parse TASKS.json)"
 DRY_RUN=1 "$T/.harness/loop.sh" >/dev/null 2>&1 || echo "FAIL: DRY_RUN loop.sh errored (selection/backlog won't parse)"
 # in-place variant only: prove the load-bearing pre-push guard regex is correct

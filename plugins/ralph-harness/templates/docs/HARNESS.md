@@ -69,9 +69,10 @@ silently inherits whatever the CLI default is — an uncontrolled variable in th
 you most want control. Each task is sized to be achievable by a single context window of
 **its chosen** model, so the harness must *guarantee* that model, not hope for it.
 
-The pin is **per task**, resolved from `TASKS.json` (schema §8.1): a task's `model`/`effort`,
-else the file's `defaults`, else the `harness.env` `MODEL`/`EFFORT` fallback. The loop reads
-that rung and passes it through:
+The pin is **per task**, but the loop's difficulty **policy** chooses it — not a hand-authored
+field. It resolves to the policy's chosen tier for the task's facets (§8.1; the global
+`.tiers.ladder` + escalation history), falling back to the `defaults` cold-start floor, else the
+`harness.env` `MODEL`/`EFFORT`. The loop reads that rung and passes it through:
 
 ```sh
 claude -p "<task prompt>" \
@@ -81,40 +82,40 @@ claude -p "<task prompt>" \
 ```
 
 - **`--model`** — always the FULL id (the bare alias resolves to "latest" and will drift).
-  The default rung is `claude-opus-4-8` (`MODEL=` in `harness.env`); a task overrides it with
-  its own `model` (e.g. `claude-sonnet-4-6` for cheap, mechanical validation).
-- **`--effort`** (`low|medium|high|xhigh|max`). Default **`high`** — deliberately **avoid
-  `max`/`xhigh`** on a loop that runs for days; the marginal quality isn't worth the cost.
-  (`EFFORT=` in `harness.env`; per-task `effort` overrides.)
+  The cold-start floor is `claude-sonnet-4-6` (`MODEL=` in `harness.env`) — the cheapest tier;
+  the policy climbs the global ladder from there as a facet cell's history warrants.
+- **`--effort`** (`low|medium|high|xhigh|max`). Cold-start floor **`low`** (`EFFORT=` in
+  `harness.env`); the policy raises it via the ladder, whose top rungs reach `xhigh`/`max` only
+  for facet cells whose history proves they need it.
 - **`--dangerously-skip-permissions`** — deliberate. A headless loop has no human at the
   keyboard to answer permission prompts; the safety comes from the review gates and the
   bounded, reviewable per-task branches, not from per-action prompts.
 
-Rationale for choosing the model per task: spend the cheap model where the work is mechanical
-(a manual-validation pass, a docs tick) and the strong model where judgement is needed
-(coding, testing, reflection). Low-quality work that has to be redone is itself a top source
-of churn, so getting judgement-heavy tasks *right the first time* on a strong model is the
-cheaper path — while routing the easy tasks to a cheaper one keeps total spend down.
-(Zero-stakes helpers — the status board, cleanup — use **no** model at all.)
+Rationale: spend the cheap model where the work is mechanical and the strong model where
+judgement is needed — but the **policy learns** that split from escalation history per facet cell
+rather than a human guessing it per task. Bias is toward cheap (start at the floor); the global
+ladder is the safety net that climbs only the cells that actually fail there. (Zero-stakes
+helpers — the status board, cleanup — use **no** model at all.)
 
 ### Escalation — climb to a stronger model on repeated failure
 
-A task may carry an **`escalation`** ladder (§8.1): extra `{model, effort}` rungs the loop
-climbs to when the rung below keeps failing. The mechanism reuses the soft-failure cap (§7):
-after **`MAX_ATTEMPTS`** `failed:soft` attempts on the current rung, the loop advances to the
-next rung (logging `escalating TNNN → rung N: <model>/<effort>`) and resets the per-rung
-counter. Only once the **top** rung has also exhausted its attempts is the task treated as
-`failed:blocked` and surfaced for a human. With no `escalation` set, there is exactly one rung
-— identical to the prior single-model behaviour. This lets a backlog *try cheap first* (e.g.
-Sonnet) and automatically fall back to Opus only for the tasks that actually need it.
+The loop climbs ONE global tier ladder (`facets.json → .tiers.ladder`) when a rung keeps failing.
+The mechanism reuses the soft-failure cap (§7): after **`MAX_ATTEMPTS`** `failed:soft` attempts on
+the current rung, the loop advances to the next ladder rung (logging
+`escalating TNNN → rung N: <model>/<effort>`) and resets the per-rung counter. Only once the **top**
+rung has also exhausted its attempts is the task treated as `failed:blocked` and surfaced for a
+human. The policy sets the START rung per task (from its facets); escalation walks UP the ladder from
+there — so a backlog *tries cheap first* and automatically climbs to a stronger model only for the
+tasks that actually need it.
 
 **Difficulty is auto-tuned (see `.harness/designs/difficulty-autotune.md`).** Rather than per-task
 `escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
 policy (`.harness/policy.jq`) picks each task's START tier from its `(layer × work-type)` facet cell's
 escalation history (the cheapest tier clearing `floor` with ≥ `minN` samples; else the authored
 difficulty as a cold-start prior). Every built task's outcome is captured to `outcomes.jsonl` — the
-sole, forward-only calibration input. The authored `model`/`effort` becomes just the cold-start prior;
-`needs-human` tasks are carved out entirely. Tasks are classified with **facets** (not a guessed
+sole, forward-only calibration input. With no authored per-task model/effort, the cold-start prior is
+simply the cheapest tier (the `defaults` floor); `needs-human` tasks are carved out entirely. Tasks
+are classified with **facets** (not a guessed
 difficulty) by the add-to-backlog skill, and the `layer` vocabulary self-evolves via a poor-fit gate.
 
 > The current rung is tracked **in-memory per `loop.sh` run** (like the attempt counter): a
@@ -123,10 +124,10 @@ difficulty) by the add-to-backlog skill, and the `layer` vocabulary self-evolves
 
 ### Planning vs building — where `max` effort lives
 
-The loop **only ever builds**, at each task's chosen effort (`high` by default); it never runs a planning pass. The
+The loop **only ever builds**, at the policy-chosen effort; it never runs a planning pass. The
 `Design:` field (§8.1) is an **optional** pointer to a fuller design/plan doc: if one exists
-the build pass **reads it** before coding; if not, the agent works from the `Do:`/`Done-when:`
-brief on its own judgement — a doc is **never required**. When you *do* want a task explored
+the build pass **reads it** before coding; if not, the agent works from the task's spec
+(`## Do` / `## Done when`) on its own judgement — a doc is **never required**. When you *do* want a task explored
 up front, **you author that doc** — interactively, with Claude at `--effort max` — into
 `.harness/designs/TNNN-*.md`, and the high-effort build pass implements from it. So `max` effort
 exists in the project but lives **out of band** (optional, human-driven), never in the loop.
@@ -325,7 +326,8 @@ deploy/restart command run after each task integrates, so the running product ma
 
 | Artifact | Role |
 |---|---|
-| `TASKS.json` | Backlog + **statuses** + **per-task model** (source of truth for done/pending, dependency order, and which model/effort builds each task). |
+| `TASKS.json` | Backlog + **statuses** + **facets** (source of truth for done/pending, dependency order, and each task's difficulty-calibration key). Per-task `do`/`done-when` live in `tasks/TNNN.md` (the `spec` field); difficulty is auto-tuned, not authored. |
+| `tasks/TNNN.md` | One per task — the task's spec (`## Do` / `## Done when`), referenced by its `spec` field and appended to the build prompt. |
 | `worklog/TNNN.md` | Append-only **per-task memory**: every attempt, what passed/failed, what's left. **Read before every (re)attempt.** |
 | `worklog/.result` | The loop's **last-iteration verdict** (one line). Git-ignored scratch. |
 | git history + the single task branch | The work itself. At most one `tNNN` branch at a time, built in the isolation worktree. |
@@ -352,15 +354,10 @@ the top carries the human note (JSON has no comments). One task object:
   "dependsOn": ["T009", "T013"],
   "gate": null,                         // null | "gate" | "needs-human"
   "scope": ["src/replay.*", "tests/fixtures/replay_*"],
-  "design": ".harness/designs/T014-replay.md",   // optional; null = build from do/doneWhen
+  "design": ".harness/designs/T014-replay.md",   // optional; null = build from the spec alone
   "verify": ["run-app"],               // optional empirical checks
-  "do": "<the work, 1–3 sentences>",
-  "doneWhen": "<task-specific acceptance criteria>",
-  "model": "claude-sonnet-4-6",        // optional; per-task override of defaults.model
-  "effort": "medium",                  // optional; per-task override of defaults.effort
-  "escalation": [                      // optional; extra rungs tried after the primary fails
-    { "model": "claude-opus-4-8", "effort": "high" }
-  ],
+  "spec": ".harness/tasks/T014.md",    // REQUIRED — the task's do/done-when (## Do / ## Done when), in its own MD file
+  "facets": { "layer": "backend", "workType": "feature", "risk": [] },  // calibration key; OMIT for gated/needs-human tasks
   "tags": ["validation"]               // optional, freeform
 }
 ```
@@ -373,16 +370,15 @@ the top carries the human note (JSON has no comments). One task object:
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
 | `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
 | `scope` | Files this task should touch — a hint that keeps diffs tight for the CI gate (not a hard lock; only one agent runs). |
-| `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from `do`/`doneWhen` on its own judgement. Never required. |
-| `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §5 Definition of Done. Empty = unit/integration + CI suffice. |
-| `do` | The work, kept short. The deep version (when warranted) is the `design` doc. |
-| `doneWhen` | The **task-specific** acceptance bar. The **universal** bar (format/lint/test, CI green, docs lockstep) lives once in §5 and is not repeated per task. |
-| `model` / `effort` | **Optional** per-task override of `defaults.model` / `defaults.effort` — the **primary rung** the loop builds this task on. Omitted = inherit `defaults`. This is how a simple validation task runs on a cheaper model while coding/reflection tasks run on Opus (§3). |
-| `escalation` | **Optional** ordered array of extra `{model, effort}` rungs tried, in order, **after** the primary rung fails `MAX_ATTEMPTS` times — the auto-escalation ladder (§3, §7). Omitted = inherit `defaults.escalation` (empty = no escalation; the loop stops for a human after the primary, today's behaviour). |
-| `tags` | Optional freeform labels; the `add-to-backlog` skill uses them to suggest a model. |
+| `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from the `spec` on its own judgement. Never required. |
+| `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §6 Definition of Done. Empty = unit/integration + CI suffice. |
+| `spec` | **Required** repo-relative path to the task's per-task Markdown spec (`.harness/tasks/TNNN.md`) — sections `## Do` (the work, kept short) and `## Done when` (the **task-specific** acceptance bar; the **universal** bar in §6 is not repeated). The loop appends its full text to the build prompt. `do`/`doneWhen` do **not** live in the JSON. |
+| `facets` | The difficulty-calibration key for buildable tasks: `{ "layer", "workType", "risk": [...] }`, values drawn from `facets.json`. The policy picks the starting tier and escalates from it — this REPLACES per-task `model`/`effort`/`escalation` (a task carries none). **Omitted only for gated / needs-human tasks** (never calibrated). |
+| `tags` | Optional freeform DESCRIPTIVE labels (feature area) — not the calibration key (that's `facets`). |
 
-The top-level `defaults` object holds `model`, `effort`, and `escalation` applied to any task
-that doesn't override them. When design docs exist they live in **`.harness/designs/TNNN-slug.md`**
+The top-level `defaults` object holds the cold-start `model` + `effort` floor (the cheapest tier);
+a task carries no per-task model/effort/escalation — `facets` + the outcomes ledger drive difficulty.
+When design docs exist they live in **`.harness/designs/TNNN-slug.md`**
 and are written with Claude at `--effort max` (§3); the loop only ever *consumes* one — it
 never requires or writes one.
 

@@ -5,8 +5,8 @@ description: >-
   present) and the user wants to draft or extend the task backlog — phrases like "add tasks",
   "write the backlog", "turn this feature into tasks", "plan the next phase for the loop". Runs a
   focused interview that turns a feature description into atomic, dependency-ordered TASKS.json task
-  objects following the HARNESS.md §8.1 schema (dependsOn / scope / design / verify / do / doneWhen),
-  with per-task model selection + optional escalation, gate / needs-human markers, appended without
+  objects following the HARNESS.md §8.1 schema (dependsOn / scope / design / verify / facets + a
+  per-task `spec` Markdown file), with difficulty auto-tuned from facets, gate / needs-human markers, appended without
   disturbing existing tasks.
 argument-hint: "[feature or phase to break into tasks]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
@@ -33,8 +33,8 @@ but are never silently altered during an append.)
   - the highest existing id — `jq -r '.tasks[].id' TASKS.json | sort | tail -1` → new ids continue
     monotonically, zero-padded to the same width (≥3 digits);
   - all existing ids (`jq -r '.tasks[].id'`), so `dependsOn` references real tasks, never a dupe;
-  - the file's `defaults` (`jq '.defaults'`) — the default model/effort/escalation, so you only set
-    per-task `model`/`effort`/`escalation` when a task should differ from them.
+  - the file's `defaults` (`jq '.defaults'`) — the cold-start model/effort floor. Tasks carry NO
+    per-task model/effort/escalation; the policy auto-tunes difficulty from `facets` + the ledger.
 - **Read `facets.json`** (`jq '.facets'`) — the controlled facet vocabulary you'll assign in §2.4.
 
 - **Poor-fit gate — has the `layer` vocabulary drifted?** If `facet-misfits.jsonl` exists, count its
@@ -77,8 +77,10 @@ Use `AskUserQuestion`. Establish:
      warranted (those are authored separately, interactively, at `--effort max`). Else `null`.
    - **verify** — does it need an empirical check (e.g. `["run-app"]`, `["live-api"]`)? If the
      project captured a run/backtest command at scaffold time, reuse that label. Else `[]`.
-   - **doneWhen** — the task-specific acceptance bar. Do **not** restate the universal bar
-     (format/lint/test, CI green, docs lockstep) — that lives once in HARNESS §5.
+   - **do / done-when** — the work, and the task-specific acceptance bar. These go in the per-task
+     Markdown spec `.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`), NOT inline in the
+     JSON (see §3). Do **not** restate the universal bar (format/lint/test, CI green, docs lockstep)
+     in done-when — that lives once in HARNESS §6.
 4. **Facets (per task) — DESCRIBE the task; the policy decides difficulty.** Difficulty (which model
    + effort to start on) is now AUTO-TUNED by the loop's policy from escalation history — you do NOT
    guess it (see `.harness/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the
@@ -90,10 +92,10 @@ Use `AskUserQuestion`. Establish:
    - **`risk`** (zero or more) — danger flags (touches-schema, full-stack, …).
 
    Put these in a `"facets": { "layer": "...", "workType": "...", "risk": [...] }` object on the task.
-   You MAY set a rough `model`/`effort` as the **cold-start prior** (used only until the facet cell has
-   ≥ `minN` samples) or omit them to inherit `defaults` — but don't agonise; the policy overrides it
-   with data. Do **NOT** hand-author an `escalation` ladder — escalation now rides the global tier
-   ladder in `facets.json`. `needs-human`/gated tasks need NO facets (they never run through the loop).
+   Do **NOT** set per-task `model`/`effort`/`escalation` at all — the policy picks the starting tier
+   from facets + the outcomes ledger, escalation rides the global tier ladder in `facets.json`, and
+   the cold-start floor lives in `defaults`. `facets` is the ONLY difficulty signal you author.
+   `needs-human`/gated tasks need NO facets (they never run through the loop).
 
    **If nothing fits — record a poor-fit signal; do NOT invent a value.** Minting an ad-hoc facet
    value re-fragments the calibration. If you're genuinely confident no existing `layer` (or
@@ -143,27 +145,27 @@ For each task, in dependency order, produce a JSON object:
   "dependsOn": ["<ids>"],            // [] if none
   "gate": null,                       // null | "gate" | "needs-human"
   "tags": ["<type>"],                 // optional, DESCRIPTIVE (feature area) — NOT the calibration key
-  "facets": { "layer": "...", "workType": "...", "risk": [] },  // §2.4 — the calibration key; OMIT for needs-human tasks
-  "model": "claude-sonnet-4-6",       // cold-start PRIOR only (policy auto-tunes difficulty); OMIT to inherit defaults
-  "effort": "medium",                 // cold-start prior; OMIT to inherit defaults
-  // NO `escalation` field — escalation rides the global tier ladder in facets.json
+  "facets": { "layer": "...", "workType": "...", "risk": [] },  // §2.4 — the ONLY difficulty signal; OMIT for needs-human/gated tasks
   "scope": ["<files/globs>"],
   "design": null,                     // or ".harness/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
-  "do": "<the work, 1–3 sentences>",
-  "doneWhen": "<task-specific acceptance criteria>"
+  "spec": ".harness/tasks/TNNN.md"    // the task's do/done-when (## Do / ## Done when) — author this MD file too
+  // NO model/effort/escalation, NO inline do/doneWhen — the policy auto-tunes difficulty from facets + the ledger
 }
 ```
 
 Rules: ids monotonic from the existing max, zero-padded; `dependsOn` references only ids that exist
-(existing or newly-added-above); omit `model`/`effort`/`escalation` to inherit `defaults` rather
-than restating them; `status` is always `"pending"` (the loop flips it to `"done"`).
+(existing or newly-added-above); NO per-task `model`/`effort`/`escalation` (difficulty is auto-tuned
+from facets); `status` is always `"pending"` (the loop flips it to `"done"`). **For every task you
+add, also create its `.harness/tasks/TNNN.md`** with `## Do` and `## Done when` sections — the JSON
+`spec` field points at it and the loop appends its full text to the build prompt.
 
-### Writing `do` / `doneWhen` so a fresh agent gets it right
+### Writing the spec MD (`.harness/tasks/TNNN.md`) so a fresh agent gets it right
 
-The building agent is a **fresh agent** with **none** of this interview's context — `do` and
-`doneWhen` are the entire brief it binds to. Make them self-contained and unambiguous, or it will
-confidently build the wrong thing:
+Each task's spec is a Markdown file with two sections — `## Do` (the work, 1–3 sentences) and
+`## Done when` (the task-specific acceptance bar). The building agent is a **fresh agent** with
+**none** of this interview's context — the spec is the entire brief it binds to. Make it
+self-contained and unambiguous, or it will confidently build the wrong thing:
 
 - **No ambiguous referents.** Name the exact artifact/identifier; avoid bare words like "the ID",
   "the page", "the value". (A real miss: *"the ID of the workflow"* got built against the workflow
@@ -173,10 +175,10 @@ confidently build the wrong thing:
   the exact endpoint/table — so the agent edits the right place instead of guessing.
 - **For UI / behavioural tasks, require verification against the *real running* thing**, not just
   "build/tests pass": e.g. *"load `<page>` and confirm `<element>` shows `<expected>`"*. Put it in
-  `doneWhen` (or as a `verify` label) so a plausible-but-wrong build can't slip through green CI.
+  `## Done when` (or as a `verify` label) so a plausible-but-wrong build can't slip through green CI.
 - **Self-contained.** No "as we discussed" / "like the other one" — the fresh agent can't see this
   conversation.
-- **Tests stay hermetic.** If the task adds tests, `doneWhen` should require they run against a
+- **Tests stay hermetic.** If the task adds tests, `## Done when` should require they run against a
   scratch/temp resource, never the real DB / services / files (CLAUDE.md golden rule) — never
   author a task whose verification mutates production state.
 
@@ -194,6 +196,10 @@ jq --slurpfile add new-tasks.json '.tasks += $add[0]' TASKS.json > TASKS.json.tm
 Never hand-edit existing task objects, and never change any existing `status`. (jq normalises
 whitespace for the whole file — that's fine; the content of prior tasks is preserved verbatim.)
 
+**Write each new task's spec file too:** for every task appended above, create
+`.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`) so its `spec` path resolves — a task
+whose spec file is missing leaves the builder with no brief.
+
 **Ordering matters — the loop builds in array order.** Selection walks `.tasks` in **array order**
 and takes the first eligible task; `dependsOn` only *blocks*, it does **not** reorder (HARNESS
 §8.1). Appending (above) puts new tasks at the **end**, which is almost always right. The case to
@@ -207,10 +213,11 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
 - Existing task count + new count == total: `jq '.tasks | length' TASKS.json` matches expectation,
   and no prior `status` changed (`jq -r '.tasks[]|select(.status=="done")|.id'` is unchanged).
 - Every `dependsOn` id exists (`jq` cross-check), no dangling deps, no cycles, no duplicate ids.
-- `gate` is one of `null` / `"gate"` / `"needs-human"`; every `model` is a full id (no bare alias).
+- `gate` is one of `null` / `"gate"` / `"needs-human"`; no task carries `model`/`effort`/`escalation`.
+- **Every task has a `spec` path AND a matching `.harness/tasks/TNNN.md` on disk** (sections `## Do` /
+  `## Done when`) — no inline `do`/`doneWhen` in the JSON. (`for s in $(jq -r '.tasks[].spec' TASKS.json); do test -f "$s" || echo "missing $s"; done`)
 - **Every buildable (non-needs-human) task has a `facets` object** with a `layer` + `workType` drawn
   from `facets.json`'s vocabulary, and any `risk` flags valid; needs-human/gated tasks have none.
-  No hand-authored `escalation` ladders.
 - Print a short summary: tasks added, each with its deps + **facets** (layer/work-type), so the user
   can confirm the dependency graph and the facet classification read correctly. (Don't report a
   "chosen model" — the policy decides difficulty now.)
@@ -218,8 +225,9 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
 ## 6. Hand off
 
 Tell the user the loop will pick these up in dependency order on the next `.harness/loop.sh` /
-`.harness/supervise.sh` pass — building one at a time on each task's chosen model, escalating on
-repeated failure, and stopping at any `gate` / `needs-human` task for them.
+`.harness/supervise.sh` pass — building one at a time, the policy choosing each task's starting tier
+from its facets and escalating up the global ladder on repeated failure, and stopping at any `gate` /
+`needs-human` task for them.
 
 ## 7. (Optional) Prune completed tasks
 

@@ -99,26 +99,16 @@ task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"'
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
 task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
 task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; }
+# A task's do/done-when live in a per-task Markdown spec, referenced by the JSON `spec` field
+# (a repo-relative path, e.g. .harness/tasks/T001.md, with sections '## Do' / '## Done when').
+task_spec_rel() { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.spec // empty'; }
 
-# task_ladder <id> — print the task's build rungs, one "MODEL<TAB>EFFORT" per line, in order:
-#   rung 0 = the primary (per-task model/effort, else .defaults); then each escalation rung.
-# Escalation rungs (per-task `escalation`, else `defaults.escalation`) are the stronger models
-# the loop climbs to after MAX_ATTEMPTS soft-failures on the rung below (.harness/HARNESS.md §3,§7).
-task_ladder() {
-  tj -r --arg id "$1" '
-    (.defaults.model // "") as $dm | (.defaults.effort // "") as $de |
-    (.defaults.escalation // []) as $desc |
-    .tasks[] | select(.id==$id) |
-    ( [ { model:(.model // $dm), effort:(.effort // $de) } ]
-      + ( (.escalation // $desc) | map({ model:(.model // $dm), effort:(.effort // $de) }) )
-    ) | .[] | "\(.model)\t\(.effort)"'
-}
 # --- Difficulty auto-tuning (see .harness/designs/difficulty-autotune.md) -----------------------------
-# The loop no longer escalates a PER-TASK ladder; it rides ONE global difficulty ladder
-# (facets.json .tiers.ladder, cheapest→priciest) offset by a policy-chosen START tier (cur_base).
+# The loop rides ONE global difficulty ladder (facets.json .tiers.ladder, cheapest→priciest) offset
+# by a policy-chosen START tier (cur_base). Tasks carry NO per-task model/effort/escalation — `facets`
+# drive the policy and the global ladder is the safety net; the cold-start prior is the cheapest tier.
 # WORKTREE MODEL: decisions/state are read from origin/main via `blob` (never a working tree), and
 # the outcome ledger is committed to main through a detached worktree (like block_task).
-# (task_ladder above is retained but unused.)
 POLICY_JQ="$HARNESS_DIR/policy.jq"               # .harness/policy.jq, alongside this loop
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
@@ -292,8 +282,10 @@ Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run he
    attempt (commits and/or uncommitted changes) — keep it and CONTINUE. Read
    `.harness/worklog/<TASK>.md` (prior attempts) and this task's object in .harness/TASKS.json (find it with
    `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json`); if its `design` field points to a
-   `.harness/designs/…` doc, READ and follow it. RECONCILE THE DELTA: inspect what already
-   exists/passes and do ONLY the outstanding work vs the task's `doneWhen`. Trust the code
+   `.harness/designs/…` doc, READ and follow it. The task's `do` + `done-when` live in the Markdown
+   spec at the JSON `spec` path (.harness/tasks/<TASK>.md, sections '## Do' / '## Done when') — its
+   FULL TEXT is appended at the end of this prompt. RECONCILE THE DELTA: inspect what already
+   exists/passes and do ONLY the outstanding work vs the spec's '## Done when'. Trust the code
    over the worklog. Stay within the task's `scope` files.
 2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
@@ -320,6 +312,19 @@ Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run he
      waiting <TASK> <unmet-deps>          # a dependency is not merged yet
      idle                                 # nothing to do for this task
 EOF
+  # Append the task's Markdown spec (## Do / ## Done when) verbatim — read from the git ref. The
+  # `spec` field is ALREADY a full repo-relative path (.harness/tasks/<TASK>.md), so read it directly
+  # with `git show "$TASKS_REF:$rel"` — do NOT route it through blob() (which re-prefixes .harness/).
+  local rel="" md
+  rel="$(task_spec_rel "$tid")"
+  if [ -n "$rel" ]; then
+    md="$(git -C "$ROOT" show "$TASKS_REF:$rel" 2>/dev/null || true)"
+    if [ -n "$md" ]; then
+      printf '\n\n--- Task %s spec (%s) ---\n%s\n' "$tid" "$rel" "$md"
+    else
+      printf '\n\n(WARNING: spec file %s referenced by %s is missing at %s — read the task via jq.)\n' "$rel" "$tid" "$TASKS_REF"
+    fi
+  fi
 }
 
 # --- Claude invocation with rate-limit detection ----------------------------

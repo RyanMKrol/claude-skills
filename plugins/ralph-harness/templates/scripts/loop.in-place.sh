@@ -138,6 +138,9 @@ task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"'
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
 task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
 task_blocked() { [ -f "$WORKLOG/$1.md" ] && grep -qiE 'failed:blocked|needs-human' "$WORKLOG/$1.md"; }
+# A task's do/done-when live in a per-task Markdown spec, referenced by the JSON `spec` field
+# (a repo-relative path, e.g. .harness/tasks/T001.md, with sections '## Do' / '## Done when').
+task_spec_rel() { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.spec // empty'; }
 
 # Shell owns task status: set it done, then commit+push the one-line change (no CI needed). Sweeps
 # worklog/ into the same commit so a stray worklog the agent forgot to stage can't dirty the tree
@@ -182,21 +185,11 @@ run_integrate_hook() {
   ( cd "$ROOT" && eval "$INTEGRATE_HOOK" ) || log "WARN: integrate hook failed (non-fatal)"
 }
 
-# task_ladder <id> — emit "MODEL<TAB>EFFORT" per build rung (rung 0 = primary, then escalations).
-task_ladder() {
-  tj -r --arg id "$1" '
-    (.defaults.model // "") as $dm | (.defaults.effort // "") as $de |
-    (.defaults.escalation // []) as $desc |
-    .tasks[] | select(.id==$id) |
-    ( [ { model:(.model // $dm), effort:(.effort // $de) } ]
-      + ( (.escalation // $desc) | map({ model:(.model // $dm), effort:(.effort // $de) }) )
-    ) | .[] | "\(.model)\t\(.effort)"'
-}
 # --- Difficulty auto-tuning: global tier ladder + the calibration policy --------------------------
-# The loop no longer escalates a PER-TASK ladder; it rides ONE global difficulty ladder
-# (facets.json .tiers.ladder, cheapest→priciest) offset by a policy-chosen START tier (cur_base).
-# rung 0 = the policy's start tier; escalation walks UP the global ladder. The authored model/effort
-# is only the cold-start prior. (task_ladder above is retained but unused.) See .harness/HARNESS.md §6.
+# The loop rides ONE global difficulty ladder (facets.json .tiers.ladder, cheapest→priciest) offset
+# by a policy-chosen START tier (cur_base). rung 0 = the policy's start tier; escalation walks UP the
+# global ladder. Tasks carry NO per-task model/effort/escalation — `facets` drive the policy and the
+# global ladder is the safety net; the cold-start prior is just the cheapest tier. See .harness/HARNESS.md §6.
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
   < <(jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' "$FACETS" 2>/dev/null)
@@ -288,11 +281,13 @@ Do NOT create/switch branches. Do NOT push. Do NOT merge. The loop pushes + gate
 You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly.
 
 1. ORIENT & RESUME. Read CLAUDE.md (conventions) and find this task:
-   `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json` (read its scope/doneWhen/verify; if its `design`
-   field points to a .harness/designs/… doc, READ and follow it). Read .harness/worklog/<TASK>.md if present
-   (prior attempts — don't repeat dead ends). The working tree MAY hold partial work from an
-   interrupted attempt — RECONCILE: do ONLY the outstanding work vs `doneWhen`, trusting the code
-   over the worklog. Stay within the task's `scope` files.
+   `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json` (read its scope/verify and orchestration
+   fields; if its `design` field points to a .harness/designs/… doc, READ and follow it). The task's
+   `do` + `done-when` live in the Markdown spec at the JSON `spec` path (.harness/tasks/<TASK>.md,
+   sections '## Do' / '## Done when') — its FULL TEXT is appended at the end of this prompt. Read
+   .harness/worklog/<TASK>.md if present (prior attempts — don't repeat dead ends). The working tree
+   MAY hold partial work from an interrupted attempt — RECONCILE: do ONLY the outstanding work vs the
+   spec's '## Done when', trusting the code over the worklog. Stay within the task's `scope` files.
 
 2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/HARNESS.md §6
@@ -324,6 +319,18 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harn
      waiting <TASK> <unmet-deps>     # a dependency is not done yet
      idle                            # nothing to do
 EOF
+  # Append the task's Markdown spec (## Do / ## Done when) verbatim — the SOLE source of do/done-when.
+  local rel="" path
+  rel="$(task_spec_rel "$tid")"
+  if [ -n "$rel" ]; then
+    path="$ROOT/$rel"
+    if [ -f "$path" ]; then
+      printf '\n\n--- Task %s spec (%s) ---\n' "$tid" "$rel"
+      cat "$path"
+    else
+      printf '\n\n(WARNING: spec file %s referenced by %s is missing — read the task via jq.)\n' "$rel" "$tid"
+    fi
+  fi
 }
 
 # --- Dry run ----------------------------------------------------------------

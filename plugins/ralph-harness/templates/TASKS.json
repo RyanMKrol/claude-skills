@@ -1,10 +1,9 @@
 {
-  "_doc": "Implementation backlog for the single sequential Ralph loop. This is the SOURCE OF TRUTH for done/not-done and dependency order; docs/HARNESS.md describes how the loop reads it (§8.1 = schema). These tasks are ILLUSTRATIVE EXAMPLES showing the schema, the gate markers, and per-task model selection — REPLACE them with your own atomic, dependency-ordered tasks before running the loop.",
+  "_doc": "Implementation backlog for the single sequential Ralph loop. SOURCE OF TRUTH for done/not-done + dependency order; docs/HARNESS.md §8.1 = schema. Each task's `do` + `done-when` live in a per-task Markdown spec at the `spec` path (.harness/tasks/TNNN.md, sections '## Do' / '## Done when'); every BUILDABLE task carries `facets` (difficulty auto-tuning) — gated (gate / needs-human) tasks are carved out and carry neither. These are ILLUSTRATIVE EXAMPLES showing the schema, the gate markers, the spec-file convention, and facets — REPLACE them (and their tasks/*.md specs) with your own atomic, dependency-ordered tasks before running the loop.",
   "version": 1,
   "defaults": {
     "model": "claude-sonnet-4-6",
-    "effort": "low",
-    "escalation": []
+    "effort": "low"
   },
   "tasks": [
     {
@@ -14,16 +13,11 @@
       "dependsOn": [],
       "gate": null,
       "tags": ["scaffold"],
-      "model": "claude-sonnet-4-6",
-      "effort": "medium",
-      "escalation": [
-        { "model": "claude-opus-4-8", "effort": "high" }
-      ],
       "scope": ["project manifest", "src/ entrypoint", ".github/workflows/ci.yml"],
       "design": null,
       "verify": [],
-      "do": "Lay down the minimal project skeleton for your stack and wire the real format/lint/test/build commands into CI so an empty build goes green. Mechanical boilerplate — runs on Sonnet, escalates to Opus if it can't get CI green.",
-      "doneWhen": "README.md documents how to build/run; CI is green on main; the Definition of Done commands in docs/HARNESS.md §5 match what CI runs."
+      "spec": ".harness/tasks/T001.md",
+      "facets": { "layer": "infra", "workType": "config", "risk": [] }
     },
     {
       "id": "T002",
@@ -35,8 +29,8 @@
       "scope": ["src/core.*", "tests/core_*"],
       "design": null,
       "verify": [],
-      "do": "Define the central module's public interface (types/traits/functions) that later tasks build against, with stub implementations and unit tests for the contract.",
-      "doneWhen": "the interface compiles, is unit-tested, and is documented; downstream tasks can code against it without touching its internals."
+      "spec": ".harness/tasks/T002.md",
+      "facets": { "layer": "backend", "workType": "feature", "risk": ["touches-core"] }
     },
     {
       "id": "T003",
@@ -46,10 +40,10 @@
       "gate": null,
       "tags": ["coding"],
       "scope": ["src/feature_x.*", "tests/feature_x_*"],
-      "design": "docs/designs/T003-feature-x.md",
+      "design": ".harness/designs/T003-feature-x.md",
       "verify": [],
-      "do": "Implement the first real feature using the T002 interface.",
-      "doneWhen": "feature works, unit + integration tests pass, README status row flipped."
+      "spec": ".harness/tasks/T003.md",
+      "facets": { "layer": "backend", "workType": "feature", "risk": [] }
     },
     {
       "id": "T004",
@@ -61,8 +55,7 @@
       "scope": ["tests/integration/*"],
       "design": null,
       "verify": ["run-app"],
-      "do": "Build an end-to-end test that exercises the feature against a realistic input, and run the app once against real input to confirm it behaves.",
-      "doneWhen": "the e2e test passes and the empirical run is recorded in worklog/T004.md. A human reviews this deliverable before dependent tasks proceed."
+      "spec": ".harness/tasks/T004.md"
     },
     {
       "id": "T005",
@@ -74,8 +67,7 @@
       "scope": ["infra/*", "docs/SETUP.md"],
       "design": null,
       "verify": [],
-      "do": "Prepare everything for the external resource (config, scripts, docs) up to the point a human must run the privileged/credentialed step.",
-      "doneWhen": "everything around the manual step is ready and documented; the agent records failed:blocked (needs-human) — the human performs the one-time provisioning step."
+      "spec": ".harness/tasks/T005.md"
     }
   ]
 }
