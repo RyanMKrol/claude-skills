@@ -36,10 +36,12 @@ case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make 
 
 BACKLOG="$ROOT/TASKS.json"
 WORKLOG="$ROOT/worklog"
+OUTCOMES="$ROOT/outcomes.jsonl"                    # append-only escalation ledger — the SOLE input to difficulty calibration (forward-only)
+FACETS="$ROOT/facets.json"                         # facet vocabulary + global tier ladder + policy knobs
 NAME="$(basename "$ROOT")"
 MODEL="${MODEL:-claude-opus-4-8}"                 # pin EXACTLY — the bare alias drifts
 EFFORT="${EFFORT:-high}"                           # low|medium|high|xhigh|max
-MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"                  # soft failures per rung before escalating
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"                  # soft failures per rung before escalating (2: the global tier ladder is fine-grained, so fewer tries per rung bounds the total attempt budget)
 MAX_ITERS="${MAX_ITERS:-100}"                      # global iteration backstop
 WAIT_SECONDS="${WAIT_SECONDS:-30}"                 # backoff between retries / CI polls
 CI_TIMEOUT="${CI_TIMEOUT:-1200}"                   # max seconds to wait for a CI run
@@ -139,11 +141,35 @@ task_blocked() { [ -f "$WORKLOG/$1.md" ] && grep -qiE 'failed:blocked|needs-huma
 # Shell owns task status: set it done, then commit+push the one-line change (no CI needed). Sweeps
 # worklog/ into the same commit so a stray worklog the agent forgot to stage can't dirty the tree
 # (which would mislabel the next iteration as a "resume").
+# record_outcome <id> <blocked:true|false> [reason] — append ONE escalation-outcome row to the
+# ledger (the sole input to difficulty calibration). FORWARD-ONLY: only fires for tasks the loop
+# actually builds, so gated/needs-human tasks (never selected) are excluded by construction.
+# Each escalation = exactly MAX_ATTEMPTS soft failures, so totalSoftFails is derivable. Best-effort —
+# never fails the caller. cur_rung/cur_attempts are the live success (or top) rung at call time.
+record_outcome() {
+  local id="$1" blocked="$2" reason="${3:-}" line ts sm se fm fe
+  local total=$(( cur_rung * MAX_ATTEMPTS + cur_attempts ))
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  read -r sm se <<<"$(rung_at "$id" 0)"             # start (cold-start prior) tier
+  read -r fm fe <<<"$(rung_at "$id" "$cur_rung")"   # final tier actually used
+  line="$(tj --arg id "$id" --argjson blocked "$blocked" --arg reason "$reason" \
+      --argjson rung "$cur_rung" --argjson atr "$cur_attempts" --argjson total "$total" \
+      --arg sm "$sm" --arg se "$se" --arg fm "$fm" --arg fe "$fe" --arg ts "$ts" \
+      -c '.tasks[]|select(.id==$id)|{
+        id:$id, ts:$ts, facets:(.facets // null), scopeSize:(.scope|length),
+        startModel:$sm, startEffort:$se, finalModel:$fm, finalEffort:$fe,
+        succeededRung:(if $blocked then null else $rung end), topRung:$rung,
+        attemptsAtRung:$atr, totalSoftFails:$total, blocked:$blocked, reason:$reason
+      }')"
+  if [ -n "$line" ]; then printf '%s\n' "$line" >>"$OUTCOMES"; else log "WARN: couldn't record outcome for $id"; fi
+}
+
 mark_done() {
   local id="$1" tmp="$BACKLOG.tmp"   # same-dir temp → mv is an atomic rename (no cross-fs partial reads)
   jq --arg id "$id" '(.tasks[]|select(.id==$id)|.status)="done"' "$BACKLOG" >"$tmp" \
     && mv "$tmp" "$BACKLOG" || { rm -f "$tmp"; log "WARN: failed to mark $id done"; return 1; }
-  git -C "$ROOT" add "$BACKLOG" "$WORKLOG" 2>/dev/null || true
+  record_outcome "$id" false                        # success → ledger row (succeededRung=cur_rung)
+  git -C "$ROOT" add "$BACKLOG" "$WORKLOG" "$OUTCOMES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: mark done [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push status update for $id"
 }
@@ -165,13 +191,46 @@ task_ladder() {
       + ( (.escalation // $desc) | map({ model:(.model // $dm), effort:(.effort // $de) }) )
     ) | .[] | "\(.model)\t\(.effort)"'
 }
-ladder_len() { task_ladder "$1" | grep -c .; }
-rung_at() {
-  local r m e
-  r="$(task_ladder "$1" | sed -n "$(( ${2:-0} + 1 ))p")"
-  m="${r%%$'\t'*}"; e="${r##*$'\t'}"
-  printf '%s %s' "${m:-$MODEL}" "${e:-$EFFORT}"
+# --- Difficulty auto-tuning: global tier ladder + the calibration policy --------------------------
+# The loop no longer escalates a PER-TASK ladder; it rides ONE global difficulty ladder
+# (facets.json .tiers.ladder, cheapest→priciest) offset by a policy-chosen START tier (cur_base).
+# rung 0 = the policy's start tier; escalation walks UP the global ladder. The authored model/effort
+# is only the cold-start prior. (task_ladder above is retained but unused.) See docs/HARNESS.md §6.
+TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
+while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
+  < <(jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' "$FACETS" 2>/dev/null)
+[ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")     # fallback if facets.json absent
+POLICY_FLOOR="$(jq -r '.policy.floor // 0.75' "$FACETS" 2>/dev/null || echo 0.75)"
+POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
+POLICY_JQ="$(dirname "$0")/policy.jq"               # scripts/policy.jq, alongside this loop
+
+# gtier <idx> — echo "model effort" for the ladder tier at idx, clamped to [0, top].
+gtier() {
+  local idx="$1" last=$(( ${#TIER_TUPLES[@]} - 1 ))
+  (( idx < 0 )) && idx=0; (( idx > last )) && idx=$last
+  printf '%s' "${TIER_TUPLES[$idx]}"
 }
+
+# pick_base <id> — the policy's chosen START tier INDEX: the cheapest ladder tier whose
+# (layer × work-type) cell historically clears the floor with >= minN samples; else the authored
+# difficulty (cold-start prior). Robust: missing facets / empty ledger / any error → the prior.
+pick_base() {
+  local id="$1" layer wt am ae cold tiers
+  am="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.model // empty')"; am="${am:-$MODEL}"
+  ae="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.effort // empty')"; ae="${ae:-$EFFORT}"
+  tiers="$(jq -c '.tiers.ladder' "$FACETS" 2>/dev/null)"
+  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$am" --arg e "$ae" '($t|map(.model==$m and .effort==$e)|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
+  layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
+  wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
+  if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s' "$cold"; return; fi
+  jq -n -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
+     --arg layer "$layer" --arg wt "$wt" --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" \
+     --argjson coldIdx "$cold" 2>/dev/null || printf '%s' "$cold"
+}
+
+# Rung machinery, now on the global ladder offset by cur_base (the policy's per-task start tier).
+ladder_len() { echo $(( ${#TIER_TUPLES[@]} - cur_base )); }
+rung_at()    { gtier $(( cur_base + ${2:-0} )); }
 
 # SELECT — echo the next eligible task id; return 1 if nothing is eligible.
 select_task() {
@@ -279,7 +338,7 @@ fi
 acquire_lock
 trap 'release_lock' EXIT INT TERM
 
-cur_task=""; cur_attempts=0; cur_rung=0
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
 
 # Give up on ONE task WITHOUT halting the loop: discard any local unpushed work, record a
 # failed:blocked marker in the task's worklog (so select_task skips it from now on), push that,
@@ -290,16 +349,17 @@ block_task() {
   git -C "$ROOT" reset --hard "origin/$MAIN_BRANCH" 2>/dev/null || true   # drop any local unpushed commit/changes
   mkdir -p "$WORKLOG"
   printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$WORKLOG/$id.md"
-  git -C "$ROOT" add "$WORKLOG/$id.md" 2>/dev/null || true
+  record_outcome "$id" true "$reason"               # blocked → ledger row (succeededRung=null, topRung=cur_rung)
+  git -C "$ROOT" add "$WORKLOG/$id.md" "$OUTCOMES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
-  cur_task=""; cur_attempts=0; cur_rung=0
+  cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
 }
 
 bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
   local t="$1" last
-  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; }
+  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; cur_base="$(pick_base "$t")"; }
   last=$(( $(ladder_len "$t") - 1 ))
   cur_attempts=$((cur_attempts + 1))
   log "soft failure $cur_attempts/$MAX_ATTEMPTS on $t (rung $cur_rung/$last)"
@@ -325,7 +385,11 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     board; exit 0
   fi
   task="$sel"
-  [ "$task" = "$cur_task" ] || { cur_task="$task"; cur_attempts=0; cur_rung=0; }
+  if [ "$task" != "$cur_task" ]; then
+    cur_task="$task"; cur_attempts=0; cur_rung=0
+    cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
+    log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
+  fi
   read -r tmodel teffort <<<"$(rung_at "$task" "$cur_rung")"
   mode="fresh"; [ -n "$(git -C "$ROOT" status --porcelain)" ] && mode="resume"
   log "iteration $i/$MAX_ITERS → $task ($mode) on $tmodel/$teffort (rung $cur_rung)"
@@ -366,7 +430,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       fi
       if [ "$REQUIRE_CI" = "1" ]; then
         if wait_ci_green; then
-          mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; cur_task=""; cur_attempts=0; cur_rung=0
+          mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
         else
           # NEVER halt the whole loop on one red CI: revert the pushed commit to restore main, then
           # soft-retry the task. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
@@ -379,7 +443,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
           bump "$task"
         fi
       else
-        mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; cur_task=""; cur_attempts=0; cur_rung=0
+        mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       fi
       ;;
     failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; bump "$task" ;;

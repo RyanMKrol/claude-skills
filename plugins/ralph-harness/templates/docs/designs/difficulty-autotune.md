@@ -1,0 +1,89 @@
+# Difficulty auto-tuning — design
+
+The harness builds each task with an AI agent at a chosen **difficulty** (which model + reasoning
+effort to try first). Instead of a one-shot human/LLM guess, a **self-tuning policy** learns, per
+*kind* of task, the cheapest setting that reliably works — saving cost and improving first-try
+success, with the human out of the loop.
+
+## The closed loop
+
+> **backlog → loop builds on an escalating ladder → capture each outcome → calibrate by facet →
+> policy picks the cheapest-safe starting tier → repeat, getting cheaper + better-calibrated.**
+
+The asymmetry that makes it work: **starting too cheap is self-correcting and self-teaching** (the
+task escalates, you recover via the ladder, and you learn the class is harder than thought), while
+**starting too expensive is silent waste** (it succeeds, but you never learn a cheaper tier would
+have worked). So the policy **biases cheap and leans on the ladder as the safety net** — that saves
+money *and* generates the data to keep learning.
+
+## 1. Facets — the vocabulary (`facets.json`)
+
+A **facet** is one labelled, difficulty-predictive axis describing a buildable task:
+- **`layer`** (exactly one) — *where* the change lives. **Project-specific**; largely inferable from
+  the task's scope file paths. Tailored to the repo at create-harness time; self-evolves (§6).
+- **`work-type`** (exactly one) — *what kind* of change (style/docs/bugfix/feature/migration/…).
+  **Universal** across projects.
+- **`risk`** (zero or more) — danger modifiers (touches-schema, full-stack, …), each pushes up.
+
+The calibration keys on **`layer × work-type`**. `facets.json` is the source of truth (vocabulary +
+the global tier ladder + policy knobs). **`needs-human`/gated tasks are carved out** — no facets,
+never calibrated.
+
+## 2. Global difficulty ladder
+
+`facets.json → .tiers.ladder`: one ordered list of `{model, effort}` tiers, cheapest → priciest. The
+policy picks a **start tier** per task; escalation walks **up** the ladder (clamped at the top). The
+authored model/effort is only the cold-start prior. `MAX_ATTEMPTS` soft failures per tier before
+escalating (default 2 — the ladder is fine-grained).
+
+## 3. Capture — the ledger  *(in `loop.sh`)*
+
+`mark_done`/`block_task` append one JSON row per built task to **`outcomes.jsonl`**: facets, scope
+size, start + final model/effort, the rung it succeeded at (or blocked), soft-fail counts. **Forward-
+only:** only tasks the loop builds reach these, so gated/needs-human tasks write nothing. **The ledger
+is the SOLE input to calibration** — the aggregator joins *from* a ledger row to its facets, never
+*from* the task list, so re-tagging done tasks can never influence forward decisions.
+
+## 4. Calibration + policy  *(`policy.jq` + `loop.sh`)*
+
+`policy.jq` reads the ledger and, for a task's `(layer × work-type)` cell, returns the **cheapest tier
+whose historical first-attempt success rate ≥ floor (default 0.75) with ≥ minN (default 6) samples;
+else the authored difficulty** (cold-start prior). `pick_base` runs it at task selection; the rung
+machinery rides the global ladder offset by that base. Robust: any missing facets / empty ledger /
+error → the prior, so it can never break the loop.
+
+## 5. Authoring — facets + poor-fit signal  *(add-to-backlog skill)*
+
+The author **describes** the task with facets (from `facets.json`, using scope paths as the layer
+signal) and **no longer guesses difficulty** — the policy decides. If no value confidently fits, the
+author does **not** invent one (that fragments the calibration) — it records a context-carrying
+**poor-fit signal** to `facet-misfits.jsonl` and tags the task with the closest value. Poor-fit is
+overwhelmingly a `layer` problem; `work-type` is universal and stable.
+
+## 6. Layer evolution — the poor-fit gate  *(add-to-backlog skill)*
+
+The vocabulary evolves **without a human babysitting it** — the harness is most productive early in a
+project, exactly when structure is least defined, so misfits accumulate fastest when the vocabulary is
+least mature; the gate self-front-loads, then quiets as things stabilise.
+
+At task-add time, if the accumulated poor-fit count ≥ `policy.poorFitThreshold`, run a **layer
+re-evaluation**: (1) an LLM re-clusters the recent backlog + misfits into an updated `layer` set;
+(2) it's **surfaced to the human opening with a plain-language paragraph explaining what the harness
+does and what they're deciding** (they may not know this machinery exists), then the proposed diff;
+(3) on accept, **migrate history** — remap `outcomes.jsonl` facets + re-tag tasks + update
+`facets.json` (else changed cells cold-start), then clear the counter (cooldown). The human
+approves/nudges/declines; they never do the clustering. This evolves `layer` *values*; new *axes* are
+rare and explicit.
+
+## 7. Portability
+
+The faceting *framework* (layer × work-type × risk + ladder + capture + calibration + policy + the
+evolution gate) is universal and ships in the harness. Only the **values** differ per project:
+`work-type`/`risk` are universal defaults; the **`layer` set is tailored to the repo at
+create-harness time** (and self-evolves via §6); the **tier ladder** is set to the project's models.
+
+## Invariant to preserve forever
+
+The calibration aggregates **only from `outcomes.jsonl`** (row → its facets → its cell), never from a
+task's status or authored difficulty. That keeps retro-tagged/done tasks and any metadata edit from
+ever leaking into difficulty selection.

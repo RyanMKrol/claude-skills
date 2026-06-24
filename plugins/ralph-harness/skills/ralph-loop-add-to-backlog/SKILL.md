@@ -35,6 +35,32 @@ but are never silently altered during an append.)
   - all existing ids (`jq -r '.tasks[].id'`), so `dependsOn` references real tasks, never a dupe;
   - the file's `defaults` (`jq '.defaults'`) — the default model/effort/escalation, so you only set
     per-task `model`/`effort`/`escalation` when a task should differ from them.
+- **Read `facets.json`** (`jq '.facets'`) — the controlled facet vocabulary you'll assign in §2.4.
+
+- **Poor-fit gate — has the `layer` vocabulary drifted?** If `facet-misfits.jsonl` exists, count its
+  lines; if that count ≥ `facets.json`'s `.policy.poorFitThreshold` (default 5), run a **layer
+  re-evaluation BEFORE authoring anything**:
+  1. **Re-cluster (you do this):** read the recent backlog + `facet-misfits.jsonl` + the current
+     `layer` values, and propose an updated `layer` set (add / split / merge / rename) that fits the
+     project as it now is.
+  2. **Surface it to the human — TEACH first, they may not know this machinery exists.** Open with a
+     short plain-language paragraph, *then* the proposed diff. Use this template:
+
+     > *"Heads up: this project's build harness automatically decides how much AI effort (which model
+     > + reasoning level) to spend on each task, and learns from results — it starts cheap, escalates
+     > only when a task fails, and remembers which kinds of work need more power. It groups tasks by
+     > 'layer' (roughly, where in the codebase the work lives) to make those predictions. We've now
+     > seen **N** recent tasks that didn't fit any existing layer well, which usually means the project
+     > has grown past its current layer list. Here's a proposed updated set: `<diff>`. Approving it
+     > re-groups recent work so the harness keeps predicting difficulty accurately. It's optional and
+     > reversible — declining just keeps the current layers."*
+
+  3. **On accept — MIGRATE history (don't skip):** update `facets.json`'s `layer` values; remap the
+     `facets.layer` in existing `outcomes.jsonl` rows AND re-tag affected tasks' `facets` in
+     `TASKS.json` to the new values (rename = substitute; split = reassign by scope; merge = union) —
+     otherwise the changed calibration cells silently cold-start. Then **clear `facet-misfits.jsonl`**
+     (cooldown, so it doesn't re-fire next task). The human approves/nudges/declines — they never do
+     the clustering. On decline, leave everything and proceed.
 
 ## 2. Interview
 
@@ -53,17 +79,27 @@ Use `AskUserQuestion`. Establish:
      project captured a run/backtest command at scaffold time, reuse that label. Else `[]`.
    - **doneWhen** — the task-specific acceptance bar. Do **not** restate the universal bar
      (format/lint/test, CI green, docs lockstep) — that lives once in HARNESS §5.
-4. **Model & escalation (per task).** This is how spend is controlled — match the model to the
-   work, and only override the file `defaults` when the task differs:
-   - **simple / mechanical** (manual validation, a docs pass, config wiring, a rote refactor) →
-     a cheaper model, e.g. `"model": "claude-sonnet-4-6", "effort": "medium"`, usually with an
-     `"escalation": [{"model":"claude-opus-4-8","effort":"high"}]` rung so it auto-upgrades if it
-     gets stuck;
-   - **judgement-heavy** (coding against a tricky interface, test design, reflection, anything
-     where a wrong-but-plausible result is costly) → the strong model (the default Opus/high) —
-     omit `model`/`effort` to inherit `defaults`;
-   - tag tasks with `tags` (e.g. `["validation"]`, `["coding"]`) to make the routing legible.
-   When unsure, default to the strong model — a redone task costs more than the cheaper run saved.
+4. **Facets (per task) — DESCRIBE the task; the policy decides difficulty.** Difficulty (which model
+   + effort to start on) is now AUTO-TUNED by the loop's policy from escalation history — you do NOT
+   guess it (see `docs/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the
+   project's `facets.json` (`jq '.facets' facets.json`) and assign, choosing values ONLY from that
+   controlled vocabulary:
+   - **`layer`** (exactly one) — WHERE the change lives. Use the task's `scope` file paths as the
+     primary signal (paths → layers).
+   - **`work-type`** (exactly one) — WHAT KIND of change (style / docs / bugfix / feature / migration / …).
+   - **`risk`** (zero or more) — danger flags (touches-schema, full-stack, …).
+
+   Put these in a `"facets": { "layer": "...", "workType": "...", "risk": [...] }` object on the task.
+   You MAY set a rough `model`/`effort` as the **cold-start prior** (used only until the facet cell has
+   ≥ `minN` samples) or omit them to inherit `defaults` — but don't agonise; the policy overrides it
+   with data. Do **NOT** hand-author an `escalation` ladder — escalation now rides the global tier
+   ladder in `facets.json`. `needs-human`/gated tasks need NO facets (they never run through the loop).
+
+   **If nothing fits — record a poor-fit signal; do NOT invent a value.** Minting an ad-hoc facet
+   value re-fragments the calibration. If you're genuinely confident no existing `layer` (or
+   `work-type`) fits, pick the CLOSEST existing value, tag the task with it, AND append a
+   context-carrying line to `facet-misfits.jsonl` (at the harness root):
+   `{ "taskId": "...", "axis": "layer"|"work-type", "closest": "...", "note": "<one line: what was missing>", "ts": "<iso8601>" }`.
 5. **Gates.** The loop's selection **skips any task with a non-null `gate` entirely** — it never
    builds it, and a gated task still blocks its dependents until a human clears it. So mark as
    gated anything that isn't a clean autonomous build. Ask which tasks:
@@ -106,10 +142,11 @@ For each task, in dependency order, produce a JSON object:
   "status": "pending",
   "dependsOn": ["<ids>"],            // [] if none
   "gate": null,                       // null | "gate" | "needs-human"
-  "tags": ["<type>"],                 // optional
-  "model": "claude-sonnet-4-6",       // OMIT to inherit defaults (strong model)
-  "effort": "medium",                 // OMIT to inherit defaults
-  "escalation": [ { "model": "claude-opus-4-8", "effort": "high" } ],  // OMIT for no escalation
+  "tags": ["<type>"],                 // optional, DESCRIPTIVE (feature area) — NOT the calibration key
+  "facets": { "layer": "...", "workType": "...", "risk": [] },  // §2.4 — the calibration key; OMIT for needs-human tasks
+  "model": "claude-sonnet-4-6",       // cold-start PRIOR only (policy auto-tunes difficulty); OMIT to inherit defaults
+  "effort": "medium",                 // cold-start prior; OMIT to inherit defaults
+  // NO `escalation` field — escalation rides the global tier ladder in facets.json
   "scope": ["<files/globs>"],
   "design": null,                     // or "docs/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
@@ -171,8 +208,12 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
   and no prior `status` changed (`jq -r '.tasks[]|select(.status=="done")|.id'` is unchanged).
 - Every `dependsOn` id exists (`jq` cross-check), no dangling deps, no cycles, no duplicate ids.
 - `gate` is one of `null` / `"gate"` / `"needs-human"`; every `model` is a full id (no bare alias).
-- Print a short summary: tasks added, each with its deps + chosen model (or "default"), so the user
-  can confirm both the dependency graph and the model routing read correctly.
+- **Every buildable (non-needs-human) task has a `facets` object** with a `layer` + `workType` drawn
+  from `facets.json`'s vocabulary, and any `risk` flags valid; needs-human/gated tasks have none.
+  No hand-authored `escalation` ladders.
+- Print a short summary: tasks added, each with its deps + **facets** (layer/work-type), so the user
+  can confirm the dependency graph and the facet classification read correctly. (Don't report a
+  "chosen model" — the policy decides difficulty now.)
 
 ## 6. Hand off
 

@@ -132,10 +132,24 @@ else
   cp -p "$TPL/scripts/loop.sh" "$T/scripts/loop.sh"
 fi
 cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$T/scripts/"
+cp -p "$TPL/policy.jq" "$T/scripts/policy.jq"          # difficulty auto-tuning policy (the loop reads scripts/policy.jq)
+cp -p "$TPL/facets.json" "$T/facets.json"             # facet vocabulary + tier ladder + policy knobs (tailored in §5)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$T/docs/"
+mkdir -p "$T/docs/designs" && cp -p "$TPL/docs/designs/difficulty-autotune.md" "$T/docs/designs/"
 cp -p "$TPL/worklog/.gitkeep" "$T/worklog/"
 chmod +x "$T/scripts/"*.sh
 ```
+
+**Then tailor `facets.json` to THIS project (difficulty auto-tuning — see `docs/designs/difficulty-autotune.md`):**
+- The `work-type`, `risk`, and `policy` axes are universal — leave them.
+- The **`tiers.ladder`** is the global difficulty ladder — set it to the models this project uses,
+  cheapest → priciest (it should span the step-6 default model/effort + any escalation tiers).
+- The **`facets.layer`** values are a generic STARTER set (`frontend`/`backend`/`data`/`infra`/`build`/`meta`).
+  Inspect the target repo's top-level structure (its source dirs / architecture) and **replace them
+  with a fitted `layer` set** (e.g. a CLI tool might use `commands`/`core`/`io`/`docs`) — one-line
+  defs + a difficulty hint each. This is the same clustering the poor-fit gate runs later; here it's
+  a one-time fit at setup. Keep it small (≈4–8 values). The harness self-evolves the layers over time
+  via the poor-fit gate, so don't over-think it — just make it roughly match the repo today.
 
 ## 5. Write the personalized files
 

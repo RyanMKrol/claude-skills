@@ -108,6 +108,15 @@ counter. Only once the **top** rung has also exhausted its attempts is the task 
 — identical to the prior single-model behaviour. This lets a backlog *try cheap first* (e.g.
 Sonnet) and automatically fall back to Opus only for the tasks that actually need it.
 
+**Difficulty is auto-tuned (see `docs/designs/difficulty-autotune.md`).** Rather than per-task
+`escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
+policy (`scripts/policy.jq`) picks each task's START tier from its `(layer × work-type)` facet cell's
+escalation history (the cheapest tier clearing `floor` with ≥ `minN` samples; else the authored
+difficulty as a cold-start prior). Every built task's outcome is captured to `outcomes.jsonl` — the
+sole, forward-only calibration input. The authored `model`/`effort` becomes just the cold-start prior;
+`needs-human` tasks are carved out entirely. Tasks are classified with **facets** (not a guessed
+difficulty) by the add-to-backlog skill, and the `layer` vocabulary self-evolves via a poor-fit gate.
+
 > The current rung is tracked **in-memory per `loop.sh` run** (like the attempt counter): a
 > fresh run after an interruption restarts the task at rung 0. Deriving the rung durably from
 > the worklog's soft-failure count is a possible future hardening, not a guarantee today.
