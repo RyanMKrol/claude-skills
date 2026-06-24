@@ -71,8 +71,8 @@ you most want control. Each task is sized to be achievable by a single context w
 
 The pin is **per task**, but the loop's difficulty **policy** chooses it — not a hand-authored
 field. It resolves to the policy's chosen tier for the task's facets (§8.1; the global
-`.tiers.ladder` + escalation history), falling back to the `defaults` cold-start floor, else the
-`harness.env` `MODEL`/`EFFORT`. The loop reads that rung and passes it through:
+`.tiers.ladder` + escalation history), falling back to the cold-start floor — `harness.env`
+`MODEL`/`EFFORT`. The loop reads that rung and passes it through:
 
 ```sh
 claude -p "<task prompt>" \
@@ -114,7 +114,7 @@ policy (`.harness/policy.jq`) picks each task's START tier from its `(layer × w
 escalation history (the cheapest tier clearing `floor` with ≥ `minN` samples; else the authored
 difficulty as a cold-start prior). Every built task's outcome is captured to `outcomes.jsonl` — the
 sole, forward-only calibration input. With no authored per-task model/effort, the cold-start prior is
-simply the cheapest tier (the `defaults` floor); `needs-human` tasks are carved out entirely. Tasks
+simply the cheapest tier (the `harness.env` floor); `needs-human` tasks are carved out entirely. Tasks
 are classified with **facets** (not a guessed
 difficulty) by the add-to-backlog skill, and the `layer` vocabulary self-evolves via a poor-fit gate.
 
@@ -335,8 +335,7 @@ deploy/restart command run after each task integrates, so the running product ma
 
 ### 8.1 — Task schema (the shape of a `TASKS.json` entry)
 
-`TASKS.json` is a single JSON document: a `version`, a `defaults` object (the fallback model
-rung + escalation ladder), and an ordered `tasks` array. **Order in the array is the
+`TASKS.json` is a single JSON document: a `version` and an ordered `tasks` array. **Order in the array is the
 dependency walk order** — and it is *load-bearing*: selection picks the **first** not-done,
 non-gated, deps-satisfied task in **array order** (§4/§9). It is **not** id-sorted and **not** a
 full topological sort — `dependsOn` only *blocks* a task until its deps are done, it does **not**
@@ -376,7 +375,7 @@ the top carries the human note (JSON has no comments). One task object:
 | `facets` | The difficulty-calibration key for buildable tasks: `{ "layer", "workType", "risk": [...] }`, values drawn from `facets.json`. The policy picks the starting tier and escalates from it — this REPLACES per-task `model`/`effort`/`escalation` (a task carries none). **Omitted only for gated / needs-human tasks** (never calibrated). |
 | `tags` | Optional freeform DESCRIPTIVE labels (feature area) — not the calibration key (that's `facets`). |
 
-The top-level `defaults` object holds the cold-start `model` + `effort` floor (the cheapest tier);
+The cold-start `model`/`effort` floor lives in `harness.env` (the cheapest tier), NOT in `TASKS.json`;
 a task carries no per-task model/effort/escalation — `facets` + the outcomes ledger drive difficulty.
 When design docs exist they live in **`.harness/designs/TNNN-slug.md`**
 and are written with Claude at `--effort max` (§3); the loop only ever *consumes* one — it

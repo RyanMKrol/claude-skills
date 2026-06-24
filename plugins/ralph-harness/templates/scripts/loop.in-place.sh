@@ -17,8 +17,9 @@
 # Each iteration:
 #   SELECT (shell)  — from TASKS.json: the next not-done task whose dependsOn are all done and
 #                     which is NOT a 🚦 gate / 🔒 needs-human / blocked task. None → stop.
-#   WORK   (claude) — one `claude -p` (per-task model/effort) builds the task IN THIS CHECKOUT on
-#                     main, runs the Definition of Done, and COMMITS (does NOT push).
+#   WORK   (claude) — one `claude -p` at the policy-chosen tier (facets + outcomes ledger; cold-start
+#                     floor = harness.env) builds the task IN THIS CHECKOUT on main, runs the
+#                     Definition of Done, and COMMITS (does NOT push).
 #   GATE   (shell)  — pre-push guard (refuse if anything sensitive is staged) → push main → watch
 #                     GitHub CI → green: mark the task done (+ optional integrate hook); red: STOP.
 #

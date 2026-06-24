@@ -23,9 +23,10 @@
 #   SELECT (shell)  — from origin/main: a resumable in-progress `tNNN` branch if one
 #                     exists, else the next not-done task whose Depends-on are all done
 #                     and which is NOT a 🚦 gate / 🔒 needs-human / blocked task. None → stop.
-#   WORK   (claude) — one `claude -p` on the task's OWN model/effort (TASKS.json, defaults
-#                     applied) builds that task in the isolated
-#                     worktree on branch `tNNN`, runs the Definition of Done, commits, pushes.
+#   WORK   (claude) — one `claude -p` at the policy-chosen tier (facets + the outcomes ledger pick
+#                     the cheapest model that reliably builds this kind of task; cold-start floor =
+#                     harness.env) builds that task in the isolated worktree on branch `tNNN`, runs
+#                     the Definition of Done, commits, pushes.
 #   GATE   (shell)  — watch that branch's GitHub CI run; green → fast-forward `main` (push)
 #                     and tear the worktree/branch down; red → soft failure (agent fixes on resume).
 #

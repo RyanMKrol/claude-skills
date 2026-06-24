@@ -29,7 +29,6 @@ tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }
 all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 task_title()   { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.title'; }
-task_model()   { tj -r --arg id "$1" '(.defaults.model // "") as $dm | .tasks[]|select(.id==$id)|(.model // $dm)'; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
 is_gate()      { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="gate"' >/dev/null; }
 needs_human()  { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="needs-human"' >/dev/null; }
@@ -53,8 +52,7 @@ for t in $(all_tasks); do
     if [ -n "$unmet" ]; then
       board+=("  ⏳ waiting deps  $t  (needs:${unmet} )")
     else
-      m="$(task_model "$t")"; [ -n "$m" ] && m=" [$m]"
-      board+=("  ▶︎  ready         $t  $title$m")
+      board+=("  ▶︎  ready         $t  $title")
       ready=$((ready + 1))
     fi
   fi

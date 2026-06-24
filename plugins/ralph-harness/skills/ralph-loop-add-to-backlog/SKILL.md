@@ -33,8 +33,8 @@ but are never silently altered during an append.)
   - the highest existing id — `jq -r '.tasks[].id' TASKS.json | sort | tail -1` → new ids continue
     monotonically, zero-padded to the same width (≥3 digits);
   - all existing ids (`jq -r '.tasks[].id'`), so `dependsOn` references real tasks, never a dupe;
-  - the file's `defaults` (`jq '.defaults'`) — the cold-start model/effort floor. Tasks carry NO
-    per-task model/effort/escalation; the policy auto-tunes difficulty from `facets` + the ledger.
+  - Tasks carry NO per-task model/effort/escalation; the policy auto-tunes difficulty from
+    `facets` + the ledger (the cold-start floor lives in `harness.env`, not `TASKS.json`).
 - **Read `facets.json`** (`jq '.facets'`) — the controlled facet vocabulary you'll assign in §2.4.
 
 - **Poor-fit gate — has the `layer` vocabulary drifted?** If `facet-misfits.jsonl` exists, count its
@@ -94,7 +94,7 @@ Use `AskUserQuestion`. Establish:
    Put these in a `"facets": { "layer": "...", "workType": "...", "risk": [...] }` object on the task.
    Do **NOT** set per-task `model`/`effort`/`escalation` at all — the policy picks the starting tier
    from facets + the outcomes ledger, escalation rides the global tier ladder in `facets.json`, and
-   the cold-start floor lives in `defaults`. `facets` is the ONLY difficulty signal you author.
+   the cold-start floor lives in `harness.env`. `facets` is the ONLY difficulty signal you author.
    `needs-human`/gated tasks need NO facets (they never run through the loop).
 
    **If nothing fits — record a poor-fit signal; do NOT invent a value.** Minting an ad-hoc facet

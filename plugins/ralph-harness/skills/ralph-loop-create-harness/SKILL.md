@@ -94,14 +94,14 @@ Use `AskUserQuestion`, batching related questions. Gather:
 5. **CI workflow name** — default `CI`. It must equal `name:` in `ci.yml` **and** `CI_WORKFLOW` in
    `harness.env`; you keep them in lockstep. Only ask if they want a non-default.
 6. **Cold-start difficulty floor** — the model/effort a task STARTS at *before* difficulty
-   auto-tuning has data. This becomes `defaults` in `TASKS.json` and the fallback in `harness.env`.
+   auto-tuning has data. It lives in `harness.env` (`MODEL`/`EFFORT`) — the SINGLE source; it is
+   NOT mirrored into `TASKS.json`.
    **Default to the CHEAPEST tier — `claude-sonnet-4-6` / `low`** (bias-cheap). Explain why: the
    policy starts every task at this floor and ESCALATES up the global tier ladder
    (`facets.json .tiers.ladder`) on repeated failure, then *learns* the cheapest tier that reliably
    builds each kind of task (faceted calibration). So there is **no per-task model guessing and no
    per-task escalation ladder** any more — the global ladder + the calibrated policy own model
    choice. Only raise this floor if you have a concrete reason; otherwise take the cheap default.
-   Leave `defaults.escalation` as `[]` (escalation now rides the global ladder, not a per-task one).
 7. **Caps** — `MAX_ATTEMPTS` (2), `MAX_ITERS` (100). Defaults are fine; only ask if they care.
 8. **Empirical Verify step** — "Is there a way to run the app / a backtest to watch it behave?"
    If yes, capture the command and a short label (e.g. `run-app`). This seeds `Verify:` on relevant
@@ -196,11 +196,11 @@ Build each from the corresponding template, substituting the interview answers. 
 
 ## 6. Initial `TASKS.json`
 
-From `$TPL/TASKS.json`, keep the top-level shape (`_doc`, `version`, `defaults`) and **replace the
-illustrative T001–T005 in `.tasks`** with a minimal real backlog. Set `defaults.model` /
-`defaults.effort` to the cold-start floor from the interview (cheapest — `claude-sonnet-4-6` /
-`low`). A task carries NO per-task `model`/`effort`/`escalation`; difficulty is auto-tuned from
-`facets` + the outcomes ledger.
+From `$TPL/TASKS.json`, keep the top-level shape (`_doc`, `version`) and **replace the
+illustrative T001–T005 in `.tasks`** with a minimal real backlog. The cold-start floor lives in
+`harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-sonnet-4-6` / `low`), NOT in `TASKS.json`. A
+task carries NO per-task `model`/`effort`/`escalation`; difficulty is auto-tuned from `facets` + the
+outcomes ledger.
 
 **Each task's `do` + `done-when` do NOT live in the JSON** — they go in a per-task Markdown spec at
 `.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`), referenced by the task's `spec` field.
