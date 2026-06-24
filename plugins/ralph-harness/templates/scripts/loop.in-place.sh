@@ -243,7 +243,16 @@ rung_at()    { gtier $(( cur_base + ${2:-0} )); }
 # SELECT — echo the next eligible task id; return 1 if nothing is eligible.
 select_task() {
   local t d ok
-  if [ -n "$FORCE_TASK" ]; then echo "$FORCE_TASK"; return 0; fi
+  if [ -n "$FORCE_TASK" ]; then
+    # SAFETY: a forced id MUST be a real task in TASKS.json. Echoing a bogus id (typo, a stray flag
+    # like --guard-selftest, an empty-ish value) would hand it to the builder and trigger a
+    # destructive cold_reset build of a non-task. Refuse instead.
+    if ! tj -e --arg id "$FORCE_TASK" '.tasks[]|select(.id==$id)' >/dev/null 2>&1; then
+      log "FORCE_TASK '$FORCE_TASK' is not a real task id in TASKS.json — refusing to build it."
+      return 1
+    fi
+    echo "$FORCE_TASK"; return 0
+  fi
   for t in $(all_tasks); do
     task_done "$t" && continue
     task_gated "$t" && continue       # 🚦 gate / 🔒 needs-human — a human must act
@@ -442,6 +451,14 @@ fi
 # --- Main loop --------------------------------------------------------------
 acquire_lock
 trap 'release_lock' EXIT INT TERM
+
+# SAFETY: the in-place loop cold-resets the working tree (`git reset --hard origin/main`) between
+# every attempt, which DISCARDS any uncommitted work in this checkout. If the tree is dirty at
+# startup, that's external work the loop must NOT destroy — refuse to run (commit/stash first).
+if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
+  log "REFUSING TO RUN: '$ROOT' has uncommitted changes. The in-place loop cold-resets (git reset --hard) and would discard them. Commit or stash first."
+  exit 3
+fi
 
 cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"
 

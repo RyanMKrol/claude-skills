@@ -202,7 +202,13 @@ select_task() {
   local br t d ok
   br="$(inprogress_branch)"
   if [ -n "$br" ]; then echo "$(branch_task "$br") $br resume"; return 0; fi
-  if [ -n "$FORCE_TASK" ]; then echo "$FORCE_TASK $(task_branch "$FORCE_TASK") fresh"; return 0; fi
+  if [ -n "$FORCE_TASK" ]; then
+    # SAFETY: a forced id MUST be a real task in TASKS.json — never build a bogus id (typo / stray flag).
+    if ! tj -e --arg id "$FORCE_TASK" '.tasks[]|select(.id==$id)' >/dev/null 2>&1; then
+      log "FORCE_TASK '$FORCE_TASK' is not a real task id in TASKS.json — refusing to build it."; return 1
+    fi
+    echo "$FORCE_TASK $(task_branch "$FORCE_TASK") fresh"; return 0
+  fi
   for t in $(all_tasks); do
     task_done "$t" && continue
     task_gated "$t" && continue       # 🚦 gate / 🔒 needs-human — a human must act
