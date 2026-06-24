@@ -114,17 +114,15 @@ mandate is restated in **`.harness/CLAUDE.md`**, which loads whenever you work i
 7. Commit on the branch and push. Don't merge by hand under the harness — the loop watches
    CI and integrates on green. Working manually, merge per golden rule 2 once green.
 
-## Before you start a task — prerequisites & worklog
+## Before you start a task — prerequisites & gates
 
-- **Read `worklog/TNNN.md` first** (if it exists) whenever you start or retry a task. It's
-  the append-only memory across fresh agent invocations — prior attempts record what failed,
-  why, and what's left. Don't repeat their dead ends.
-- **Resume interrupted work — never restart it.** An attempt can be cut off mid-task (token
-  limit, crash). Before coding, check for partial work: an existing `tNNN` branch,
-  uncommitted changes, or `Scope:` files already present. If found, continue from there, then
-  **reconcile the delta**: compare the actual working-tree state against the task's
-  `Done-when:` and do *only* what's outstanding (trust the code over the worklog if they
-  disagree) — don't redo finished work.
+- **Every attempt is fully COLD — do NOT read prior worklogs or resume partial work.** The harness
+  measures whether a model can build the task *from the spec alone, in one cold pass* — that signal
+  drives the difficulty calibration and the audit gate (see [`.harness/designs/audit-verification.md`](./.harness/designs/audit-verification.md)).
+  So each attempt starts blank: build only from the task's `spec` (`## Do` / `## Done when`), `scope`,
+  and `verify`. **Never** read `worklog/TNNN.md` as guidance and **never** continue a previous
+  attempt's partial work — the worklog is append-only, **for humans/observability only**. If a task
+  can't be done in one cold pass, it is **mis-sized and should be split, not resumed.**
 - **Verify prerequisites are real.** Each `Depends on:` task must be `done` **and actually
   merged into `main`**. Don't trust a status box — confirm the functions/types/modules you
   need actually exist and build. If a prereq is half-done, stop and finish/flag it rather

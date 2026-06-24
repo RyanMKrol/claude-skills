@@ -105,7 +105,12 @@
     "_about": "Difficulty auto-tuning policy knobs. The policy picks, per task, the CHEAPEST tier on the ladder whose historical first-attempt success rate for the task's (layer × work-type) cell is >= floor, requiring at least minN samples; otherwise it falls back to the authored difficulty (cold start). Bias is toward cheap — the escalation ladder is the safety net. poorFitThreshold = how many poor-fit signals accumulate before the add-to-backlog flow triggers a layer re-evaluation.",
     "floor": 0.75,
     "minN": 6,
-    "poorFitThreshold": 5
+    "poorFitThreshold": 5,
+    "auditStartN": 3,
+    "auditFloorN": 8,
+    "auditFloor": 0.10,
+    "auditorModel": "claude-opus-4-8",
+    "auditorEffort": "medium"
   },
   "tiers": {
     "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). Example below uses Sonnet (cheap) → Opus (expensive).",

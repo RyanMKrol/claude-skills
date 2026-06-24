@@ -48,8 +48,11 @@ them on its own).
    payable.
 3. **Sequential, single-flight (§7).** At most **one** task is ever in motion, so an
    interruption can damage **at most one** task — the core lever for minimising wasted tokens.
-4. **Resume, never restart.** An interrupted task is continued from its branch + worklog +
-   working tree, never redone from scratch.
+4. **Every attempt is COLD — measure capability, not recovery.** Each (re)attempt builds the task
+   from the spec alone (no worklog, no prior-attempt context, no audit feedback), so the outcome
+   measures whether that model can do the task *in one cold pass* — the signal the difficulty
+   calibration + audit gate depend on. The worklog is observability-only, never read by the builder. A
+   task that can't be done cold in one pass is mis-sized → split it. (See `designs/audit-verification.md`.)
 5. **Definition of Done is *empirical* (§6).** "Done" means it compiled, tests passed,
    **remote CI went green**, and — where the task asks for it — we **watched it actually
    run**. Not "the model believes it's done."
@@ -196,11 +199,17 @@ A task is **done** only when **all** of the following hold. The loop will **not*
 4. **Remote CI is green.** Push the branch; the loop **watches the branch's GitHub Actions
    run** (`gh run watch`, the workflow named by `CI_WORKFLOW`) and merges **only on success**.
    A red run is a `failed:soft` → the model inspects `gh run view --log-failed`, fixes, repeats.
-5. **Docs in lockstep.** In the **same commit**: the task's `TASKS.json` `status` set to `"done"`, the
+5. **Structural + audit gate** *(see `designs/audit-verification.md`)*. Before marking done the loop
+   also enforces **structural checks** (the diff touches the task's `scope`; if `expectsTest: true`, a
+   test file changed) and — when the task is **sampled** (per-cell audit decay) — a **blocking audit**
+   by a fresh stronger agent (`max(opus-medium, builder tier)`) verifying the diff against the spec's
+   `## Done when`, which must return PASS. A structural/audit FAIL is a `failed:soft` → cold retry /
+   escalate. Each outcome is logged to `outcomes.jsonl` tagged `audited`/`ci-only`.
+6. **Docs in lockstep.** In the **same commit**: the task's `TASKS.json` `status` set to `"done"`, the
    `README.md` status row updated, and any new trade-off added to `.harness/LIMITATIONS.md`
    (`CLAUDE.md` golden rules 3 & 5).
 
-Only when 1–5 hold does the task integrate. Anything short of that is a `failed:*` with a
+Only when 1–6 hold does the task integrate. Anything short of that is a `failed:*` with a
 worklog entry, never a `done`.
 
 ---
@@ -272,8 +281,8 @@ It differs from the worktree loop as follows:
 - **The shell owns task status.** The worker commits the task but does **not** edit `TASKS.json`;
   after CI is green the loop sets `status:"done"` itself (a `[skip ci]` commit) and pushes — and
   sweeps `worklog/` into that commit so a stray note can't dirty the tree.
-- **Fresh vs resume** is detected from the working tree (`git status --porcelain`) rather than a
-  leftover branch.
+- **Every attempt starts fresh (cold)** — the in-place loop discards any leftover working-tree
+  changes before building, so no attempt ever resumes partial work (§2.4).
 
 **Safety model.** Without worktree isolation, two things stand in for it: (1) every task is one
 commit on `main`, so a bad one is a one-line `git revert`; and (2) a **load-bearing pre-push
@@ -328,7 +337,7 @@ deploy/restart command run after each task integrates, so the running product ma
 |---|---|
 | `TASKS.json` | Backlog + **statuses** + **facets** (source of truth for done/pending, dependency order, and each task's difficulty-calibration key). Per-task `do`/`done-when` live in `tasks/TNNN.md` (the `spec` field); difficulty is auto-tuned, not authored. |
 | `tasks/TNNN.md` | One per task — the task's spec (`## Do` / `## Done when`), referenced by its `spec` field and appended to the build prompt. |
-| `worklog/TNNN.md` | Append-only **per-task memory**: every attempt, what passed/failed, what's left. **Read before every (re)attempt.** |
+| `worklog/TNNN.md` | Append-only **human/observability log**: every attempt, what passed/failed. **Never read by the builder** — every attempt is cold (§2.4). |
 | `worklog/.result` | The loop's **last-iteration verdict** (one line). Git-ignored scratch. |
 | git history + the single task branch | The work itself. At most one `tNNN` branch at a time, built in the isolation worktree. |
 | `worklog/STATUS.md` | Zero-token **status board** written by `postflight.sh`. Git-ignored. |
@@ -355,6 +364,7 @@ the top carries the human note (JSON has no comments). One task object:
   "scope": ["src/replay.*", "tests/fixtures/replay_*"],
   "design": ".harness/designs/T014-replay.md",   // optional; null = build from the spec alone
   "verify": ["run-app"],               // optional empirical checks
+  "expectsTest": true,                 // optional; true → the loop requires a test file in the diff (structural gate)
   "spec": ".harness/tasks/T014.md",    // REQUIRED — the task's do/done-when (## Do / ## Done when), in its own MD file
   "facets": { "layer": "backend", "workType": "feature", "risk": [] },  // calibration key; OMIT for gated/needs-human tasks
   "tags": ["validation"]               // optional, freeform
@@ -368,7 +378,8 @@ the top carries the human note (JSON has no comments). One task object:
 | `status` | `"pending"` or `"done"` — the **only** status source. Runtime failure/retry state lives in `worklog/` + `.result`, not here. The build pass sets `"done"` in the same commit as the work. |
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
 | `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
-| `scope` | Files this task should touch — a hint that keeps diffs tight for the CI gate (not a hard lock; only one agent runs). |
+| `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. |
+| `expectsTest` | Optional boolean. `true` → the loop requires a **test file** to change in the diff (a structural check); say what the test must assert in `## Done when`. Set it for tasks whose correctness should be pinned by a test. |
 | `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from the `spec` on its own judgement. Never required. |
 | `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §6 Definition of Done. Empty = unit/integration + CI suffice. |
 | `spec` | **Required** repo-relative path to the task's per-task Markdown spec (`.harness/tasks/TNNN.md`) — sections `## Do` (the work, kept short) and `## Done when` (the **task-specific** acceptance bar; the **universal** bar in §6 is not repeated). The loop appends its full text to the build prompt. `do`/`doneWhen` do **not** live in the JSON. |
@@ -408,7 +419,7 @@ The loop **skips** both kinds during selection and surfaces them on the status b
    repeated soft-failure the loop escalates up the task's ladder before stopping for a human.
 4. Never mark `done` with any §5 gate red (including a red or unobserved CI run).
 5. Touch only the task's scope; update docs in the **same** commit.
-6. **Resume**, never restart, interrupted work.
+6. **Every attempt is cold** — never read prior worklogs or resume partial work (§2.4).
 7. Never cross a 🚦 gate or 🔒 needs-human boundary autonomously.
 8. At most **one** task branch exists at a time (single-flight).
 9. The loop works **only** in its own isolation worktree and reads decisions from

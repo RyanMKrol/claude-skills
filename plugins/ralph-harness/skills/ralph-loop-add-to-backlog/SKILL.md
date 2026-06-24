@@ -149,6 +149,7 @@ For each task, in dependency order, produce a JSON object:
   "scope": ["<files/globs>"],
   "design": null,                     // or ".harness/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
+  "expectsTest": false,               // true → the loop requires a test file in the diff (structural gate); set for test-pinnable tasks
   "spec": ".harness/tasks/TNNN.md"    // the task's do/done-when (## Do / ## Done when) — author this MD file too
   // NO model/effort/escalation, NO inline do/doneWhen — the policy auto-tunes difficulty from facets + the ledger
 }
@@ -181,6 +182,18 @@ self-contained and unambiguous, or it will confidently build the wrong thing:
 - **Tests stay hermetic.** If the task adds tests, `## Done when` should require they run against a
   scratch/temp resource, never the real DB / services / files (CLAUDE.md golden rule) — never
   author a task whose verification mutates production state.
+
+**Author the objective bar — it IS the verification contract (see `designs/audit-verification.md`).**
+The build is checked against what *you* (the strong author) write here, by cheap structural checks
+plus a **sampled blocking audit** (a stronger model verifies the diff against `## Done when`). The
+more objective and runnable the bar, the harder it is for a cheap builder to false-pass:
+- Make `## Done when` items **concrete and runnable** where possible — name the command + the expected
+  result (e.g. *"`npm test -- foo.test.ts` passes"*, *"`GET /api/x` returns `{ ok: true }`"*), not
+  just prose.
+- Set **`expectsTest: true`** when correctness should be pinned by a test, and **say in `## Done when`
+  what the test must assert** — the builder writes the test, but to YOUR spec, so it can't validate
+  itself with a lenient one.
+- Keep **`scope` accurate** — it's now a structural gate (the diff must touch those files).
 
 ## 4. Append, don't clobber — via jq
 

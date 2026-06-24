@@ -160,11 +160,13 @@ record_outcome() {
   line="$(tj --arg id "$id" --argjson blocked "$blocked" --arg reason "$reason" \
       --argjson rung "$cur_rung" --argjson atr "$cur_attempts" --argjson total "$total" \
       --arg sm "$sm" --arg se "$se" --arg fm "$fm" --arg fe "$fe" --arg ts "$ts" \
+      --arg verif "${cur_verification:-ci-only}" \
       -c '.tasks[]|select(.id==$id)|{
         id:$id, ts:$ts, facets:(.facets // null), scopeSize:(.scope|length),
         startModel:$sm, startEffort:$se, finalModel:$fm, finalEffort:$fe,
         succeededRung:(if $blocked then null else $rung end), topRung:$rung,
-        attemptsAtRung:$atr, totalSoftFails:$total, blocked:$blocked, reason:$reason
+        attemptsAtRung:$atr, totalSoftFails:$total, blocked:$blocked, reason:$reason,
+        verification:$verif
       }')"
   if [ -n "$line" ]; then printf '%s\n' "$line" >>"$OUTCOMES"; else log "WARN: couldn't record outcome for $id"; fi
 }
@@ -198,6 +200,15 @@ while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
 POLICY_FLOOR="$(jq -r '.policy.floor // 0.75' "$FACETS" 2>/dev/null || echo 0.75)"
 POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
 POLICY_JQ="$HARNESS_DIR/policy.jq"               # .harness/policy.jq, alongside this loop
+# Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6).
+AUDIT_START_N="$(jq -r '.policy.auditStartN // 3' "$FACETS" 2>/dev/null || echo 3)"
+AUDIT_FLOOR_N="$(jq -r '.policy.auditFloorN // 8' "$FACETS" 2>/dev/null || echo 8)"
+AUDIT_FLOOR_PM="$(jq -r '((.policy.auditFloor // 0.10) * 1000) | round' "$FACETS" 2>/dev/null || echo 100)"
+AUDITOR_MODEL="$(jq -r '.policy.auditorModel // "claude-opus-4-8"' "$FACETS" 2>/dev/null || echo claude-opus-4-8)"
+AUDITOR_EFFORT="$(jq -r '.policy.auditorEffort // "medium"' "$FACETS" 2>/dev/null || echo medium)"
+# Optional in-place "local DoD" gate the loop runs before the audit (the cheap CI-proxy). Empty =
+# skip (CI still gates). Set in harness.env, e.g. LOCAL_DOD="<your format/lint/test/build commands>".
+LOCAL_DOD="${LOCAL_DOD:-}"
 
 # gtier <idx> — echo "model effort" for the ladder tier at idx, clamped to [0, top].
 gtier() {
@@ -220,7 +231,9 @@ pick_base() {
   if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s' "$cold"; return; fi
   jq -n -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
      --arg layer "$layer" --arg wt "$wt" --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" \
-     --argjson coldIdx "$cold" 2>/dev/null || printf '%s' "$cold"
+     --argjson coldIdx "$cold" \
+     --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
+     2>/dev/null || printf '%s' "$cold"
 }
 
 # Rung machinery, now on the global ladder offset by cur_base (the policy's per-task start tier).
@@ -281,14 +294,13 @@ You work DIRECTLY on the `main` branch in the primary checkout — NO worktree, 
 Do NOT create/switch branches. Do NOT push. Do NOT merge. The loop pushes + gates on CI after you finish.
 You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly.
 
-1. ORIENT & RESUME. Read CLAUDE.md (conventions) and find this task:
+1. ORIENT. Read CLAUDE.md (conventions) and find this task:
    `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json` (read its scope/verify and orchestration
    fields; if its `design` field points to a .harness/designs/… doc, READ and follow it). The task's
    `do` + `done-when` live in the Markdown spec at the JSON `spec` path (.harness/tasks/<TASK>.md,
-   sections '## Do' / '## Done when') — its FULL TEXT is appended at the end of this prompt. Read
-   .harness/worklog/<TASK>.md if present (prior attempts — don't repeat dead ends). The working tree
-   MAY hold partial work from an interrupted attempt — RECONCILE: do ONLY the outstanding work vs the
-   spec's '## Done when', trusting the code over the worklog. Stay within the task's `scope` files.
+   sections '## Do' / '## Done when') — its FULL TEXT is appended at the end of this prompt. You are
+   starting COLD on a CLEAN tree: do NOT look for or rely on any prior-attempt state (worklog, partial
+   work) — build this task FRESH from the spec alone. Stay within the task's `scope` files.
 
 2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/HARNESS.md §6
@@ -334,6 +346,90 @@ EOF
   fi
 }
 
+# --- Verification-aware Definition of Done (designs/audit-verification.md) -------------------------
+# cold_reset — discard ALL local state so every build attempt is an INDEPENDENT cold measurement (no
+# worklog carryover, no partial-work resume). gitignored data/ is preserved (clean without -x).
+cold_reset() {
+  git -C "$ROOT" reset --hard "origin/$MAIN_BRANCH" >/dev/null 2>&1 || true
+  git -C "$ROOT" clean -fd >/dev/null 2>&1 || true
+}
+
+# structural_checks <id> — cheap, model-agnostic gate on the build commit, BEFORE the audit. Any
+# fail = a failed attempt. 0 = pass, 1 = fail.
+structural_checks() {
+  local id="$1" changed want_test
+  changed="$(git -C "$ROOT" diff --name-only "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
+  if [ -z "$changed" ]; then log "structural: $id produced an EMPTY diff — fail"; return 1; fi
+  want_test="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.expectsTest // false')"
+  if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then
+    log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
+  fi
+  if [ -n "$LOCAL_DOD" ]; then
+    log "structural: running LOCAL_DOD → $LOCAL_DOD"
+    if ! ( cd "$ROOT" && eval "$LOCAL_DOD" ) >/dev/null 2>&1; then log "structural: LOCAL_DOD failed for $id — fail"; return 1; fi
+  fi
+  return 0
+}
+
+# audit_prompt <id> <spec> <diff> — the independent auditor's prompt (strict PASS/FAIL on ## Done when).
+audit_prompt() {
+  local id="$1" spec="$2" diff="$3"
+  cat <<EOF
+You are an INDEPENDENT AUDITOR. You did NOT write this code and you carry NO prior context. Another
+agent implemented task $id; your ONLY job is to judge whether the implementation genuinely satisfies
+the task's "## Done when" criteria below.
+
+Respond with EXACTLY one word on the FIRST LINE: PASS or FAIL. Then, on following lines, give concise
+reasons. PASS only if the diff meets EVERY "## Done when" item for real. FAIL if any item is unmet,
+faked, stubbed, or only superficially addressed. Be strict — do not give the benefit of the doubt.
+
+--- TASK $id SPEC ---
+$spec
+
+--- IMPLEMENTATION DIFF (origin/$MAIN_BRANCH..HEAD) ---
+$diff
+EOF
+}
+
+# audit_gate <id> — per-cell SAMPLED blocking audit (§4.3/4.6). Sets cur_verification. Spawns a fresh,
+# independent auditor at max(opus-medium, builder tier) ONLY if sampled. 0 = pass (or not sampled),
+# 1 = audit FAIL (a failed attempt).
+audit_gate() {
+  local id="$1" layer wt count pm bi ai am ae rel spec="" diff out verdict arc rlpoll
+  cur_verification="ci-only"
+  layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
+  wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
+  if [ -n "$layer" ] && [ -n "$wt" ] && [ -s "$OUTCOMES" ]; then
+    count="$(jq -s --arg l "$layer" --arg w "$wt" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited")]|length' "$OUTCOMES" 2>/dev/null || echo 0)"
+  else count=0; fi
+  count="${count:-0}"
+  pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" \
+        --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
+        --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 2>/dev/null || echo 1000)"
+  pm="${pm:-1000}"
+  if [ "$(( RANDOM % 1000 ))" -ge "$pm" ]; then
+    log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
+  fi
+  bi=$(( cur_base + cur_rung ))
+  ai="$(jq -n --argjson t "$(jq -c '.tiers.ladder' "$FACETS" 2>/dev/null)" --arg m "$AUDITOR_MODEL" --arg e "$AUDITOR_EFFORT" '($t|map(.model==$m and .effort==$e)|index(true)) // 3' 2>/dev/null || echo 3)"
+  (( ai > bi )) && bi=$ai
+  read -r am ae <<<"$(gtier "$bi")"
+  log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → AUDITING at $am/$ae (max of opus-medium + builder rung)"
+  diff="$(git -C "$ROOT" diff "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
+  rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$ROOT/$rel" ] && spec="$(cat "$ROOT/$rel")"
+  out="$WORKLOG/$id.audit.md"
+  rlpoll="${RL_POLL:-${RL_BACKOFF_MIN:-300}}"
+  while :; do
+    set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")"; arc=$?; set -e
+    [ "$arc" = 10 ] && { log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue; }
+    break
+  done
+  cp "$WORKLOG/.claude-out" "$out" 2>/dev/null || true
+  verdict="$(grep -oiE '\b(PASS|FAIL)\b' "$out" 2>/dev/null | head -1 | tr '[:lower:]' '[:upper:]')"
+  if [ "$verdict" = "PASS" ]; then cur_verification="audited"; log "audit: PASS for $id (reasons → $out)"; return 0; fi
+  log "audit: FAIL for $id (verdict='${verdict:-none}', reasons → $out)"; return 1
+}
+
 # --- Dry run ----------------------------------------------------------------
 if [ "${DRY_RUN:-0}" = "1" ]; then
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
@@ -347,7 +443,7 @@ fi
 acquire_lock
 trap 'release_lock' EXIT INT TERM
 
-cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"
 
 # Give up on ONE task WITHOUT halting the loop: discard any local unpushed work, record a
 # failed:blocked marker in the task's worklog (so select_task skips it from now on), push that,
@@ -405,15 +501,15 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
   read -r tmodel teffort <<<"$(rung_at "$task" "$cur_rung")"
-  mode="fresh"; [ -n "$(git -C "$ROOT" status --porcelain)" ] && mode="resume"
-  log "iteration $i/$MAX_ITERS → $task ($mode) on $tmodel/$teffort (rung $cur_rung)"
+  log "iteration $i/$MAX_ITERS → $task (cold) on $tmodel/$teffort (rung $cur_rung)"
 
   RESULT="$WORKLOG/.result"; rm -f "$RESULT"
 
-  # Run Claude, polling + auto-resuming on usage/session limits (NOT counted as a failure) so we
-  # pick the task back up shortly after the quota resets rather than waiting out a long backoff.
+  # Run Claude COLD, polling + auto-resuming on usage/session limits (NOT counted as a failure). Every
+  # (re)attempt resets to a CLEAN tree first, so it measures one cold pass of this tier (§4.1).
   rl_waited=0
   while :; do
+    cold_reset
     set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task")"; rc=$?; set -e
     if [ "$rc" = 10 ]; then
       if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
@@ -437,6 +533,17 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       if ! guard_clean; then
         log "PRE-PUSH GUARD tripped on $task — sensitive path staged; discarding the commit + blocking."
         block_task "$task" "pre-push guard tripped (sensitive path staged)"; board; continue
+      fi
+      # Cheap structural gate (in-place local DoD) THEN the blocking audit — both BEFORE the push, so
+      # a failure never reaches the remote (designs/audit-verification.md §3). Either fail = a failed
+      # attempt: discard the commit + soft-retry (cold), escalating per the existing ladder.
+      if ! structural_checks "$task"; then
+        log "structural checks failed for $task — discarding commit + soft retry."
+        cold_reset; bump "$task"; board; continue
+      fi
+      if ! audit_gate "$task"; then
+        log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
+        cold_reset; bump "$task"; board; continue
       fi
       if ! git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH"; then
         log "push to $MAIN_BRANCH failed (remote moved / network) — soft retry."
