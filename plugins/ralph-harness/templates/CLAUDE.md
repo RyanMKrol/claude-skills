@@ -92,7 +92,9 @@ STARTING model/effort from escalation history, so `model`/`effort` are now just 
 prior**. `needs-human` (gated) tasks are **carved out** — they get NO facets. Author through the
 add-to-backlog skill when it's available (it assigns facets + runs the poor-fit / layer-evolution
 gate), but the rule holds even on a direct `TASKS.json` edit: a buildable task without facets gets
-no auto-tuning, and the loop **pre-flight WARNs** about facet-less buildable tasks. (See
+no auto-tuning, and the loop **pre-flight WARNs** about facet-less buildable tasks. This same
+mandate is restated in **`.harness/CLAUDE.md`**, which loads whenever you work inside `.harness/`
+(i.e. exactly when authoring `TASKS.json`), so the rule surfaces at the authoring moment. (See
 [`.harness/HARNESS.md`](./.harness/HARNESS.md) and `.harness/designs/difficulty-autotune.md`.)
 
 ## Standard workflow for a change

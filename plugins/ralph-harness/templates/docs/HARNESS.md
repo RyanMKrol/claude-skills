@@ -424,8 +424,12 @@ The loop **skips** both kinds during selection and surfaces them on the status b
 
 ## 11. Adopting this harness in a project
 
-1. **Copy** `scripts/`, `.harness/HARNESS.md`, `CLAUDE.md`, `TASKS.json`, `.github/workflows/ci.yml`,
-   `.gitignore`, and the `worklog/` dir into your repo (or start your repo from this one).
+1. **Copy** the self-contained **`.harness/`** folder (`loop.sh`, `supervise.sh`, `postflight.sh`,
+   `harness.env`, `HARNESS.md`, `LIMITATIONS.md`, `facets.json`, `policy.jq`, `TASKS.json`,
+   `CLAUDE.md`, `designs/`, `worklog/`) into your repo root, plus the repo-root `.github/workflows/ci.yml`,
+   `CLAUDE.md`, and `.gitignore` (or start your repo from this one). Note the **two `CLAUDE.md`
+   files**: the repo-root one (full project conventions, loaded for all work) and `.harness/CLAUDE.md`
+   (the authoring mandate, loaded when working inside `.harness/`).
 2. **Wire the Definition of Done.** Put your real format/lint/test/build commands into
    `.github/workflows/ci.yml` **and** describe them in §5 above. They must match.
 3. **Set the knobs.** Edit `.harness/harness.env` (`MODEL`, `EFFORT`, caps, `CI_WORKFLOW`).
@@ -433,7 +437,7 @@ The loop **skips** both kinds during selection and surfaces them on the status b
    dependency-ordered tasks (schema in §8.1). Mark gated work 🚦 / 🔒.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run. The loop integrates by
    pushing to `origin/main`, so a remote is required when `REQUIRE_CI=1`.
-6. **Run it:** `chmod +x scripts/*.sh && .harness/supervise.sh` (or a single pass with
+6. **Run it:** `chmod +x .harness/*.sh && .harness/supervise.sh` (or a single pass with
    `.harness/loop.sh`; preview the next pick with `DRY_RUN=1 .harness/loop.sh`).
 
 ---

@@ -126,7 +126,11 @@ Byte-identical copies from `$TPL` into the target (do **not** template these):
 The whole harness lives in a self-contained **`.harness/`** folder at the repo root (`$T` is the
 REPO ROOT). Its scripts/docs/state all sit FLAT inside `.harness/` (NOT in `scripts/`/`docs/`
 subdirs) — only `.github/workflows/ci.yml` lives at the repo root (GitHub requires it there).
-`CLAUDE.md`, `.gitignore`, `README.md` are repo-root files written/merged in §5.
+The repo-root `CLAUDE.md`, `.gitignore`, `README.md` are written/merged in §5. Note there are **two
+CLAUDE.md files** and they are NOT the same: the **repo-root `CLAUDE.md`** (§5, personalized — the
+project's full conventions + golden rules, loaded for ALL work) and **`.harness/CLAUDE.md`** (copied
+verbatim here — the focused *authoring* mandate that loads whenever Claude works inside `.harness/`,
+i.e. exactly when editing `TASKS.json`, telling it to invoke the add-to-backlog skill).
 
 ```bash
 T="<target>"          # the REPO ROOT
@@ -143,6 +147,7 @@ cp -p "$TPL/policy.jq" "$H/policy.jq"                  # difficulty auto-tuning 
 cp -p "$TPL/facets.json" "$H/facets.json"             # facet vocabulary + tier ladder + policy knobs (tailored below)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/"          # flat in .harness/ (not .harness/docs/)
 cp -p "$TPL/docs/designs/difficulty-autotune.md" "$H/designs/"
+cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 chmod +x "$H/"*.sh
 ```
