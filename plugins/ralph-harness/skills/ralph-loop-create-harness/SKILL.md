@@ -5,10 +5,10 @@ description: >-
   TASKS.json builder) in a project — phrases like "scaffold the harness", "add the build loop to
   this repo", "set up ralph", "install loop.sh / supervise.sh". Runs a short interview (project
   name, purpose, stack, the format/lint/test/build Definition-of-Done commands, build artifacts,
-  CI workflow name, default model/effort + optional escalation ladder, optional empirical
+  CI workflow name, cold-start difficulty floor (cheapest tier), optional empirical
   run/backtest check), copies the verbatim harness files in, and writes the personalized CLAUDE.md,
   ci.yml, .gitignore, harness.env, README.md, and an initial TASKS.json. Leaves the project ready to
-  run scripts/supervise.sh.
+  run .harness/supervise.sh.
 argument-hint: "[target project dir — defaults to cwd]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -50,11 +50,11 @@ plugin install looks broken (templates not found).
 
 ## 2. Pre-flight: don't clobber existing work
 
-Glob the target for: `scripts/loop.sh`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.json`,
+Glob the target for: `.harness/loop.sh`, `.harness/HARNESS.md`, `CLAUDE.md`, `TASKS.json`,
 `.github/workflows/ci.yml`, `README.md`. Also require `jq` on PATH (the loop parses
 `TASKS.json` with it) — if missing, tell the user to `brew install jq`.
 
-- **Harness already present** (`scripts/loop.sh` or `docs/HARNESS.md` exists) → switch to
+- **Harness already present** (`.harness/loop.sh` or `.harness/HARNESS.md` exists) → switch to
   **update mode**: offer (a) refresh the verbatim files from templates, (b) re-personalize
   specific files, (c) abort. Do only what's chosen. Never blast over personalized files silently.
 - **User content present but no harness** (`CLAUDE.md` / `TASKS.json` / `README.md` exist) → these
@@ -70,10 +70,10 @@ Use `AskUserQuestion`, batching related questions. Gather:
    build **and** verify entirely from what's committed to the remote, or does it need untracked /
    gitignored local state (private files, local datasets, secrets-driven fixtures)?"
    - *Everything committed* → **worktree** variant (default; max isolation; safe to run while other
-     work happens in the checkout). Installs `scripts/loop.sh`.
+     work happens in the checkout). Installs `.harness/loop.sh`.
    - *Needs local state* → **in-place** variant: works directly on `main` in the primary checkout
      so it can see that state; safety = one-commit-per-task + a load-bearing pre-push sensitive-path
-     guard. Installs `scripts/loop.in-place.sh` as `scripts/loop.sh`. (See docs/HARNESS.md
+     guard. Installs `scripts/loop.in-place.sh` as `.harness/loop.sh`. (See .harness/HARNESS.md
      "In-place variant".)
    Record the answer as `ISOLATION=worktree|in-place`; steps 4 and 7 branch on it. Note that the
    `../<repo>-loop` worktree/lock naming surfaced in step 1 applies to the **worktree** variant only.
@@ -93,21 +93,22 @@ Use `AskUserQuestion`, batching related questions. Gather:
    project-specific, e.g. local DB files, captures).
 5. **CI workflow name** — default `CI`. It must equal `name:` in `ci.yml` **and** `CI_WORKFLOW` in
    `harness.env`; you keep them in lockstep. Only ask if they want a non-default.
-6. **Default model / effort + escalation** — these become `defaults` in `TASKS.json` and the
-   fallback in `harness.env`. Default `claude-opus-4-8` / `high`; allow override but warn against
-   `max`/`xhigh` (HARNESS §3 — not worth the cost on a days-long loop). Explain that **individual
-   tasks can override the model** (a cheaper model for mechanical/validation work) and carry an
-   **escalation ladder** that bumps to a stronger model after repeated failure — set per task via
-   `/ralph-loop-add-to-backlog`. Optionally capture a **default escalation ladder** (e.g.
-   `[{"model":"claude-opus-4-8","effort":"high"}]`) for `defaults.escalation`; default is none
-   (`[]`).
-7. **Caps** — `MAX_ATTEMPTS` (3), `MAX_ITERS` (100). Defaults are fine; only ask if they care.
+6. **Cold-start difficulty floor** — the model/effort a task STARTS at *before* difficulty
+   auto-tuning has data. This becomes `defaults` in `TASKS.json` and the fallback in `harness.env`.
+   **Default to the CHEAPEST tier — `claude-sonnet-4-6` / `low`** (bias-cheap). Explain why: the
+   policy starts every task at this floor and ESCALATES up the global tier ladder
+   (`facets.json .tiers.ladder`) on repeated failure, then *learns* the cheapest tier that reliably
+   builds each kind of task (faceted calibration). So there is **no per-task model guessing and no
+   per-task escalation ladder** any more — the global ladder + the calibrated policy own model
+   choice. Only raise this floor if you have a concrete reason; otherwise take the cheap default.
+   Leave `defaults.escalation` as `[]` (escalation now rides the global ladder, not a per-task one).
+7. **Caps** — `MAX_ATTEMPTS` (2), `MAX_ITERS` (100). Defaults are fine; only ask if they care.
 8. **Empirical Verify step** — "Is there a way to run the app / a backtest to watch it behave?"
    If yes, capture the command and a short label (e.g. `run-app`). This seeds `Verify:` on relevant
    tasks; remember it for the initial TASKS.json and to pass to `ralph-loop-add-to-backlog`.
 9. **GitHub remote** — check `git -C "<target>" remote get-url origin`. The loop integrates by
    pushing to `origin/main`, required when `REQUIRE_CI=1`. If there's no `origin`, warn and offer
-   `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `docs/LIMITATIONS.md`), or guide them
+   `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `.harness/LIMITATIONS.md`), or guide them
    to create the remote.
 10. **Long-running product / deploy hook (`INTEGRATE_HOOK`).** "Does this project run a long-lived
     process — a daemon, server, or preview — that must be restarted/redeployed to reflect new code?"
@@ -122,25 +123,31 @@ Use `AskUserQuestion`, batching related questions. Gather:
 
 Byte-identical copies from `$TPL` into the target (do **not** template these):
 
+The whole harness lives in a self-contained **`.harness/`** folder at the repo root (`$T` is the
+REPO ROOT). Its scripts/docs/state all sit FLAT inside `.harness/` (NOT in `scripts/`/`docs/`
+subdirs) — only `.github/workflows/ci.yml` lives at the repo root (GitHub requires it there).
+`CLAUDE.md`, `.gitignore`, `README.md` are repo-root files written/merged in §5.
+
 ```bash
-T="<target>"
-mkdir -p "$T/scripts" "$T/docs" "$T/.github/workflows" "$T/worklog"
-# Install the loop variant chosen in step 0 — BOTH install as scripts/loop.sh.
+T="<target>"          # the REPO ROOT
+H="$T/.harness"       # the self-contained harness folder (everything but ci.yml lives here)
+mkdir -p "$H/designs" "$H/worklog" "$T/.github/workflows"
+# Install the loop variant chosen in step 0 — BOTH install as .harness/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
-  cp -p "$TPL/scripts/loop.in-place.sh" "$T/scripts/loop.sh"
+  cp -p "$TPL/scripts/loop.in-place.sh" "$H/loop.sh"
 else
-  cp -p "$TPL/scripts/loop.sh" "$T/scripts/loop.sh"
+  cp -p "$TPL/scripts/loop.sh" "$H/loop.sh"
 fi
-cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$T/scripts/"
-cp -p "$TPL/policy.jq" "$T/scripts/policy.jq"          # difficulty auto-tuning policy (the loop reads scripts/policy.jq)
-cp -p "$TPL/facets.json" "$T/facets.json"             # facet vocabulary + tier ladder + policy knobs (tailored in §5)
-cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$T/docs/"
-mkdir -p "$T/docs/designs" && cp -p "$TPL/docs/designs/difficulty-autotune.md" "$T/docs/designs/"
-cp -p "$TPL/worklog/.gitkeep" "$T/worklog/"
-chmod +x "$T/scripts/"*.sh
+cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$H/"   # flat in .harness/
+cp -p "$TPL/policy.jq" "$H/policy.jq"                  # difficulty auto-tuning policy (the loop reads .harness/policy.jq)
+cp -p "$TPL/facets.json" "$H/facets.json"             # facet vocabulary + tier ladder + policy knobs (tailored below)
+cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/"          # flat in .harness/ (not .harness/docs/)
+cp -p "$TPL/docs/designs/difficulty-autotune.md" "$H/designs/"
+cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
+chmod +x "$H/"*.sh
 ```
 
-**Then tailor `facets.json` to THIS project (difficulty auto-tuning — see `docs/designs/difficulty-autotune.md`):**
+**Then tailor `facets.json` to THIS project (difficulty auto-tuning — see `.harness/designs/difficulty-autotune.md`):**
 - The `work-type`, `risk`, and `policy` axes are universal — leave them.
 - The **`tiers.ladder`** is the global difficulty ladder — set it to the models this project uses,
   cheapest → priciest (it should span the step-6 default model/effort + any escalation tiers).
@@ -156,7 +163,7 @@ chmod +x "$T/scripts/"*.sh
 Build each from the corresponding template, substituting the interview answers. Prefer targeted
 `Edit`s over full rewrites where a template already has the right shape.
 
-- **`CLAUDE.md`** — from `$TPL/CLAUDE.md`. Fill the "Project orientation" intro with the project
+- **`CLAUDE.md`** (repo ROOT — its golden rules, incl. the facets-authoring mandate, must load for ALL work, not just inside `.harness/`) — from `$TPL/CLAUDE.md`. Fill the "Project orientation" intro with the project
   name + purpose, and the "Tooling notes" with the stack and the exact DoD commands. Keep every
   golden rule and the harness-facing sections **verbatim**. (Honor the step-2 backup/merge/skip
   choice if a CLAUDE.md already existed.)
@@ -166,15 +173,15 @@ Build each from the corresponding template, substituting the interview answers. 
   one; add the stack's toolchain-setup step (e.g. `actions/setup-node`, `dtolnay/rust-toolchain`,
   `actions/setup-go`, `actions/setup-python`) and an install step where needed. Delete the
   "REPLACE the steps below" comment block.
-- **`scripts/harness.env`** — from `$TPL/scripts/harness.env`. Set `MODEL`, `EFFORT`,
+- **`.harness/harness.env`** — from `$TPL/scripts/harness.env`. Set `MODEL`, `EFFORT`,
   `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI`, and — if the step-10 deploy/restart
-  command was given — `INTEGRATE_HOOK`, to the answers (these `MODEL`/`EFFORT` are the fallback
-  default rung — per-task models live in `TASKS.json`). Keep the `: "${VAR:=…}"` form so real-env
+  command was given — `INTEGRATE_HOOK`, to the answers (these `MODEL`/`EFFORT` are the cold-start difficulty FLOOR — the cheapest tier; the
+  policy escalates up the global ladder from here and learns per-difficulty). Keep the `: "${VAR:=…}"` form so real-env
   overrides still win.
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen
   build-artifact lines, de-duplicated against any pre-existing `.gitignore` in the target. Write
   the result as `<target>/.gitignore`.
-- **`docs/HARNESS.md` §5** — *optional, confirm first.* Replace the generic example command shapes
+- **`.harness/HARNESS.md` §5** — *optional, confirm first.* Replace the generic example command shapes
   in §5 with the project's real DoD commands so §5 and `ci.yml` match (the doc states "they must
   match"). Targeted Edit, not a rewrite.
 - **`README.md`** — title = project name, opening = purpose, plus an initial implementation-status
@@ -185,15 +192,16 @@ Build each from the corresponding template, substituting the interview answers. 
 
 From `$TPL/TASKS.json`, keep the top-level shape (`_doc`, `version`, `defaults`) and **replace the
 illustrative T001–T005 in `.tasks`** with a minimal real backlog. Set `defaults.model` /
-`defaults.effort` / `defaults.escalation` from the step-3 answers.
+`defaults.effort` to the cold-start floor from the interview (cheapest — `claude-sonnet-4-6` /
+`low`); leave `defaults.escalation` as `[]` (escalation rides the global tier ladder).
 
 - Always include **T001 = "Project scaffold + CI green on an empty build"** (`dependsOn: []`) — its
   job is to prove the CI gate end-to-end before any feature work. Give it a full task object
-  (it's mechanical, so a cheaper `model` with an escalation rung is a reasonable default).
+  (it's mechanical, it builds at the cheap cold-start floor like every task; the policy escalates only on real failure).
 - If the user described features, offer to **chain into `ralph-loop-add-to-backlog`** now to draft
   the rest of the backlog rather than leaving only T001. If they decline, leave just T001.
 - Never leave the shipped example T002–T005 unless the user explicitly wants them.
-- Keep it valid: end with `jq empty "$T/TASKS.json"` and fix any error before continuing.
+- Keep it valid: end with `jq empty "$T/.harness/TASKS.json"` and fix any error before continuing.
 
 ## 7. Validation gate — refuse to report success otherwise
 
@@ -202,15 +210,15 @@ T="<target>"
 grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.yml still has placeholders"
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
-grep -q "CI_WORKFLOW:=${W}" "$T/scripts/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-test -x "$T/scripts/loop.sh" && test -x "$T/scripts/supervise.sh" && test -x "$T/scripts/postflight.sh" || echo "FAIL: scripts not executable"
-for s in loop.sh supervise.sh postflight.sh; do bash -n "$T/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
-grep -q 'worklog/.result' "$T/.gitignore" && grep -q 'worklog/STATUS.md' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
-jq empty "$T/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
+grep -q "CI_WORKFLOW:=${W}" "$T/.harness/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
+test -x "$T/.harness/loop.sh" && test -x "$T/.harness/supervise.sh" && test -x "$T/.harness/postflight.sh" || echo "FAIL: scripts not executable"
+for s in loop.sh supervise.sh postflight.sh; do bash -n "$T/.harness/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
+grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
+jq empty "$T/.harness/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 command -v jq >/dev/null || echo "FAIL: jq not installed (the loop needs it to parse TASKS.json)"
-DRY_RUN=1 "$T/scripts/loop.sh" >/dev/null 2>&1 || echo "FAIL: DRY_RUN loop.sh errored (selection/backlog won't parse)"
+DRY_RUN=1 "$T/.harness/loop.sh" >/dev/null 2>&1 || echo "FAIL: DRY_RUN loop.sh errored (selection/backlog won't parse)"
 # in-place variant only: prove the load-bearing pre-push guard regex is correct
-grep -q -- '--guard-selftest' "$T/scripts/loop.sh" && { "$T/scripts/loop.sh" --guard-selftest >/dev/null || echo "FAIL: pre-push guard self-test failed"; }
+grep -q -- '--guard-selftest' "$T/.harness/loop.sh" && { "$T/.harness/loop.sh" --guard-selftest >/dev/null || echo "FAIL: pre-push guard self-test failed"; }
 ```
 
 The `bash -n` + `DRY_RUN` smoke catch a generated/edited script that won't parse or run **at

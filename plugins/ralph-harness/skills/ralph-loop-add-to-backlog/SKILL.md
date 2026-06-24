@@ -1,7 +1,7 @@
 ---
 name: ralph-loop-add-to-backlog
 description: >-
-  Use when a project already has the Ralph harness (docs/HARNESS.md, scripts/loop.sh, TASKS.json
+  Use when a project already has the Ralph harness (.harness/HARNESS.md, .harness/loop.sh, TASKS.json
   present) and the user wants to draft or extend the task backlog — phrases like "add tasks",
   "write the backlog", "turn this feature into tasks", "plan the next phase for the loop". Runs a
   focused interview that turns a feature description into atomic, dependency-ordered TASKS.json task
@@ -22,12 +22,12 @@ but are never silently altered during an append.)
 
 ## 1. Pre-flight
 
-- Require the harness: `TASKS.json`, `docs/HARNESS.md`, and `scripts/loop.sh` must exist in the
+- Require the harness: `TASKS.json`, `.harness/HARNESS.md`, and `.harness/loop.sh` must exist in the
   project. If any is missing, stop and point the user at `/ralph-loop-create-harness` first.
-  (Either loop variant — worktree or in-place — installs as `scripts/loop.sh` and keeps
+  (Either loop variant — worktree or in-place — installs as `.harness/loop.sh` and keeps
   `TASKS.json` at the repo root, so this skill is identical for both.)
 - Require `jq` (the loop and this skill use it). If absent, tell the user to `brew install jq`.
-- **Read `docs/HARNESS.md` §8.1** (the task schema) live — bind to the actual schema in this
+- **Read `.harness/HARNESS.md` §8.1** (the task schema) live — bind to the actual schema in this
   project, in case it has evolved. Don't rely on a hardcoded copy.
 - **Read `TASKS.json`** and extract, with jq:
   - the highest existing id — `jq -r '.tasks[].id' TASKS.json | sort | tail -1` → new ids continue
@@ -73,7 +73,7 @@ Use `AskUserQuestion`. Establish:
    - anything that should be a separate task because it touches a different scope.
 3. **Per task**, settle:
    - **scope** — the files this task should touch (keeps diffs tight for the CI gate).
-   - **design** — does it need a fuller `docs/designs/TNNN-slug.md` plan doc? Optional; only when
+   - **design** — does it need a fuller `.harness/designs/TNNN-slug.md` plan doc? Optional; only when
      warranted (those are authored separately, interactively, at `--effort max`). Else `null`.
    - **verify** — does it need an empirical check (e.g. `["run-app"]`, `["live-api"]`)? If the
      project captured a run/backtest command at scaffold time, reuse that label. Else `[]`.
@@ -81,7 +81,7 @@ Use `AskUserQuestion`. Establish:
      (format/lint/test, CI green, docs lockstep) — that lives once in HARNESS §5.
 4. **Facets (per task) — DESCRIBE the task; the policy decides difficulty.** Difficulty (which model
    + effort to start on) is now AUTO-TUNED by the loop's policy from escalation history — you do NOT
-   guess it (see `docs/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the
+   guess it (see `.harness/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the
    project's `facets.json` (`jq '.facets' facets.json`) and assign, choosing values ONLY from that
    controlled vocabulary:
    - **`layer`** (exactly one) — WHERE the change lives. Use the task's `scope` file paths as the
@@ -148,7 +148,7 @@ For each task, in dependency order, produce a JSON object:
   "effort": "medium",                 // cold-start prior; OMIT to inherit defaults
   // NO `escalation` field — escalation rides the global tier ladder in facets.json
   "scope": ["<files/globs>"],
-  "design": null,                     // or "docs/designs/TNNN-slug.md"
+  "design": null,                     // or ".harness/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
   "do": "<the work, 1–3 sentences>",
   "doneWhen": "<task-specific acceptance criteria>"
@@ -217,8 +217,8 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
 
 ## 6. Hand off
 
-Tell the user the loop will pick these up in dependency order on the next `scripts/loop.sh` /
-`scripts/supervise.sh` pass — building one at a time on each task's chosen model, escalating on
+Tell the user the loop will pick these up in dependency order on the next `.harness/loop.sh` /
+`.harness/supervise.sh` pass — building one at a time on each task's chosen model, escalating on
 repeated failure, and stopping at any `gate` / `needs-human` task for them.
 
 ## 7. (Optional) Prune completed tasks
@@ -240,6 +240,6 @@ jq '.tasks |= map(select(.status != "done"))' TASKS.json > TASKS.json.tmp \
 - **Keep ids monotonic.** Never renumber the survivors or reuse a pruned id — `worklog/<id>.md`
   files and git history still reference the originals. New tasks continue from the highest id ever
   used, even if it was pruned.
-- **The shell owns `status`.** Prune only from a quiet loop (no `scripts/loop.sh` running), and
+- **The shell owns `status`.** Prune only from a quiet loop (no `.harness/loop.sh` running), and
   commit the pruned `TASKS.json` like any backlog edit. To keep a record instead of deleting, move
   the done tasks into a `TASKS.done.json` archive rather than dropping them.

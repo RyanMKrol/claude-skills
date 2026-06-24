@@ -1,7 +1,7 @@
 # Transient loop scratch (last-iteration verdict) + the generated status board.
-worklog/.result
-worklog/STATUS.md
-worklog/*.log
+.harness/worklog/.result
+.harness/worklog/STATUS.md
+.harness/worklog/*.log
 
 # Add your language's build / dependency output below, e.g.:
 # /target          # Rust
@@ -12,4 +12,4 @@ worklog/*.log
 # *.pyc
 
 # harness: atomic-write temp for TASKS.json (in-place variant)
-TASKS.json.tmp
+.harness/TASKS.json.tmp

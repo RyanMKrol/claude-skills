@@ -4,7 +4,7 @@
 #
 # Exactly ONE task is built at a time, fully verified, and merged into `main` only on
 # green GitHub CI — so an interruption (token limit, crash) can ever damage at most one
-# task. See docs/HARNESS.md for the full design and rationale.
+# task. See .harness/HARNESS.md for the full design and rationale.
 #
 # ISOLATION (why this uses a worktree even though it's sequential):
 #   The machine is shared — other agents, a running app, or manual edits may all live in
@@ -29,22 +29,23 @@
 #   GATE   (shell)  — watch that branch's GitHub CI run; green → fast-forward `main` (push)
 #                     and tear the worktree/branch down; red → soft failure (agent fixes on resume).
 #
-# Usage:  scripts/loop.sh [TNNN]      # optional: force a specific task id this run
-# Config: scripts/harness.env (sourced if present) and/or the environment override the
+# Usage:  .harness/loop.sh [TNNN]      # optional: force a specific task id this run
+# Config: .harness/harness.env (sourced if present) and/or the environment override the
 #         defaults below. Real environment > harness.env > built-in default.
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # the .harness/ dir this script lives in
+ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make absolute
 
 # Optional project config (model, caps, CI workflow name, …). Uses `: "${VAR:=…}"` form,
 # so anything already set in the real environment wins over it.
-[ -f "$ROOT/scripts/harness.env" ] && . "$ROOT/scripts/harness.env"
+[ -f "$HARNESS_DIR/harness.env" ] && . "$HARNESS_DIR/harness.env"
 
 NAME="$(basename "$ROOT")"                       # repo dir name → worktree + lock naming
-MODEL="${MODEL:-claude-opus-4-8}"                # pin EXACTLY — the bare alias `opus` drifts
-EFFORT="${EFFORT:-high}"                          # low|medium|high|xhigh|max — high, not max
+MODEL="${MODEL:-claude-sonnet-4-6}"              # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here (pin the full id; the bare alias drifts)
+EFFORT="${EFFORT:-low}"                           # low|medium|high|xhigh|max — cheapest by default (bias-cheap; the ladder escalates on failure)
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"                 # soft failures per rung before escalating (2: the global ladder is fine-grained, so fewer tries per rung bounds the total attempt budget)
 MAX_ITERS="${MAX_ITERS:-100}"                     # global iteration cap (backstop)
 WAIT_SECONDS="${WAIT_SECONDS:-30}"               # backoff between retries / CI polls
@@ -62,7 +63,7 @@ CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 RL_POLL="${RL_POLL:-900}"                         # poll again every 15 min while limited
 RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise after ~6h limited
 FORCE_TASK="${1:-}"
-POSTFLIGHT="$ROOT/scripts/postflight.sh"
+POSTFLIGHT="$HARNESS_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
@@ -90,8 +91,8 @@ release_lock() {
 }
 
 # --- TASKS.json / worklog helpers (read from origin/main, NOT any working tree) -
-# TASKS.json is the structured backlog (schema: docs/HARNESS.md §8.1), parsed with jq.
-blob()         { git -C "$ROOT" show "$TASKS_REF:$1" 2>/dev/null || true; }
+# TASKS.json is the structured backlog (schema: .harness/HARNESS.md §8.1), parsed with jq.
+blob()         { git -C "$ROOT" show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
 tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }                 # query TASKS.json
 all_tasks()    { tj -r '.tasks[].id'; }                                   # in array (=dependency) order
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
@@ -102,7 +103,7 @@ task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; 
 # task_ladder <id> — print the task's build rungs, one "MODEL<TAB>EFFORT" per line, in order:
 #   rung 0 = the primary (per-task model/effort, else .defaults); then each escalation rung.
 # Escalation rungs (per-task `escalation`, else `defaults.escalation`) are the stronger models
-# the loop climbs to after MAX_ATTEMPTS soft-failures on the rung below (docs/HARNESS.md §3,§7).
+# the loop climbs to after MAX_ATTEMPTS soft-failures on the rung below (.harness/HARNESS.md §3,§7).
 task_ladder() {
   tj -r --arg id "$1" '
     (.defaults.model // "") as $dm | (.defaults.effort // "") as $de |
@@ -112,13 +113,13 @@ task_ladder() {
       + ( (.escalation // $desc) | map({ model:(.model // $dm), effort:(.effort // $de) }) )
     ) | .[] | "\(.model)\t\(.effort)"'
 }
-# --- Difficulty auto-tuning (see docs/designs/difficulty-autotune.md) -----------------------------
+# --- Difficulty auto-tuning (see .harness/designs/difficulty-autotune.md) -----------------------------
 # The loop no longer escalates a PER-TASK ladder; it rides ONE global difficulty ladder
 # (facets.json .tiers.ladder, cheapest→priciest) offset by a policy-chosen START tier (cur_base).
 # WORKTREE MODEL: decisions/state are read from origin/main via `blob` (never a working tree), and
 # the outcome ledger is committed to main through a detached worktree (like block_task).
 # (task_ladder above is retained but unused.)
-POLICY_JQ="$(dirname "$0")/policy.jq"               # scripts/policy.jq, alongside this loop
+POLICY_JQ="$HARNESS_DIR/policy.jq"               # .harness/policy.jq, alongside this loop
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
   < <(blob facets.json | jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' 2>/dev/null)
@@ -179,8 +180,8 @@ record_outcome() {
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   remove_wt
   if git -C "$ROOT" worktree add --quiet --force --detach "$LOOP_WT" origin/main 2>/dev/null; then
-    printf '%s\n' "$line" >>"$LOOP_WT/outcomes.jsonl"
-    git -C "$LOOP_WT" add outcomes.jsonl 2>/dev/null || true
+    printf '%s\n' "$line" >>"$LOOP_WT/.harness/outcomes.jsonl"
+    git -C "$LOOP_WT" add .harness/outcomes.jsonl 2>/dev/null || true
     git -C "$LOOP_WT" commit -q -m "$id: record outcome [skip ci]" 2>/dev/null || true
     git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push outcome for $id"
     remove_wt
@@ -285,18 +286,18 @@ prompt() {
   printf 'You are in a DEDICATED git worktree already checked out on branch `%s`. Work HERE only — do NOT switch branches, create branches, or touch any other checkout on this machine.\n' "$branch"
   cat <<'EOF'
 
-Obey CLAUDE.md, TASKS.json, and docs/HARNESS.md exactly. You run head-less and unattended.
+Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run head-less and unattended.
 
 1. RESUME, DON'T RESTART. This branch may already hold partial work from an interrupted
    attempt (commits and/or uncommitted changes) — keep it and CONTINUE. Read
-   `worklog/<TASK>.md` (prior attempts) and this task's object in TASKS.json (find it with
-   `jq '.tasks[]|select(.id=="<TASK>")' TASKS.json`); if its `design` field points to a
-   `docs/designs/…` doc, READ and follow it. RECONCILE THE DELTA: inspect what already
+   `.harness/worklog/<TASK>.md` (prior attempts) and this task's object in .harness/TASKS.json (find it with
+   `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json`); if its `design` field points to a
+   `.harness/designs/…` doc, READ and follow it. RECONCILE THE DELTA: inspect what already
    exists/passes and do ONLY the outstanding work vs the task's `doneWhen`. Trust the code
    over the worklog. Stay within the task's `scope` files.
-2. DEFINITION OF DONE (docs/HARNESS.md §6 — all must hold before you report `done`):
+2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
-      docs/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
+      .harness/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
       run it locally first. Every check must pass.
    b. Run the task's relevant integration / end-to-end tests when their preconditions are
       met. Tests that need credentials, funds, or external resources you don't have: leave
@@ -305,14 +306,14 @@ Obey CLAUDE.md, TASKS.json, and docs/HARNESS.md exactly. You run head-less and u
    c. If the task's `verify` field names extra EMPIRICAL checks (e.g. run the app against
       real input for a bounded window and observe it behaves), perform them and record what
       you OBSERVED in the worklog. The bar is the behaviour the task specifies.
-3. DOCS IN LOCKSTEP (same commit): set this task's `"status"` to `"done"` in TASKS.json (edit
-   the JSON; keep it valid — `jq empty TASKS.json` must pass), flip its README.md status row,
-   and add any new trade-off/limitation to docs/LIMITATIONS.md.
-4. COMMIT `<TASK>: <summary>` (INCLUDING `worklog/<TASK>.md` with a dated entry: what you did,
+3. DOCS IN LOCKSTEP (same commit): set this task's `"status"` to `"done"` in .harness/TASKS.json (edit
+   the JSON; keep it valid — `jq empty .harness/TASKS.json` must pass), flip its README.md status row,
+   and add any new trade-off/limitation to .harness/LIMITATIONS.md.
+4. COMMIT `<TASK>: <summary>` (INCLUDING `.harness/worklog/<TASK>.md` with a dated entry: what you did,
    checks run, what remains). Then push THIS branch: `git push -u origin HEAD`. Do NOT merge
    into `main` — the loop watches GitHub CI and fast-forwards main on green. If a previous
    push's CI for this branch failed, run `gh run view --log-failed` and fix the cause first.
-5. As your FINAL action, OVERWRITE `worklog/.result` with exactly ONE line:
+5. As your FINAL action, OVERWRITE `.harness/worklog/.result` with exactly ONE line:
      done <TASK> <branch>                 # built, committed, pushed — ready for CI + merge
      failed:soft <TASK> <reason>          # transient / partial — retry is worthwhile
      failed:blocked <TASK> <reason>       # needs-human / unmet prereq — do NOT retry
@@ -325,7 +326,7 @@ EOF
 RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|resets? (at|in)|try again later|overloaded|quota|insufficient.*credit|exceeded your'
 # run_claude <model> <effort> <prompt> → 0 ok | 10 rate/usage-limited | other = failure
 run_claude() {
-  local model="$1" effort="$2" pr="$3" out="$LOOP_WT/worklog/.claude-out" rc
+  local model="$1" effort="$2" pr="$3" out="$LOOP_WT/.harness/worklog/.claude-out" rc
   set +e
   ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" "${FLAGS[@]}" ) 2>&1 | tee "$out"
   rc=${PIPESTATUS[0]}
@@ -359,9 +360,9 @@ block_task() {
   remove_wt
   if git -C "$ROOT" worktree add --quiet --force --detach "$LOOP_WT" origin/main 2>/dev/null; then
     mkdir -p "$LOOP_WT/worklog"
-    printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$LOOP_WT/worklog/$id.md"
-    outcome_row "$id" true "$reason" >>"$LOOP_WT/outcomes.jsonl"   # fold the blocked outcome into THIS commit
-    git -C "$LOOP_WT" add "worklog/$id.md" outcomes.jsonl 2>/dev/null || true
+    printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$LOOP_WT/.harness/worklog/$id.md"
+    outcome_row "$id" true "$reason" >>"$LOOP_WT/.harness/outcomes.jsonl"   # fold the blocked outcome into THIS commit
+    git -C "$LOOP_WT" add ".harness/worklog/$id.md" .harness/outcomes.jsonl 2>/dev/null || true
     git -C "$LOOP_WT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
     git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push block marker for $id"
     remove_wt
@@ -412,7 +413,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   fresh=0; [ "$mode" = "fresh" ] && fresh=1
   prepare_wt "$branch" "$fresh"
 
-  RESULT="$LOOP_WT/worklog/.result"; rm -f "$RESULT"
+  RESULT="$LOOP_WT/.harness/.harness/worklog/.result"; rm -f "$RESULT"
   # Run Claude, polling + auto-resuming on usage/session limits (NOT a failure) so we resume soon
   # after the quota resets rather than waiting out supervise's full cadence.
   rl_waited=0

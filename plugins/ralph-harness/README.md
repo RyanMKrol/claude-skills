@@ -18,8 +18,8 @@ failure. All durable state lives in the repo, so an interrupted run wastes at mo
 
 | Skill | Invoke | What it does |
 |---|---|---|
-| `ralph-loop-create-harness` | `/ralph-loop-create-harness [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, default model/effort + escalation, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `scripts/supervise.sh`. |
-| `ralph-loop-add-to-backlog` | `/ralph-loop-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `docs/HARNESS.md` §8.1) with per-task model/escalation and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
+| `ralph-loop-create-harness` | `/ralph-loop-create-harness [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, default model/effort + escalation, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/supervise.sh`. |
+| `ralph-loop-add-to-backlog` | `/ralph-loop-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `.harness/HARNESS.md` §8.1) with per-task model/escalation and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
 
 Both are also model-invocable (Claude triggers them from the descriptions when you ask in plain
 language).
@@ -72,8 +72,8 @@ repo, or just asking Claude to "set up the build harness here".
   worktree off `origin/main` (it only sees tracked files). The **in-place** loop works directly on
   `main` in the primary checkout — pick it when the build/verify needs **untracked or gitignored
   local state** (private code, local datasets, secrets-driven tests) a worktree can't see;
-  `create-harness` asks and installs the right one as `scripts/loop.sh`. In-place adds a
-  load-bearing pre-push sensitive-path guard (self-testable via `scripts/loop.sh --guard-selftest`)
+  `create-harness` asks and installs the right one as `.harness/loop.sh`. In-place adds a
+  load-bearing pre-push sensitive-path guard (self-testable via `.harness/loop.sh --guard-selftest`)
   plus rate-limit auto-resume. See `templates/docs/HARNESS.md` "In-place variant".
 - Optional **`INTEGRATE_HOOK`** (in `harness.env`) runs a deploy/restart command after each task
   integrates, so the running product matches `main`.

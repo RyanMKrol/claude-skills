@@ -108,9 +108,9 @@ counter. Only once the **top** rung has also exhausted its attempts is the task 
 — identical to the prior single-model behaviour. This lets a backlog *try cheap first* (e.g.
 Sonnet) and automatically fall back to Opus only for the tasks that actually need it.
 
-**Difficulty is auto-tuned (see `docs/designs/difficulty-autotune.md`).** Rather than per-task
+**Difficulty is auto-tuned (see `.harness/designs/difficulty-autotune.md`).** Rather than per-task
 `escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
-policy (`scripts/policy.jq`) picks each task's START tier from its `(layer × work-type)` facet cell's
+policy (`.harness/policy.jq`) picks each task's START tier from its `(layer × work-type)` facet cell's
 escalation history (the cheapest tier clearing `floor` with ≥ `minN` samples; else the authored
 difficulty as a cold-start prior). Every built task's outcome is captured to `outcomes.jsonl` — the
 sole, forward-only calibration input. The authored `model`/`effort` becomes just the cold-start prior;
@@ -128,7 +128,7 @@ The loop **only ever builds**, at each task's chosen effort (`high` by default);
 the build pass **reads it** before coding; if not, the agent works from the `Do:`/`Done-when:`
 brief on its own judgement — a doc is **never required**. When you *do* want a task explored
 up front, **you author that doc** — interactively, with Claude at `--effort max` — into
-`docs/designs/TNNN-*.md`, and the high-effort build pass implements from it. So `max` effort
+`.harness/designs/TNNN-*.md`, and the high-effort build pass implements from it. So `max` effort
 exists in the project but lives **out of band** (optional, human-driven), never in the loop.
 
 ---
@@ -196,7 +196,7 @@ A task is **done** only when **all** of the following hold. The loop will **not*
    run** (`gh run watch`, the workflow named by `CI_WORKFLOW`) and merges **only on success**.
    A red run is a `failed:soft` → the model inspects `gh run view --log-failed`, fixes, repeats.
 5. **Docs in lockstep.** In the **same commit**: the task's `TASKS.json` `status` set to `"done"`, the
-   `README.md` status row updated, and any new trade-off added to `docs/LIMITATIONS.md`
+   `README.md` status row updated, and any new trade-off added to `.harness/LIMITATIONS.md`
    (`CLAUDE.md` golden rules 3 & 5).
 
 Only when 1–5 hold does the task integrate. Anything short of that is a `failed:*` with a
@@ -261,7 +261,7 @@ fresh worktree off `origin/main`, so it only ever sees *tracked* files. When the
 verification depends on **untracked or gitignored local state** — private code in a public repo,
 local datasets/fixtures, secrets-driven tests — a clean worktree literally can't see it, and the
 worktree model can't work. For those projects the harness ships an **in-place variant**
-(`scripts/loop.in-place.sh`, installed as `scripts/loop.sh`), selected at scaffold time.
+(`scripts/loop.in-place.sh`, installed as `.harness/loop.sh`), selected at scaffold time.
 
 It differs from the worktree loop as follows:
 
@@ -279,7 +279,7 @@ commit on `main`, so a bad one is a one-line `git revert`; and (2) a **load-bear
 guard** — before pushing, the loop refuses if any pending commit touches a sensitive/gitignored
 path (`data/`, real `.env*`, `chrome-profile/`, `*.pem`/`*.key`/`*.p12`, `service-account*`,
 `credentials.json`). The tracked `.env.example` template is explicitly allowed. The guard is
-self-testable (`scripts/loop.sh --guard-selftest`) and a trip makes the loop **discard that commit,
+self-testable (`.harness/loop.sh --guard-selftest`) and a trip makes the loop **discard that commit,
 block the task, and move on** (the sensitive path is never pushed; a human reviews the block). The
 worker is therefore instructed to stage files **explicitly** (never `git add -A`).
 
@@ -352,7 +352,7 @@ the top carries the human note (JSON has no comments). One task object:
   "dependsOn": ["T009", "T013"],
   "gate": null,                         // null | "gate" | "needs-human"
   "scope": ["src/replay.*", "tests/fixtures/replay_*"],
-  "design": "docs/designs/T014-replay.md",   // optional; null = build from do/doneWhen
+  "design": ".harness/designs/T014-replay.md",   // optional; null = build from do/doneWhen
   "verify": ["run-app"],               // optional empirical checks
   "do": "<the work, 1–3 sentences>",
   "doneWhen": "<task-specific acceptance criteria>",
@@ -382,7 +382,7 @@ the top carries the human note (JSON has no comments). One task object:
 | `tags` | Optional freeform labels; the `add-to-backlog` skill uses them to suggest a model. |
 
 The top-level `defaults` object holds `model`, `effort`, and `escalation` applied to any task
-that doesn't override them. When design docs exist they live in **`docs/designs/TNNN-slug.md`**
+that doesn't override them. When design docs exist they live in **`.harness/designs/TNNN-slug.md`**
 and are written with Claude at `--effort max` (§3); the loop only ever *consumes* one — it
 never requires or writes one.
 
@@ -424,21 +424,21 @@ The loop **skips** both kinds during selection and surfaces them on the status b
 
 ## 11. Adopting this harness in a project
 
-1. **Copy** `scripts/`, `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.json`, `.github/workflows/ci.yml`,
+1. **Copy** `scripts/`, `.harness/HARNESS.md`, `CLAUDE.md`, `TASKS.json`, `.github/workflows/ci.yml`,
    `.gitignore`, and the `worklog/` dir into your repo (or start your repo from this one).
 2. **Wire the Definition of Done.** Put your real format/lint/test/build commands into
    `.github/workflows/ci.yml` **and** describe them in §5 above. They must match.
-3. **Set the knobs.** Edit `scripts/harness.env` (`MODEL`, `EFFORT`, caps, `CI_WORKFLOW`).
+3. **Set the knobs.** Edit `.harness/harness.env` (`MODEL`, `EFFORT`, caps, `CI_WORKFLOW`).
 4. **Write the backlog.** Replace the example tasks in `TASKS.json` with your own atomic,
    dependency-ordered tasks (schema in §8.1). Mark gated work 🚦 / 🔒.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run. The loop integrates by
    pushing to `origin/main`, so a remote is required when `REQUIRE_CI=1`.
-6. **Run it:** `chmod +x scripts/*.sh && scripts/supervise.sh` (or a single pass with
-   `scripts/loop.sh`; preview the next pick with `DRY_RUN=1 scripts/loop.sh`).
+6. **Run it:** `chmod +x scripts/*.sh && .harness/supervise.sh` (or a single pass with
+   `.harness/loop.sh`; preview the next pick with `DRY_RUN=1 .harness/loop.sh`).
 
 ---
 
-## 12. Trade-offs & limitations (kept honest — mirror into `docs/LIMITATIONS.md`)
+## 12. Trade-offs & limitations (kept honest — mirror into `.harness/LIMITATIONS.md`)
 
 - **Hardened DoD makes each task longer.** Integration + empirical + CI-watch add wall-clock
   and tokens per task, raising the chance a single window can't finish one. Mitigation: keep

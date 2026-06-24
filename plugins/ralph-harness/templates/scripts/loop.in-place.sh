@@ -12,7 +12,7 @@
 #
 #   The trade-off: the loop commits on the real `main`, so the safety model is git itself (every
 #   task is one commit; a bad one is a one-line `git revert`) PLUS a load-bearing pre-push guard
-#   (below) that refuses to push if any sensitive/gitignored path is staged. See docs/HARNESS.md.
+#   (below) that refuses to push if any sensitive/gitignored path is staged. See .harness/HARNESS.md.
 #
 # Each iteration:
 #   SELECT (shell)  — from TASKS.json: the next not-done task whose dependsOn are all done and
@@ -22,25 +22,26 @@
 #   GATE   (shell)  — pre-push guard (refuse if anything sensitive is staged) → push main → watch
 #                     GitHub CI → green: mark the task done (+ optional integrate hook); red: STOP.
 #
-# Usage:  scripts/loop.sh [TNNN]          # optional: force a specific task id this run
-#         DRY_RUN=1 scripts/loop.sh       # print the task it WOULD build, then exit
-#         scripts/loop.sh --guard-selftest  # verify the pre-push guard regex, then exit
-# Config: scripts/harness.env (sourced if present) and/or the environment.
+# Usage:  .harness/loop.sh [TNNN]          # optional: force a specific task id this run
+#         DRY_RUN=1 .harness/loop.sh       # print the task it WOULD build, then exit
+#         .harness/loop.sh --guard-selftest  # verify the pre-push guard regex, then exit
+# Config: .harness/harness.env (sourced if present) and/or the environment.
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # the .harness/ dir this script lives in
+ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make absolute
 
-[ -f "$ROOT/scripts/harness.env" ] && . "$ROOT/scripts/harness.env"
+[ -f "$HARNESS_DIR/harness.env" ] && . "$HARNESS_DIR/harness.env"
 
-BACKLOG="$ROOT/TASKS.json"
-WORKLOG="$ROOT/worklog"
-OUTCOMES="$ROOT/outcomes.jsonl"                    # append-only escalation ledger — the SOLE input to difficulty calibration (forward-only)
-FACETS="$ROOT/facets.json"                         # facet vocabulary + global tier ladder + policy knobs
+BACKLOG="$HARNESS_DIR/TASKS.json"
+WORKLOG="$HARNESS_DIR/worklog"
+OUTCOMES="$HARNESS_DIR/outcomes.jsonl"             # append-only escalation ledger — the SOLE input to difficulty calibration (forward-only)
+FACETS="$HARNESS_DIR/facets.json"                  # facet vocabulary + global tier ladder + policy knobs
 NAME="$(basename "$ROOT")"
-MODEL="${MODEL:-claude-opus-4-8}"                 # pin EXACTLY — the bare alias drifts
-EFFORT="${EFFORT:-high}"                           # low|medium|high|xhigh|max
+MODEL="${MODEL:-claude-sonnet-4-6}"               # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here as it learns (pin the full id; the bare alias drifts)
+EFFORT="${EFFORT:-low}"                            # low|medium|high|xhigh|max — cheapest by default (bias-cheap; the ladder escalates on failure)
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"                  # soft failures per rung before escalating (2: the global tier ladder is fine-grained, so fewer tries per rung bounds the total attempt budget)
 MAX_ITERS="${MAX_ITERS:-100}"                      # global iteration backstop
 WAIT_SECONDS="${WAIT_SECONDS:-30}"                 # backoff between retries / CI polls
@@ -56,7 +57,7 @@ CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 RL_POLL="${RL_POLL:-900}"                          # poll again every 15 min while limited
 RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervise after ~6h limited
 FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && FORCE_TASK="${1:-}"
-POSTFLIGHT="$ROOT/scripts/postflight.sh"
+POSTFLIGHT="$HARNESS_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
@@ -110,7 +111,7 @@ CASES
 }
 [ "${1:-}" = "--guard-selftest" ] && { guard_selftest; exit $?; }
 
-[ -f "$BACKLOG" ] || { log "no TASKS.json at repo root — nothing to build"; exit 3; }
+[ -f "$BACKLOG" ] || { log "no .harness/TASKS.json — nothing to build"; exit 3; }
 
 # --- Concurrency guard: only one loop at a time (exit, don't queue) ----------
 acquire_lock() {
@@ -195,14 +196,14 @@ task_ladder() {
 # The loop no longer escalates a PER-TASK ladder; it rides ONE global difficulty ladder
 # (facets.json .tiers.ladder, cheapest→priciest) offset by a policy-chosen START tier (cur_base).
 # rung 0 = the policy's start tier; escalation walks UP the global ladder. The authored model/effort
-# is only the cold-start prior. (task_ladder above is retained but unused.) See docs/HARNESS.md §6.
+# is only the cold-start prior. (task_ladder above is retained but unused.) See .harness/HARNESS.md §6.
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
   < <(jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' "$FACETS" 2>/dev/null)
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")     # fallback if facets.json absent
 POLICY_FLOOR="$(jq -r '.policy.floor // 0.75' "$FACETS" 2>/dev/null || echo 0.75)"
 POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
-POLICY_JQ="$(dirname "$0")/policy.jq"               # scripts/policy.jq, alongside this loop
+POLICY_JQ="$HARNESS_DIR/policy.jq"               # .harness/policy.jq, alongside this loop
 
 # gtier <idx> — echo "model effort" for the ladder tier at idx, clamped to [0, top].
 gtier() {
@@ -284,24 +285,24 @@ prompt() {
   cat <<'EOF'
 You work DIRECTLY on the `main` branch in the primary checkout — NO worktree, NO new branches.
 Do NOT create/switch branches. Do NOT push. Do NOT merge. The loop pushes + gates on CI after you finish.
-You run head-less and unattended. Obey CLAUDE.md, TASKS.json, and docs/HARNESS.md exactly.
+You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly.
 
 1. ORIENT & RESUME. Read CLAUDE.md (conventions) and find this task:
-   `jq '.tasks[]|select(.id=="<TASK>")' TASKS.json` (read its scope/doneWhen/verify; if its `design`
-   field points to a docs/designs/… doc, READ and follow it). Read worklog/<TASK>.md if present
+   `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json` (read its scope/doneWhen/verify; if its `design`
+   field points to a .harness/designs/… doc, READ and follow it). Read .harness/worklog/<TASK>.md if present
    (prior attempts — don't repeat dead ends). The working tree MAY hold partial work from an
    interrupted attempt — RECONCILE: do ONLY the outstanding work vs `doneWhen`, trusting the code
    over the worklog. Stay within the task's `scope` files.
 
-2. DEFINITION OF DONE (docs/HARNESS.md §6 — all must hold before you report `done`):
-   a. Run the project's full verification suite exactly as defined in CLAUDE.md / docs/HARNESS.md §6
+2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
+   a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/HARNESS.md §6
       (format, lint, tests, build). These MIRROR CI — run them locally first; every check must pass.
       Add tests for new behaviour.
    b. Run the task's integration / end-to-end checks when their preconditions are met. A check that
       needs credentials, funds, or external resources you don't have: never silently skip a required
       one and call it "passed" — record failed:blocked if the task's core needs it.
    c. If the task's `verify` field names extra EMPIRICAL checks, perform them and record what you
-      OBSERVED in worklog/<TASK>.md.
+      OBSERVED in .harness/worklog/<TASK>.md.
 
 3. SECRETS / PRIVACY — NON-NEGOTIABLE. Stage files EXPLICITLY by path; NEVER `git add -A` / `git add .`.
    NEVER `git add` anything under a `data/` folder, a `chrome-profile/`, a real `.env*`, or any
@@ -309,14 +310,14 @@ You run head-less and unattended. Obey CLAUDE.md, TASKS.json, and docs/HARNESS.m
    whole run if any sensitive path is staged — so stage precisely.
 
 4. DOCS IN LOCKSTEP (same commit): update README.md / CLAUDE.md if a convention or feature changed,
-   and add any new trade-off to docs/LIMITATIONS.md. Do NOT edit TASKS.json — the loop owns task
-   status. Write your notes to worklog/<TASK>.md (a dated entry: what you did, checks run, what remains).
+   and add any new trade-off to .harness/LIMITATIONS.md. Do NOT edit .harness/TASKS.json — the loop owns task
+   status. Write your notes to .harness/worklog/<TASK>.md (a dated entry: what you did, checks run, what remains).
 
 5. COMMIT `<TASK>: <summary>` (do NOT push), staging your intended files explicitly. Your commit
-   MUST include `worklog/<TASK>.md` — stage it alongside your code. A task is not complete if its
+   MUST include `.harness/worklog/<TASK>.md` — stage it alongside your code. A task is not complete if its
    worklog isn't committed.
 
-6. As your FINAL action, OVERWRITE worklog/.result with exactly ONE line:
+6. As your FINAL action, OVERWRITE .harness/worklog/.result with exactly ONE line:
      done <TASK>                     # built + committed (NOT pushed) — loop pushes + gates CI
      failed:soft <TASK> <reason>     # transient / partial — retry is worthwhile
      failed:blocked <TASK> <reason>  # needs-human / unmet prereq — do NOT retry

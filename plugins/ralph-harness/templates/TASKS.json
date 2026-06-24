@@ -2,8 +2,8 @@
   "_doc": "Implementation backlog for the single sequential Ralph loop. This is the SOURCE OF TRUTH for done/not-done and dependency order; docs/HARNESS.md describes how the loop reads it (§8.1 = schema). These tasks are ILLUSTRATIVE EXAMPLES showing the schema, the gate markers, and per-task model selection — REPLACE them with your own atomic, dependency-ordered tasks before running the loop.",
   "version": 1,
   "defaults": {
-    "model": "claude-opus-4-8",
-    "effort": "high",
+    "model": "claude-sonnet-4-6",
+    "effort": "low",
     "escalation": []
   },
   "tasks": [

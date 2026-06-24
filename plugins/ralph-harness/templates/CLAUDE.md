@@ -3,17 +3,17 @@
 This file defines how Claude should behave when making changes in this repository.
 Follow these conventions on **every** task unless the user explicitly says otherwise in
 the current conversation. They are the coding-conventions rulebook; the **build harness**
-that drives autonomous runs is described in [`docs/HARNESS.md`](./docs/HARNESS.md).
+that drives autonomous runs is described in [`.harness/HARNESS.md`](./.harness/HARNESS.md).
 
 ## Project orientation
 
 - **What it is / what you're building:** see `README.md` and (if present) `PLAN.md` or
-  `docs/designs/`. `README.md` is the source of truth for **what is currently
+  `.harness/designs/`. `README.md` is the source of truth for **what is currently
   implemented** — read it first to understand the present state.
 - **What's planned:** `TASKS.json` is the implementation backlog, executed one atomic task
-  at a time by a **single sequential loop** (`scripts/loop.sh`; see
-  [`docs/HARNESS.md`](./docs/HARNESS.md)).
-- **How it's built:** [`docs/HARNESS.md`](./docs/HARNESS.md) is the authoritative design of
+  at a time by a **single sequential loop** (`.harness/loop.sh`; see
+  [`.harness/HARNESS.md`](./.harness/HARNESS.md)).
+- **How it's built:** [`.harness/HARNESS.md`](./.harness/HARNESS.md) is the authoritative design of
   the autonomous build harness — the Ralph loop, its Definition of Done, and its gates.
 
 ## Golden rules
@@ -38,7 +38,7 @@ that drives autonomous runs is described in [`docs/HARNESS.md`](./docs/HARNESS.m
   git push                               # publish main
   git branch -d <branch>                 # clean up (also delete remote if pushed)
   ```
-- Merge only when the change passes the Definition of Done ([`docs/HARNESS.md`](./docs/HARNESS.md) §5)
+- Merge only when the change passes the Definition of Done ([`.harness/HARNESS.md`](./.harness/HARNESS.md) §5)
   and only when the work was asked for — don't merge speculative changes.
 
 ### 3. Every change updates the documentation
@@ -64,7 +64,7 @@ the same commit** — never as a follow-up. A task is **done when its branch is 
 ### 5. Every change records its trade-offs & limitations
 
 - When a change introduces or reveals a design **trade-off**, **bottleneck**, or known
-  **limitation**, add a row to [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) **in the same
+  **limitation**, add a row to [`.harness/LIMITATIONS.md`](./.harness/LIMITATIONS.md) **in the same
   commit** — what it is, *why* it was chosen, its **impact**, and *when to revisit*.
 - That file is the single place to evaluate the design's compromises later without
   re-deriving them from the code. A capped scope, a hardcoded assumption, an "un-handled for
@@ -80,7 +80,7 @@ corrupt the running product, and the usual culprit is a stray *direct* test invo
 **Build the guard into the code, not into discipline:** detect a test context from the environment
 and **redirect to a scratch resource** (e.g. an `isTestEnv()` / `resolveXxxPath()` that refuses the
 production default under tests). This matters most under the **in-place loop variant**
-([`docs/HARNESS.md`](./docs/HARNESS.md) §6), which works directly in the primary checkout and shares
+([`.harness/HARNESS.md`](./.harness/HARNESS.md) §6), which works directly in the primary checkout and shares
 the live local DB / daemon — there a leaky test pollutes real state immediately.
 
 ### 7. Backlog tasks carry facets (difficulty auto-tuning)
@@ -93,7 +93,7 @@ prior**. `needs-human` (gated) tasks are **carved out** — they get NO facets. 
 add-to-backlog skill when it's available (it assigns facets + runs the poor-fit / layer-evolution
 gate), but the rule holds even on a direct `TASKS.json` edit: a buildable task without facets gets
 no auto-tuning, and the loop **pre-flight WARNs** about facet-less buildable tasks. (See
-[`docs/HARNESS.md`](./docs/HARNESS.md) and `docs/designs/difficulty-autotune.md`.)
+[`.harness/HARNESS.md`](./.harness/HARNESS.md) and `.harness/designs/difficulty-autotune.md`.)
 
 ## Standard workflow for a change
 
@@ -104,9 +104,9 @@ no auto-tuning, and the loop **pre-flight WARNs** about facet-less buildable tas
    loop already checked out for you).
 3. Read `README.md` (current state) and the relevant `TASKS.json` entry.
 4. Make the change, keeping it atomic and within the task's `Scope:`.
-5. Update docs in the same commit: `README.md`, `TASKS.json`, `docs/LIMITATIONS.md` (any new
+5. Update docs in the same commit: `README.md`, `TASKS.json`, `.harness/LIMITATIONS.md` (any new
    trade-off, golden rule 5), and design docs / `CLAUDE.md` if applicable.
-6. **Verify the Definition of Done** ([`docs/HARNESS.md`](./docs/HARNESS.md) §5): your
+6. **Verify the Definition of Done** ([`.harness/HARNESS.md`](./.harness/HARNESS.md) §5): your
    project's format/lint/test/build all pass, integration/empirical checks where the task
    asks, docs in lockstep.
 7. Commit on the branch and push. Don't merge by hand under the harness — the loop watches
@@ -155,7 +155,7 @@ them, don't abandon the task:**
 ## Tooling notes
 
 - Define your stack's exact format/lint/test/build commands once in
-  [`docs/HARNESS.md`](./docs/HARNESS.md) §5 and mirror them verbatim in
+  [`.harness/HARNESS.md`](./.harness/HARNESS.md) §5 and mirror them verbatim in
   `.github/workflows/ci.yml`. CI is the authoritative gate.
 - Before pushing, the code should pass that full suite locally — it mirrors CI exactly.
 - Tasks marked **🔒 needs-human** require the user (credentials, provisioning, anything

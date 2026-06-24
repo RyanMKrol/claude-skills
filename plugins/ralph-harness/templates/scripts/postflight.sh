@@ -7,24 +7,24 @@
 # the same source loop.sh uses — plus the loop's branches/worklog, so the two never
 # disagree. It never invokes Claude, so it's fast, reliable, and free to run every cycle.
 #
-# Output goes to stdout AND to worklog/STATUS.md (overwritten each run).
+# Output goes to stdout AND to .harness/worklog/STATUS.md (overwritten each run).
 #
-# Usage:  scripts/postflight.sh
+# Usage:  .harness/postflight.sh
 # Exit:   0 always (a report is informational; it never fails a cycle).
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 NAME="$(basename "$ROOT")"
 TASKS_REF="${TASKS_REF:-origin/main}"
-STATUS_FILE="$ROOT/worklog/STATUS.md"
+STATUS_FILE="$ROOT/.harness/worklog/STATUS.md"
 cd "$ROOT" || exit 0
-mkdir -p worklog
+mkdir -p .harness/worklog
 git fetch origin --quiet 2>/dev/null || true
 
 # All reads come from origin/main (mirrors loop.sh), so the board matches what runs.
-# TASKS.json (schema: docs/HARNESS.md §8.1) is parsed with jq — same as loop.sh.
+# TASKS.json (schema: .harness/HARNESS.md §8.1) is parsed with jq — same as loop.sh.
 command -v jq >/dev/null 2>&1 || { echo "[postflight] jq is required to parse TASKS.json — install it (e.g. brew install jq)" >&2; exit 0; }
-blob()         { git show "$TASKS_REF:$1" 2>/dev/null || true; }
+blob()         { git show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
 tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }
 all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
@@ -86,5 +86,5 @@ else
 fi
 
 echo
-echo "   (saved to worklog/STATUS.md)"
+echo "   (saved to .harness/worklog/STATUS.md)"
 exit 0
