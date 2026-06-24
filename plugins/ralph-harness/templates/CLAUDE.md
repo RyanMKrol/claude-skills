@@ -83,6 +83,18 @@ production default under tests). This matters most under the **in-place loop var
 ([`docs/HARNESS.md`](./docs/HARNESS.md) §6), which works directly in the primary checkout and shares
 the live local DB / daemon — there a leaky test pollutes real state immediately.
 
+### 7. Backlog tasks carry facets (difficulty auto-tuning)
+
+Every BUILDABLE task you add to `TASKS.json` MUST carry a `"facets": { "layer": …, "workType": …,
+"risk": [...] }` object, with values chosen ONLY from `facets.json`'s controlled vocabulary (use the
+task's `scope` paths to pick the `layer`). The loop's policy reads facets to choose each task's
+STARTING model/effort from escalation history, so `model`/`effort` are now just a **cold-start
+prior**. `needs-human` (gated) tasks are **carved out** — they get NO facets. Author through the
+add-to-backlog skill when it's available (it assigns facets + runs the poor-fit / layer-evolution
+gate), but the rule holds even on a direct `TASKS.json` edit: a buildable task without facets gets
+no auto-tuning, and the loop **pre-flight WARNs** about facet-less buildable tasks. (See
+[`docs/HARNESS.md`](./docs/HARNESS.md) and `docs/designs/difficulty-autotune.md`.)
+
 ## Standard workflow for a change
 
 1. `git checkout main && git pull` — **always** sync `main` first, so the new branch is based

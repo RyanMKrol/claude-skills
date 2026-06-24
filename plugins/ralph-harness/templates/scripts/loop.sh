@@ -389,6 +389,10 @@ bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on p
 }
 
 log "starting — default model=$MODEL effort=$EFFORT (per-task overrides from TASKS.json), isolated worktree=$LOOP_WT, ci_gate=$REQUIRE_CI"
+# Pre-flight (difficulty auto-tuning): warn about BUILDABLE tasks missing facets. Non-fatal — the
+# policy degrades to the authored prior. needs-human/gated tasks are correctly excluded (carved out).
+_missing_facets="$(tj -r '[.tasks[]|select(.status!="done" and (.gate==null) and ((.facets|not) or (.facets.layer|not)))|.id]|join(", ")' 2>/dev/null || true)"
+if [ -n "$_missing_facets" ]; then log "WARN: buildable tasks MISSING facets (no auto-tuning until tagged — see facets.json): $_missing_facets"; fi
 for ((i = 1; i <= MAX_ITERS; i++)); do
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   sel="$(select_task || true)"
