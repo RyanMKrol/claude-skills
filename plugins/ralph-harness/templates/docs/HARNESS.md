@@ -415,8 +415,9 @@ The loop **skips** both kinds during selection and surfaces them on the status b
 
 1. Never commit directly to `main`; always a `tNNN` branch off **latest** `origin/main`.
 2. One task per iteration. Never batch.
-3. The model is **always pinned per task** (`--model`, `--effort`) — never inherited; on
-   repeated soft-failure the loop escalates up the task's ladder before stopping for a human.
+3. The model/effort is **always pinned explicitly** (`--model`, `--effort`) — never inherited; the
+   policy picks the start tier from the task's facets, and on repeated soft-failure the loop
+   escalates up the global ladder before stopping for a human.
 4. Never mark `done` with any §5 gate red (including a red or unobserved CI run).
 5. Touch only the task's scope; update docs in the **same** commit.
 6. **Every attempt is cold** — never read prior worklogs or resume partial work (§2.4).

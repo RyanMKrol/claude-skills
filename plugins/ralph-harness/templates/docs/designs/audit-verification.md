@@ -85,8 +85,9 @@ The build prompt is spec-only: the task's `spec` MD (`## Do` / `## Done when`), 
 framework rules — **no worklog, no prior-attempt context, no audit reasons.** The worklog is still
 *written* (append-only, for humans) but **not read** by the builder. This removes the "resume, don't
 restart" guidance from the loop prompt, `CLAUDE.md`, and `HARNESS.md`. (An *infra* interruption —
-rate-limit/crash — is a separate mechanism: the in-flight attempt resumes after the pause; it is not a
-counted failure. It is NOT the same as a failure-retry, which is always cold.)
+rate-limit/crash — is not a counted failure: the loop waits out the limit, then RE-ATTEMPTS the task
+COLD like any other attempt. Every attempt — failure-retry or post-pause — is cold; we accept the
+re-work to keep every measured pass a clean cold one.)
 
 ### 4.2 Authoring-time verification contract + structural post-checks
 The strong author records, per buildable task, machine-checkable expectations; the loop asserts them
