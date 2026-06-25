@@ -17,7 +17,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 
 You are installing a self-contained autonomous build harness into a target project and
 **personalizing** it. The harness is a single sequential shell loop that builds a `TASKS.json`
-backlog one fully-verified task at a time, on a per-task model, gated on green GitHub CI. Read this whole file,
+backlog one fully-verified task at a time, at an auto-tuned (policy-chosen) model tier, gated on green GitHub CI. Read this whole file,
 then execute the steps **in order**. Be conversational and concise; confirm before anything
 destructive.
 

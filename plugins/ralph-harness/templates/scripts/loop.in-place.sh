@@ -533,7 +533,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         board; exit 5
       fi
-      log "Claude usage/session limit hit — RESUMING the same task in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
+      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
       sleep "$RL_POLL"; rl_waited=$(( rl_waited + RL_POLL )); continue
     fi
     break

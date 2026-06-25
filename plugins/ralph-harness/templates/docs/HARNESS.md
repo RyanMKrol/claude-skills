@@ -461,11 +461,11 @@ The loop **skips** both kinds during selection and surfaces them on the status b
   path; the check verifies clean operation, not exhaustive coverage.
 - **`--dangerously-skip-permissions` means no per-action guardrail.** Accepted for headless
   runs; the gates + reviewable branches are the backstop.
-- **Per-task model routing & escalation trade attempts for cost.** A task that starts on too
-  weak a model burns up to `MAX_ATTEMPTS` soft-failures (and their CI runs) before escalating
-  — so pick the starting rung realistically; escalation is a safety net, not a substitute for
-  sizing. The current rung is tracked in-memory per `loop.sh` run (§3), so a fresh run after
-  an interruption restarts the task at its cheapest rung.
+- **Auto-tuned model routing & escalation trade attempts for cost.** The policy picks each task's
+  start tier from its facets + the outcomes ledger; if it starts too weak, the task burns up to
+  `MAX_ATTEMPTS` soft-failures (and their CI runs) per rung before escalating — escalation is a safety
+  net, not a substitute for atomic sizing. The current rung is tracked in-memory per `loop.sh` run
+  (§3), so a fresh run after an interruption restarts the task at the policy's chosen start tier.
 
 ---
 
