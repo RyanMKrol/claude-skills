@@ -361,9 +361,30 @@ run_claude() {
 
 # structural_checks <id> — cheap, model-agnostic gate on the branch diff, BEFORE the audit. 0=pass 1=fail.
 structural_checks() {
-  local id="$1" changed want_test
+  local id="$1" changed want_test scope creep f s inscope
   changed="$(git -C "$LOOP_WT" diff --name-only origin/main..HEAD 2>/dev/null)"
   if [ -z "$changed" ]; then log "structural: $id produced an EMPTY diff — fail"; return 1; fi
+  # Scope-creep gate: every changed file must be WITHIN the task's declared `scope` (exact path or
+  # under a scope directory) — except the always-allowed worklog + test files. The strong planner's
+  # `scope` is a binding contract; any other file the cheap builder touched is a failed attempt.
+  scope="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.scope[]?' 2>/dev/null)"
+  creep=""
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    case "$f" in .harness/worklog/*) continue ;; esac
+    if printf '%s\n' "$f" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then continue; fi
+    inscope=0
+    while IFS= read -r s; do
+      [ -z "$s" ] && continue
+      if [ "$f" = "$s" ] || [ "${f#"$s"/}" != "$f" ]; then inscope=1; break; fi
+    done <<SCOPE
+$scope
+SCOPE
+    [ "$inscope" = 1 ] || creep="$creep $f"
+  done <<CHANGED
+$changed
+CHANGED
+  if [ -n "$creep" ]; then log "structural: $id changed files OUTSIDE scope (scope creep):$creep — fail"; return 1; fi
   want_test="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.expectsTest // false')"
   if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then
     log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
