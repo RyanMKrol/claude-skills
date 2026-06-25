@@ -20,15 +20,14 @@
 #   safe to run while other work happens on the box.
 #
 # Each iteration:
-#   SELECT (shell)  — from origin/main: a resumable in-progress `tNNN` branch if one
-#                     exists, else the next not-done task whose Depends-on are all done
+#   SELECT (shell)  — from origin/main: the next not-done task whose Depends-on are all done
 #                     and which is NOT a 🚦 gate / 🔒 needs-human / blocked task. None → stop.
 #   WORK   (claude) — one `claude -p` at the policy-chosen tier (facets + the outcomes ledger pick
 #                     the cheapest model that reliably builds this kind of task; cold-start floor =
-#                     harness.env) builds that task in the isolated worktree on branch `tNNN`, runs
-#                     the Definition of Done, commits, pushes.
-#   GATE   (shell)  — watch that branch's GitHub CI run; green → fast-forward `main` (push)
-#                     and tear the worktree/branch down; red → soft failure (agent fixes on resume).
+#                     harness.env) builds that task in a FRESH isolated worktree on branch `tNNN`
+#                     (rebuilt COLD each attempt), runs the Definition of Done, commits, pushes.
+#   GATE   (shell)  — watch the branch's CI; green → audit → fast-forward `main` (push) and tear the
+#                     worktree/branch down; red / audit-fail → a failed attempt (tear down → COLD retry).
 #
 # Usage:  .harness/loop.sh [TNNN]      # optional: force a specific task id this run
 # Config: .harness/harness.env (sourced if present) and/or the environment override the
@@ -199,9 +198,9 @@ inprogress_branch() { git -C "$ROOT" branch --format='%(refname:short)' | grep -
 
 # SELECT — echo "TASK BRANCH fresh|resume"; return 1 if nothing is eligible.
 select_task() {
-  local br t d ok
-  br="$(inprogress_branch)"
-  if [ -n "$br" ]; then echo "$(branch_task "$br") $br resume"; return 0; fi
+  local t d ok
+  # Cold-only: never resume a leftover in-progress branch — every task is built FRESH (the main loop
+  # tears the branch + worktree down and rebuilds off origin/main on each attempt).
   if [ -n "$FORCE_TASK" ]; then
     # SAFETY: a forced id MUST be a real task in TASKS.json — never build a bogus id (typo / stray flag).
     if ! tj -e --arg id "$FORCE_TASK" '.tasks[]|select(.id==$id)' >/dev/null 2>&1; then
@@ -506,23 +505,24 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
   read -r tmodel teffort <<<"$(rung_at "$task" "$cur_rung")"   # global-ladder tier at cur_base+cur_rung
-  log "iteration $i/$MAX_ITERS → $task (branch $branch, $mode) on $tmodel/$teffort (rung $cur_rung)"
+  log "iteration $i/$MAX_ITERS → $task (branch $branch, cold) on $tmodel/$teffort (rung $cur_rung)"
 
-  fresh=0; [ "$mode" = "fresh" ] && fresh=1
-  prepare_wt "$branch" "$fresh"
-
-  RESULT="$LOOP_WT/.harness/worklog/.result"; rm -f "$RESULT"
-  # Run Claude, polling + auto-resuming on usage/session limits (NOT a failure) so we resume soon
-  # after the quota resets rather than waiting out supervise's full cadence.
+  RESULT="$LOOP_WT/.harness/worklog/.result"
+  # Run Claude COLD — every (re)attempt tears down + rebuilds a FRESH worktree off origin/main, so it
+  # measures one cold pass of this tier (designs/audit-verification.md §4.1). On a usage/rate limit we
+  # pause and RE-ATTEMPT COLD (not a failure); we accept the re-work to keep each measured pass clean.
   rl_waited=0
   while :; do
+    cleanup_task "$branch"        # discard any prior state (leftover crash branch OR a previous attempt)
+    prepare_wt "$branch" 1        # FRESH worktree off origin/main — cold
+    rm -f "$RESULT"
     set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task" "$branch")"; rc=$?; set -e
     if [ "$rc" = 10 ]; then
       if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         board; exit 5
       fi
-      log "Claude usage/session limit hit — RESUMING the same task in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
+      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
       sleep "$RL_POLL"; rl_waited=$(( rl_waited + RL_POLL )); continue
     fi
     break

@@ -147,15 +147,15 @@ supervise.sh (heartbeat)
        repeat until done / blocked / capped:
          1. SELECT (shell):  from origin/main, next eligible = first not-done task whose
                              Depends-on are all done; skip 🚦 gate / 🔒 needs-human / blocked.
-                             a resumable in-progress `tNNN` branch wins. none → stop cleanly.
-         2. PREP   (shell):  (re)create the isolation worktree on branch `tNNN` off origin/main
-                             (reuse it in place when resuming an interrupted task).
-         3. WORK  (claude):  one `claude -p` (pinned model/effort) IN that worktree: implement
-                             only the outstanding delta in scope, pass the Definition of Done
+                             none → stop cleanly.
+         2. PREP   (shell):  tear down any prior state + create a FRESH worktree on branch `tNNN`
+                             off origin/main — every attempt is COLD (no resume of partial work).
+         3. WORK  (claude):  one `claude -p` (policy-chosen model/effort) IN that worktree: build
+                             the task FRESH from its spec in scope, pass the Definition of Done
                              (§6), update docs in lockstep, commit, push the branch. No merge.
-         4. GATE  (shell):   watch the branch's GitHub CI run (`gh run watch`).
-                             green → fast-forward main via push (never checks main out), then
-                             tear down worktree + branch.  red → soft fail (agent fixes on resume).
+         4. GATE  (shell):   watch the branch's CI (`gh run watch`); on green run the structural
+                             checks + the sampled blocking audit. all pass → fast-forward main via
+                             push (never checks main out), tear down. any fail → tear down → COLD retry.
          5. RECORD (shell):  refresh the status board; loop.
 ```
 
@@ -254,7 +254,7 @@ Therefore:
 - **The loop reads its decisions from `origin/main`** (`git show origin/main:TASKS.json`), not
   from any working tree — so whatever is checked out anywhere is irrelevant to it.
 - **Every task is built in the loop's own dedicated sibling worktree** (`../<repo>-loop`),
-  created off `origin/main` per task (reused in place when resuming an interrupted one).
+  torn down and re-created FRESH off `origin/main` on every attempt — cold, never reused (§2.4).
 - **Integration fast-forwards `main` via push** (`git push origin tNNN:main`); the loop never
   checks `main` out, so it cannot collide with the primary checkout. Single-flight keeps this
   a clean fast-forward; if `main` moved under it the push is rejected and the task soft-fails
@@ -297,8 +297,8 @@ worker is therefore instructed to stage files **explicitly** (never `git add -A`
 other work happens there (unlike the worktree loop). Choose it only when the local-state
 requirement forces it; prefer the worktree variant otherwise.
 
-The in-place variant also adds **rate-limit auto-resume** (on a Claude usage limit it sleeps and
-resumes the same task, not a soft failure) and honours the optional `INTEGRATE_HOOK` (a
+The in-place variant also adds **rate-limit handling** (on a Claude usage limit it sleeps and
+re-attempts the same task COLD, not a soft failure) and honours the optional `INTEGRATE_HOOK` (a
 deploy/restart command run after each task integrates, so the running product matches `main`).
 
 ---
@@ -309,11 +309,10 @@ deploy/restart command run after each task integrates, so the running product ma
   `failed:blocked` (needs-human / unmet prerequisite — do **not** retry) · `waiting` (a dep
   isn't merged yet) · `idle` (no eligible task left). The worker writes exactly one of these
   to `worklog/.result` as its final action; the loop acts on it.
-- **Caps & escalation:** `MAX_ATTEMPTS` per **rung** (default 3) of `failed:soft` → the loop
-  **escalates** to the next model in the task's `escalation` ladder (§3) and resets the
-  counter; only after the **top** rung is exhausted is the task `failed:blocked`. (No ladder =
-  one rung = straight to `failed:blocked` at the cap.) A global `MAX_ITERS` and the heartbeat
-  cadence bound total spend.
+- **Caps & escalation:** `MAX_ATTEMPTS` per **rung** (default 2) of `failed:soft` → the loop
+  **escalates** up the global tier ladder (the policy sets the start rung from the task's facets; §3)
+  and resets the counter; only after the **top** rung is exhausted is the task `failed:blocked`. A
+  global `MAX_ITERS` and the heartbeat cadence bound total spend.
 - **One bad task never halts the loop.** A `failed:blocked` task — whether the agent reported it,
   the ladder was exhausted, or a pre-push guard tripped — is **recorded in its worklog and skipped**,
   and the loop moves on to the next eligible task (a human reviews blocked tasks later). A **red CI**
@@ -322,8 +321,8 @@ deploy/restart command run after each task integrates, so the running product ma
   backlog (exit 0), `MAX_ITERS` (exit 4), or a prolonged usage limit (exit 5 → `supervise.sh`
   relaunches). So leaving the loop unattended for hours can't lose progress to a single failure.
 - **Usage / session limits are not failures.** When `claude` reports a usage/session limit, the
-  loop **polls every `RL_POLL` (default 15 min) and resumes the same task** — so it picks back up
-  shortly after the quota resets rather than idling for hours on a coarse backoff. Only after
+  loop **polls every `RL_POLL` (default 15 min) and RE-ATTEMPTS the same task COLD** — so it picks
+  back up shortly after the quota resets rather than idling for hours on a coarse backoff. Only after
   `RL_MAX_WAIT` (~6h) still-limited does it exit (code 5); `supervise.sh` then relaunches after a
   short `RETRY_INTERVAL` instead of waiting out the full window.
 - **Stops cleanly for review** at every 🚦 gate and 🔒 needs-human task — the loop surfaces it
