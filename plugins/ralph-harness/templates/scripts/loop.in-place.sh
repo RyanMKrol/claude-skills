@@ -309,7 +309,8 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harn
    `do` + `done-when` live in the Markdown spec at the JSON `spec` path (.harness/tasks/<TASK>.md,
    sections '## Do' / '## Done when') — its FULL TEXT is appended at the end of this prompt. You are
    starting COLD on a CLEAN tree: do NOT look for or rely on any prior-attempt state (worklog, partial
-   work) — build this task FRESH from the spec alone. Stay within the task's `scope` files.
+   work) — build this task FRESH from the spec alone. Stay within the task's `scope` — the exact
+   allowed-files list + the HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
 
 2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/HARNESS.md §6
@@ -326,9 +327,11 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harn
    credential file, and never edit .gitignore to un-ignore them. The loop's pre-push guard HALTS the
    whole run if any sensitive path is staged — so stage precisely.
 
-4. DOCS IN LOCKSTEP (same commit): update README.md / CLAUDE.md if a convention or feature changed,
-   and add any new trade-off to .harness/LIMITATIONS.md. Do NOT edit .harness/TASKS.json — the loop owns task
-   status. Write your notes to .harness/worklog/<TASK>.md (a dated entry: what you did, checks run, what remains).
+4. DOCS IN LOCKSTEP (same commit) — but ONLY docs that are in your SCOPE. If a convention/feature
+   change needs README.md / CLAUDE.md / .harness/LIMITATIONS.md AND that file is in your scope, update it; if a
+   needed doc is NOT in scope, do NOT edit it (it trips the scope gate) — record `failed:blocked` noting the
+   missing doc. Do NOT edit .harness/TASKS.json — the loop owns task status. Write your notes to
+   .harness/worklog/<TASK>.md (always allowed; a dated entry: what you did, checks run, what remains).
 
 5. COMMIT `<TASK>: <summary>` (do NOT push), staging your intended files explicitly. Your commit
    MUST include `.harness/worklog/<TASK>.md` — stage it alongside your code. A task is not complete if its
@@ -341,6 +344,14 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harn
      waiting <TASK> <unmet-deps>     # a dependency is not done yet
      idle                            # nothing to do
 EOF
+  # Inject the task's `scope` as an explicit HARD boundary. structural_checks fails the build if the
+  # diff touches anything outside it (except test files + the worklog), so the builder must know it.
+  local sc
+  sc="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.scope[]?' 2>/dev/null)"
+  printf '\n--- SCOPE — HARD GATE (a script checks your diff against this; staying inside it is mandatory) ---\n'
+  printf 'You may change ONLY these files:\n'
+  if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
+  printf '%s\n' 'PLUS you may always add/change TEST files and your own .harness/worklog/<TASK>.md. Touching ANY OTHER file — including a doc (README/CLAUDE/LIMITATIONS) not listed above — AUTO-FAILS this task. If you genuinely need a file that is not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — the SOLE source of do/done-when.
   local rel="" path
   rel="$(task_spec_rel "$tid")"

@@ -300,7 +300,8 @@ Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run he
    .harness/TASKS.json`); if its `design` field points to a `.harness/designs/…` doc, READ and follow
    it. The task's `do` + `done-when` live in the Markdown spec at the JSON `spec` path
    (.harness/tasks/<TASK>.md, sections '## Do' / '## Done when') — its FULL TEXT is appended at the end
-   of this prompt. Stay within the task's `scope` files.
+   of this prompt. Stay within the task's `scope` — the exact allowed-files list + the HARD-GATE rule
+   are shown under "SCOPE" at the end of this prompt.
 2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
       .harness/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
@@ -326,6 +327,14 @@ Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run he
      waiting <TASK> <unmet-deps>          # a dependency is not merged yet
      idle                                 # nothing to do for this task
 EOF
+  # Inject the task's `scope` as an explicit HARD boundary. structural_checks fails the build if the
+  # diff touches anything outside it, so the builder must know it.
+  local sc
+  sc="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.scope[]?' 2>/dev/null)"
+  printf '\n--- SCOPE — HARD GATE (a script checks your diff against this; staying inside it is mandatory) ---\n'
+  printf 'You may change ONLY these files:\n'
+  if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
+  printf '%s\n' 'PLUS you may always touch: TEST files; your own .harness/worklog/<TASK>.md; and the done-protocol bookkeeping (.harness/TASKS.json status, the README status row, .harness/LIMITATIONS.md). Touching ANY OTHER file outside the list above AUTO-FAILS this task. If you genuinely need a code/doc file not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — read from the git ref. The
   # `spec` field is ALREADY a full repo-relative path (.harness/tasks/<TASK>.md), so read it directly
   # with `git show "$TASKS_REF:$rel"` — do NOT route it through blob() (which re-prefixes .harness/).
@@ -371,7 +380,10 @@ structural_checks() {
   creep=""
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    case "$f" in .harness/worklog/*) continue ;; esac
+    # Worktree done-protocol bookkeeping the builder always commits (status + README row + limitations)
+    # — allowlisted so they aren't flagged as scope creep. (The in-place variant's loop owns status, so
+    # it allowlists only the worklog. See TODO.md: reconcile so README isn't blanket-exempt here.)
+    case "$f" in .harness/worklog/*|.harness/TASKS.json|README.md|.harness/LIMITATIONS.md) continue ;; esac
     if printf '%s\n' "$f" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then continue; fi
     inscope=0
     while IFS= read -r s; do

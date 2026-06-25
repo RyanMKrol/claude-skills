@@ -1,6 +1,6 @@
 {
   "name": "ralph-harness",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Scaffold the Ralph-style single-loop, CI-gated TASKS.json build harness into a project's self-contained `.harness/` folder, and author its task backlog — via interview skills. Worktree or in-place isolation (for projects whose build needs untracked local state), data-driven difficulty auto-tuning that starts every task at the cheapest tier and escalates up a global ladder — learning the cheapest model that reliably builds each kind of task — and an optional deploy/restart hook. Distinct from the official ralph-loop plugin.",
   "author": {
     "name": "Ryan Krol",
