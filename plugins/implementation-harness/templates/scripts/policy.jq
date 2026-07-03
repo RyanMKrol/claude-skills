@@ -12,11 +12,18 @@
 #
 # Invoke (tier):  jq -n -f policy.jq --slurpfile rows <outcomes.jsonl> --argjson tiers '<ladder>' \
 #                   --arg layer <L> --arg wt <W> --argjson floor 0.75 --argjson minN 6 \
-#                   --argjson coldIdx <N> --argjson auditCount -1 \
+#                   --argjson coldIdx <N> --argjson auditCount -1 --argjson manualFail '<tracking/manual-fail.json>' \
 #                   --argjson auditStartN 3 --argjson auditFloorN 8 --argjson auditFloorPM 100
 # Invoke (audit): same flags, but --argjson auditCount <confirmed-count> (>= 0); the tier-only flags
 #                 may be placeholders (rows '[]', tiers '[]', layer/wt '', etc.) — that branch is not
 #                 evaluated. Both invocations must DEFINE every $var (jq compiles both branches).
+#
+# $manualFail is the owner-overlay `tracking/manual-fail.json` ({id: {failed, reason, at}}) — a task
+# the owner has retroactively overturned from a false "done" is treated as a FAILURE at every rung it
+# touched, same as a blocked row, even though the ledger row itself still says blocked:false. This
+# keeps a corrected false-positive from propagating into either the tier success rate or (upstream,
+# in the shell's confirmed-audited-count query) the audit-sampling decay — WITHOUT mutating the
+# append-only ledger itself (designs/manual-fail-signal.md).
 
 def tidx($m; $e): ($tiers | map(.model == $m and .effort == $e) | index(true)) // -1;
 
@@ -36,7 +43,8 @@ else
         tidx(.startModel; .startEffort) as $s
         | tidx(.finalModel; .finalEffort) as $f
         | select($s >= 0 and $f >= 0)
-        | if .blocked
+        | (.blocked or ($manualFail[.id].failed == true)) as $overturned
+        | if $overturned
           then [ range($s; $f + 1) | { idx: ., ok: false } ]
           else [ range($s; $f)     | { idx: ., ok: false } ] + [ { idx: $f, ok: true } ]
           end

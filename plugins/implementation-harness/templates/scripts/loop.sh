@@ -131,8 +131,10 @@ pick_base() {
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
   rows="$(blob ledgers/outcomes.jsonl | jq -s -c '.' 2>/dev/null)"
   if [ -z "$layer" ] || [ -z "$wt" ] || [ -z "$tiers" ] || [ -z "$rows" ] || [ "$rows" = "[]" ]; then printf '%s' "$cold"; return; fi
+  local mf; mf="$(blob tracking/manual-fail.json)"; [ -n "$mf" ] || mf='{}'
   jq -n --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
      --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" --argjson coldIdx "$cold" \
+     --argjson manualFail "$mf" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
      -f "$POLICY_JQ" 2>/dev/null || printf '%s' "$cold"
 }
@@ -199,6 +201,35 @@ record_outcome() {
     git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push outcome for $id"
     remove_wt
   fi
+}
+
+# reconcile_overlays — promote owner-overlay verdicts (tracking/human-done.json "done",
+# tracking/manual-fail.json "failed") into authoritative TASKS.json status on origin/main, via a
+# detached-worktree commit (mirrors record_outcome/block_task). Read-only inputs; run once per
+# iteration (after the fetch, before select_task) so an owner action taken mid-run takes effect
+# promptly. Cheap no-op when nothing changed — only touches a worktree if a flip is needed.
+reconcile_overlays() {
+  local hd md tasks new
+  hd="$(blob tracking/human-done.json)"; [ -n "$hd" ] || hd='{}'
+  md="$(blob tracking/manual-fail.json)"; [ -n "$md" ] || md='{}'
+  tasks="$(blob tracking/TASKS.json)"; [ -n "$tasks" ] || return 0
+  new="$(jq -c --argjson hd "$hd" --argjson md "$md" '
+    .tasks |= map(
+      if (.status != "done") and ($hd[.id].done == true) then .status = "done"
+      elif (.status == "done") and ($md[.id].failed == true) then .status = "failed"
+      else . end
+    )' <<<"$tasks" 2>/dev/null)"
+  [ -n "$new" ] || return 0
+  [ "$new" = "$(jq -c '.' <<<"$tasks" 2>/dev/null)" ] && return 0
+  remove_wt
+  if git -C "$ROOT" worktree add --quiet --force --detach "$LOOP_WT" origin/main 2>/dev/null; then
+    printf '%s\n' "$new" | jq '.' >"$LOOP_WT/.harness/tracking/TASKS.json"
+    git -C "$LOOP_WT" add .harness/tracking/TASKS.json 2>/dev/null || true
+    git -C "$LOOP_WT" commit -q -m "reconcile: apply owner overlays [skip ci]" 2>/dev/null || true
+    git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push overlay reconciliation"
+    remove_wt
+  fi
+  log "reconcile: applied owner overlays to TASKS.json"
 }
 
 # Rung machinery, now on the global ladder offset by cur_base (the policy's per-task start tier).
@@ -449,11 +480,12 @@ audit_gate() {
   cur_verification="ci-only"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-  count="$(blob ledgers/outcomes.jsonl | jq -s --arg l "$layer" --arg w "$wt" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited")]|length' 2>/dev/null || echo 0)"
+  local mf; mf="$(blob tracking/manual-fail.json)"; [ -n "$mf" ] || mf='{}'
+  count="$(blob ledgers/outcomes.jsonl | jq -s --arg l "$layer" --arg w "$wt" --argjson mf "$mf" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited" and ($mf[.id].failed!=true))]|length' 2>/dev/null || echo 0)"
   count="${count:-0}"
   pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" \
         --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
-        --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 2>/dev/null || echo 1000)"
+        --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' 2>/dev/null || echo 1000)"
   pm="${pm:-1000}"
   if [ "$(( RANDOM % 1000 ))" -ge "$pm" ]; then
     log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
@@ -540,6 +572,7 @@ _missing_facets="$(tj -r '[.tasks[]|select(.status!="done" and (.gate==null) and
 if [ -n "$_missing_facets" ]; then log "WARN: buildable tasks MISSING facets (no auto-tuning until tagged — see facets.json): $_missing_facets"; fi
 for ((i = 1; i <= MAX_ITERS; i++)); do
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
+  reconcile_overlays
   sel="$(select_task || true)"
   if [ -z "$sel" ]; then
     log "no eligible task — backlog complete or everything left is gate/human-blocked."

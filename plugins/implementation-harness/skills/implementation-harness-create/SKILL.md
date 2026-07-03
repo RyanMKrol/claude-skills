@@ -152,6 +152,7 @@ cp -p "$TPL/docs/designs/"*.md "$H/docs/designs/"
 cp -p "$TPL/tasks/"*.md "$H/tasks/"                    # per-task Markdown specs (## Do / ## Done when), one per example task — replace with yours in §6
 cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/
 cp -p "$TPL/README.md" "$H/README.md"                  # .harness/README.md — the harness's own quick-start explainer (distinct from the repo-root README.md written in §5)
+cp -p "$TPL/tracking/human-done.json" "$TPL/tracking/manual-fail.json" "$TPL/tracking/reviews.json" "$H/tracking/"   # owner-overlay files (loop reads, owner tooling writes) — seed empty
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 : >"$H/ledgers/outcomes.jsonl"; : >"$H/ledgers/failures.jsonl"   # seed empty, committed ledgers (calibration input; diagnostics)
 chmod +x "$H/scripts/"*.sh
@@ -229,9 +230,13 @@ grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
 grep -q "CI_WORKFLOW:=${W}" "$T/.harness/config/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-test -x "$T/.harness/scripts/loop.sh" && test -x "$T/.harness/scripts/supervise.sh" && test -x "$T/.harness/scripts/postflight.sh" && test -x "$T/.harness/scripts/repo-lock.sh" || echo "FAIL: scripts not executable"
-for s in loop.sh supervise.sh postflight.sh repo-lock.sh; do bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
+for s in loop.sh supervise.sh postflight.sh repo-lock.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh; do
+  test -x "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s not executable"
+  bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"
+done
 "$T/.harness/scripts/repo-lock.sh" --selftest >/dev/null || echo "FAIL: repo-lock self-test failed"
+"$T/.harness/scripts/mark-done-bulk.test.sh" >/dev/null || echo "FAIL: mark-done-bulk.test.sh failed"
+jq empty "$T/.harness/tracking/human-done.json" "$T/.harness/tracking/manual-fail.json" "$T/.harness/tracking/reviews.json" || echo "FAIL: an owner-overlay file is not valid JSON"
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done

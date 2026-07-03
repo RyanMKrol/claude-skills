@@ -340,6 +340,9 @@ deploy/restart command run after each task integrates, so the running product ma
 | `worklog/.result` | The loop's **last-iteration verdict** (one line). Git-ignored scratch. |
 | git history + the single task branch | The work itself. At most one `tNNN` branch at a time, built in the isolation worktree. |
 | `worklog/STATUS.md` | Zero-token **status board** written by `postflight.sh`. Git-ignored. |
+| `ledgers/outcomes.jsonl` | One terminal row per built task — the **sole** input to difficulty calibration (§3). Append-only. |
+| `ledgers/failures.jsonl` | One row per **failed attempt** (not per task) — diagnostics only, never read by calibration. Append-only. |
+| `tracking/human-done.json`, `tracking/manual-fail.json`, `tracking/reviews.json` | Owner overlays — see §8.2. |
 
 ### 8.1 — Task schema (the shape of a `TASKS.json` entry)
 
@@ -390,6 +393,20 @@ a task carries no per-task model/effort/escalation — `facets` + the outcomes l
 When design docs exist they live in **`.harness/docs/designs/TNNN-slug.md`**
 and are written with Claude at `--effort max` (§3); the loop only ever *consumes* one — it
 never requires or writes one.
+
+### 8.2 — Owner overlays (`tracking/*.json`)
+
+Three small `{id: {...}}` JSON maps let a human correct or advance the backlog **without ever
+hand-editing `TASKS.json`**: `human-done.json` (marks a `needs-human` task done),
+`manual-fail.json` (overturns a `done` task as a false success — a caught bug the audit/CI missed),
+and `reviews.json` (a purely cosmetic "I've checked this" flag the loop never reads). All three are
+**committed**, **owner-written only** (via `scripts/mark-done.sh` / `mark-failed.sh` /
+`mark-reviewed.sh`, or a dashboard shelling out to the same scripts), and **read-only from the
+loop's perspective**. `reconcile_overlays()` promotes `human-done`/`manual-fail` into authoritative
+`TASKS.json` status at the top of every iteration, so an overlay written by a separate process on
+this same checkout takes effect on the loop's very next pass. A `manual-fail` entry also
+retroactively corrects difficulty calibration **by subtracting at read time**, never by mutating the
+append-only ledger — see `docs/designs/manual-fail-signal.md` for the full mechanism and rationale.
 
 ---
 

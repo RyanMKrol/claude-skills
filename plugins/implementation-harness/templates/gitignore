@@ -14,5 +14,6 @@
 # __pycache__/
 # *.pyc
 
-# harness: atomic-write temp for TASKS.json (in-place variant)
-.harness/tracking/TASKS.json.tmp
+# harness: atomic-write temps (TASKS.json + the owner-overlay files never keep a crashed-mid-write file)
+.harness/tracking/*.tmp
+.harness/tracking/*.tmp.*
