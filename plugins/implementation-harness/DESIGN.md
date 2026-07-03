@@ -105,7 +105,7 @@ walks **up** this single ladder. There is **no per-task escalation ladder** any 
   call a tier "reliable enough." Both live in `facets.json .policy`, tunable.
 - **`difficultyHint` is advisory ONLY** — a human/LLM-readable taxonomy intuition on each facet value;
   the policy never reads it. Do not wire it into code.
-- **Authoring goes through the `ralph-loop-add-to-backlog` skill** (single source of authoring logic:
+- **Authoring goes through the `implementation-harness-add-to-backlog` skill** (single source of authoring logic:
   assigns facets, pairs chooser/review tasks, runs the poor-fit / layer-evolution gate). Floor even on
   a direct edit: every buildable task carries `facets`; `needs-human`/gated tasks are carved out (they
   never run the loop, so no facets, no calibration).

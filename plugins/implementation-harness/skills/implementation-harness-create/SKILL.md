@@ -1,9 +1,10 @@
 ---
-name: ralph-loop-create-harness
+name: implementation-harness-create
 description: >-
-  Use when the user wants to set up the autonomous build harness (the Ralph-style single-loop
-  TASKS.json builder) in a project — phrases like "scaffold the harness", "add the build loop to
-  this repo", "set up ralph", "install loop.sh / supervise.sh". Runs a short interview (project
+  Use when the user wants to set up the autonomous implementation harness (the Ralph-style
+  single-loop TASKS.json builder) in a project — phrases like "scaffold the harness", "add the
+  build loop to this repo", "set up the implementation harness", "install loop.sh / supervise.sh".
+  Runs a short interview (project
   name, purpose, stack, the format/lint/test/build Definition-of-Done commands, build artifacts,
   CI workflow name, cold-start difficulty floor (cheapest tier), optional empirical
   run/backtest check), copies the verbatim harness files in, and writes the personalized CLAUDE.md,
@@ -13,7 +14,7 @@ argument-hint: "[target project dir — defaults to cwd]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
 
-# Scaffold the Ralph harness into a project
+# Scaffold the implementation harness into a project
 
 You are installing a self-contained autonomous build harness into a target project and
 **personalizing** it. The harness is a single sequential shell loop that builds a `TASKS.json`
@@ -105,7 +106,7 @@ Use `AskUserQuestion`, batching related questions. Gather:
 7. **Caps** — `MAX_ATTEMPTS` (2), `MAX_ITERS` (100). Defaults are fine; only ask if they care.
 8. **Empirical Verify step** — "Is there a way to run the app / a backtest to watch it behave?"
    If yes, capture the command and a short label (e.g. `run-app`). This seeds `Verify:` on relevant
-   tasks; remember it for the initial TASKS.json and to pass to `ralph-loop-add-to-backlog`.
+   tasks; remember it for the initial TASKS.json and to pass to `implementation-harness-add-to-backlog`.
 9. **GitHub remote** — check `git -C "<target>" remote get-url origin`. The loop integrates by
    pushing to `origin/main`, required when `REQUIRE_CI=1`. If there's no `origin`, warn and offer
    `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `.harness/LIMITATIONS.md`), or guide them
@@ -212,7 +213,7 @@ matching `.harness/tasks/TNNN.md` for each new task and delete the unused exampl
 - Always include **T001 = "Project scaffold + CI green on an empty build"** (`dependsOn: []`) — its
   job is to prove the CI gate end-to-end before any feature work. Give it a full task object
   (it's mechanical, it builds at the cheap cold-start floor like every task; the policy escalates only on real failure).
-- If the user described features, offer to **chain into `ralph-loop-add-to-backlog`** now to draft
+- If the user described features, offer to **chain into `implementation-harness-add-to-backlog`** now to draft
   the rest of the backlog rather than leaving only T001. If they decline, leave just T001.
 - Never leave the shipped example T002–T005 unless the user explicitly wants them.
 - Keep it valid: end with `jq empty "$T/.harness/TASKS.json"` and fix any error before continuing.
@@ -250,7 +251,7 @@ before declaring done.
 Summarize what you wrote, then print the exact next steps:
 
 ```sh
-git add -A && git commit -m "Add ralph-harness build harness"
+git add -A && git commit -m "Add implementation harness"
 git push -u origin main          # the CI merge-gate needs a GitHub remote
 chmod +x scripts/*.sh
 DRY_RUN=1 scripts/loop.sh        # preview the next task the loop would build
@@ -261,4 +262,4 @@ Remind the user:
 - CI now runs their real DoD commands (the placeholder that fails on purpose has been replaced).
 - A GitHub `origin` remote is required when `REQUIRE_CI=1`; without it the loop can't merge.
 - `docs/HARNESS.md` is the authoritative design; `CLAUDE.md` is the per-project conventions.
-- To grow the backlog later, run `/ralph-loop-add-to-backlog`.
+- To grow the backlog later, run `/implementation-harness-add-to-backlog`.

@@ -7,7 +7,7 @@ loop's design is in `HARNESS.md` + `designs/`.)
 
 ## Adding a backlog task → invoke the add-to-backlog skill
 
-To add a task to the backlog, invoke the **`ralph-loop-add-to-backlog`** skill. It is the **single
+To add a task to the backlog, invoke the **`implementation-harness-add-to-backlog`** skill. It is the **single
 source of authoring logic**: it assigns the task's **facets** (difficulty auto-tuning), pairs every
 chooser task with a review task, runs the **poor-fit / layer-evolution gate**, and writes a
 schema-correct task object + its `tasks/TNNN.md` spec. Prefer it over hand-editing `TASKS.json`.

@@ -1,7 +1,7 @@
-# ralph-harness
+# implementation-harness
 
-A personal Claude Code plugin that **scaffolds an autonomous build harness into any project** and
-**authors its task backlog**, via two interview-style skills.
+A personal Claude Code plugin that **scaffolds an autonomous implementation harness into any
+project** and **authors its task backlog**, via two interview-style skills.
 
 The harness it installs (the "Ralph Loop") is a single **sequential** shell loop that builds a
 `TASKS.json` backlog **one fully-verified task at a time** — fresh-context `claude -p` per task,
@@ -18,8 +18,8 @@ failure. All durable state lives in the repo, so an interrupted run wastes at mo
 
 | Skill | Invoke | What it does |
 |---|---|---|
-| `ralph-loop-create-harness` | `/ralph-loop-create-harness [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, default model/effort + escalation, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/supervise.sh`. |
-| `ralph-loop-add-to-backlog` | `/ralph-loop-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `.harness/HARNESS.md` §8.1) with per-task model/escalation and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
+| `implementation-harness-create` | `/implementation-harness-create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, default model/effort + escalation, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/supervise.sh`. |
+| `implementation-harness-add-to-backlog` | `/implementation-harness-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `.harness/HARNESS.md` §8.1) with per-task model/escalation and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
 
 Both are also model-invocable (Claude triggers them from the descriptions when you ask in plain
 language).
@@ -27,12 +27,12 @@ language).
 ## Layout
 
 ```
-ralph-harness/
+implementation-harness/
 ├── .claude-plugin/plugin.json
 ├── README.md
 ├── skills/
-│   ├── ralph-loop-create-harness/SKILL.md
-│   └── ralph-loop-add-to-backlog/SKILL.md
+│   ├── implementation-harness-create/SKILL.md
+│   └── implementation-harness-add-to-backlog/SKILL.md
 └── templates/                 ← the harness itself (single source of truth), vendored here
     ├── scripts/{loop,loop.in-place,supervise,postflight}.sh, harness.env
     ├── docs/{HARNESS,LIMITATIONS}.md
@@ -49,19 +49,19 @@ itself is `templates/docs/HARNESS.md`.
 
 ```
 /plugin marketplace add RyanMKrol/claude-skills
-/plugin install ralph-harness@claude-skills
+/plugin install implementation-harness@claude-skills
 ```
 
 (For local development on the plugin itself, point the marketplace at a checkout instead:
 `/plugin marketplace add ~/Development/claude-skills`.)
 
-Then it's available in every project. Use it by running `/ralph-loop-create-harness` inside a
-repo, or just asking Claude to "set up the build harness here".
+Then it's available in every project. Use it by running `/implementation-harness-create` inside a
+repo, or just asking Claude to "set up the implementation harness here".
 
 ## Notes
 
 - The shipped `templates/.github/workflows/ci.yml` **fails on purpose** (an `exit 1` placeholder)
-  until `ralph-loop-create-harness` replaces its steps with your real Definition-of-Done commands —
+  until `implementation-harness-create` replaces its steps with your real Definition-of-Done commands —
   so an un-personalized harness can never silently pass CI.
 - The loop integrates by pushing to `origin/main`; a GitHub remote is required when
   `REQUIRE_CI=1` (the default).

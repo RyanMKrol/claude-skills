@@ -1,7 +1,7 @@
 ---
-name: ralph-loop-add-to-backlog
+name: implementation-harness-add-to-backlog
 description: >-
-  Use when a project already has the Ralph harness (.harness/HARNESS.md, .harness/loop.sh, TASKS.json
+  Use when a project already has the implementation harness (.harness/HARNESS.md, .harness/loop.sh, TASKS.json
   present) and the user wants to draft or extend the task backlog — phrases like "add tasks",
   "write the backlog", "turn this feature into tasks", "plan the next phase for the loop". Runs a
   focused interview that turns a feature description into atomic, dependency-ordered TASKS.json task
@@ -23,7 +23,7 @@ but are never silently altered during an append.)
 ## 1. Pre-flight
 
 - Require the harness: `TASKS.json`, `.harness/HARNESS.md`, and `.harness/loop.sh` must exist in the
-  project. If any is missing, stop and point the user at `/ralph-loop-create-harness` first.
+  project. If any is missing, stop and point the user at `/implementation-harness-create` first.
   (Either loop variant — worktree or in-place — installs as `.harness/loop.sh` and keeps
   `TASKS.json` at the repo root, so this skill is identical for both.)
 - Require `jq` (the loop and this skill use it). If absent, tell the user to `brew install jq`.

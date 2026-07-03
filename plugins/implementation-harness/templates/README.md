@@ -1,6 +1,6 @@
-# Ralph Loop
+# Implementation Harness
 
-A generic **autonomous build harness**: a single, sequential shell loop that builds a
+A generic **autonomous implementation harness**: a single, sequential shell loop that builds a
 `TASKS.json` backlog **one fully-verified task at a time**, using a fresh-context headless
 Claude (`claude -p`) per task, with **all durable memory in the repo**. It's optimised to
 **waste as few tokens as possible when a run is interrupted**, and to never mark a task done

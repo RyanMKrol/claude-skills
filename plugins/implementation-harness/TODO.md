@@ -1,4 +1,4 @@
-# ralph-harness — deferred design TODO
+# implementation-harness — deferred design TODO
 
 Items we identified but deliberately deferred, captured so they're not lost. (Dev-only file — not
 under `templates/`, so it isn't installed into scaffolded projects and needs no version bump.)
