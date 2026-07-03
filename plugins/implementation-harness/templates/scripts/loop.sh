@@ -4,7 +4,7 @@
 #
 # Exactly ONE task is built at a time, fully verified, and merged into `main` only on
 # green GitHub CI — so an interruption (token limit, crash) can ever damage at most one
-# task. See .harness/HARNESS.md for the full design and rationale.
+# task. See .harness/docs/HARNESS.md for the full design and rationale.
 #
 # ISOLATION (why this uses a worktree even though it's sequential):
 #   The machine is shared — other agents, a running app, or manual edits may all live in
@@ -77,7 +77,7 @@ board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
 command -v jq >/dev/null 2>&1 || { log "jq is required to parse TASKS.json — install it (e.g. brew install jq)"; exit 3; }
 
 # --- TASKS.json / worklog helpers (read from origin/main, NOT any working tree) -
-# TASKS.json is the structured backlog (schema: .harness/HARNESS.md §8.1), parsed with jq.
+# TASKS.json is the structured backlog (schema: .harness/docs/HARNESS.md §8.1), parsed with jq.
 blob()         { git -C "$ROOT" show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
 tj()           { blob tracking/TASKS.json | jq "$@" 2>/dev/null; }        # query TASKS.json
 all_tasks()    { tj -r '.tasks[].id'; }                                   # in array (=dependency) order
@@ -89,7 +89,7 @@ task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; 
 # (a repo-relative path, e.g. .harness/tasks/T001.md, with sections '## Do' / '## Done when').
 task_spec_rel() { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.spec // empty'; }
 
-# --- Difficulty auto-tuning (see .harness/designs/difficulty-autotune.md) -----------------------------
+# --- Difficulty auto-tuning (see .harness/docs/designs/difficulty-autotune.md) -----------------------------
 # The loop rides ONE global difficulty ladder (facets.json .tiers.ladder, cheapest→priciest) offset
 # by a policy-chosen START tier (cur_base). Tasks carry NO per-task model/effort/escalation — `facets`
 # drive the policy and the global ladder is the safety net; the cold-start prior is the cheapest tier.
@@ -189,7 +189,7 @@ flush_failures() {
 # via a detached worktree (mirrors block_task). Used for the SUCCESS case; block_task folds the row
 # into its own commit. Forward-only + best-effort — never fails the caller.
 record_outcome() {
-  local id="$1" line; line="$(outcome_row "$id" "$2" "${3:-}")"
+  local id="$1" blocked="$2" line; line="$(outcome_row "$id" "$blocked" "${3:-}")"
   [ -n "$line" ] || { log "WARN: couldn't build outcome row for $id"; return 0; }
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   remove_wt
@@ -198,6 +198,18 @@ record_outcome() {
     printf '%s\n' "$line" >>"$LOOP_WT/.harness/ledgers/outcomes.jsonl"
     flush_failures "$id" "$LOOP_WT/.harness/ledgers/failures.jsonl"
     git -C "$LOOP_WT" add .harness/ledgers/outcomes.jsonl .harness/ledgers/failures.jsonl 2>/dev/null || true
+    if [ "$blocked" = false ]; then
+      # The LOOP — not the builder — owns .harness/tracking/TASKS.json status (§6 TODO fix): flip it
+      # here, in the SAME commit as the outcome row, now that the task has cleared structural_checks
+      # + the audit gate. Mirrors the in-place variant's mark_done().
+      local tasks_path="$LOOP_WT/.harness/tracking/TASKS.json" tmp="$LOOP_WT/.harness/tracking/TASKS.json.tmp"
+      if jq --arg id "$id" '(.tasks[]|select(.id==$id)|.status)="done"' "$tasks_path" >"$tmp" 2>/dev/null; then
+        mv "$tmp" "$tasks_path"
+        git -C "$LOOP_WT" add .harness/tracking/TASKS.json 2>/dev/null || true
+      else
+        rm -f "$tmp"; log "WARN: couldn't set status=done for $id in TASKS.json"
+      fi
+    fi
     git -C "$LOOP_WT" commit -q -m "$id: record outcome [skip ci]" 2>/dev/null || true
     git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push outcome for $id"
     remove_wt
@@ -337,19 +349,20 @@ prompt() {
   printf 'You are in a DEDICATED git worktree already checked out on branch `%s`. Work HERE only — do NOT switch branches, create branches, or touch any other checkout on this machine.\n' "$branch"
   cat <<'EOF'
 
-Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run head-less and unattended.
+Obey CLAUDE.md, .harness/tracking/TASKS.json, and .harness/docs/HARNESS.md exactly. You run
+head-less and unattended.
 
 1. BUILD COLD. You are starting FRESH on a clean branch off origin/main — do NOT look for or rely on
    any prior-attempt state (worklog, partial commits); build this task from the spec alone. Read this
-   task's object in .harness/TASKS.json (find it with `jq '.tasks[]|select(.id=="<TASK>")'
-   .harness/TASKS.json`); if its `design` field points to a `.harness/designs/…` doc, READ and follow
-   it. The task's `do` + `done-when` live in the Markdown spec at the JSON `spec` path
-   (.harness/tasks/<TASK>.md, sections '## Do' / '## Done when') — its FULL TEXT is appended at the end
-   of this prompt. Stay within the task's `scope` — the exact allowed-files list + the HARD-GATE rule
-   are shown under "SCOPE" at the end of this prompt.
-2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
+   task's object in .harness/tracking/TASKS.json (find it with `jq '.tasks[]|select(.id=="<TASK>")'
+   .harness/tracking/TASKS.json`); if its `design` field points to a `.harness/docs/designs/…` doc,
+   READ and follow it. The task's `do` + `done-when` live in the Markdown spec at the JSON `spec`
+   path (.harness/tasks/<TASK>.md, sections '## Do' / '## Done when') — its FULL TEXT is appended at
+   the end of this prompt. Stay within the task's `scope` — the exact allowed-files list + the
+   HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
+2. DEFINITION OF DONE (.harness/docs/HARNESS.md §6 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
-      .harness/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
+      .harness/docs/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
       run it locally first. Every check must pass.
    b. Run the task's relevant integration / end-to-end tests when their preconditions are
       met. Tests that need credentials, funds, or external resources you don't have: leave
@@ -358,9 +371,10 @@ Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly. You run he
    c. If the task's `verify` field names extra EMPIRICAL checks (e.g. run the app against
       real input for a bounded window and observe it behaves), perform them and record what
       you OBSERVED in the worklog. The bar is the behaviour the task specifies.
-3. DOCS IN LOCKSTEP (same commit): set this task's `"status"` to `"done"` in .harness/TASKS.json (edit
-   the JSON; keep it valid — `jq empty .harness/TASKS.json` must pass), flip its README.md status row,
-   and add any new trade-off/limitation to .harness/LIMITATIONS.md.
+3. DO NOT edit .harness/tracking/TASKS.json — the loop, not the builder, sets `"status"` to `"done"`
+   itself once your build clears the structural checks + audit gate below, in a follow-up commit
+   the loop makes on its own. If a doc (README.md, .harness/docs/LIMITATIONS.md, …) genuinely needs
+   updating for THIS task, update it only if it's listed in your `scope` below — otherwise leave it.
 4. COMMIT `<TASK>: <summary>` (INCLUDING `.harness/worklog/<TASK>.md` with a dated entry: what you did,
    checks run, what remains). Then push THIS branch: `git push -u origin HEAD`. Do NOT merge
    into `main` — the loop watches GitHub CI and fast-forwards main on green. If a previous
@@ -379,7 +393,7 @@ EOF
   printf '\n--- SCOPE — HARD GATE (a script checks your diff against this; staying inside it is mandatory) ---\n'
   printf 'You may change ONLY these files:\n'
   if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
-  printf '%s\n' 'PLUS you may always touch: TEST files; your own .harness/worklog/<TASK>.md; and the done-protocol bookkeeping (.harness/TASKS.json status, the README status row, .harness/LIMITATIONS.md). Touching ANY OTHER file outside the list above AUTO-FAILS this task. If you genuinely need a code/doc file not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
+  printf '%s\n' 'PLUS you may always add/change TEST files and your own .harness/worklog/<TASK>.md. Touching ANY OTHER file — including .harness/tracking/TASKS.json (the loop owns it) or a doc not listed above — AUTO-FAILS this task. If you genuinely need a file that is not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — read from the git ref. The
   # `spec` field is ALREADY a full repo-relative path (.harness/tasks/<TASK>.md), so read it directly
   # with `git show "$TASKS_REF:$rel"` — do NOT route it through blob() (which re-prefixes .harness/).
@@ -425,10 +439,11 @@ structural_checks() {
   creep=""
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    # Worktree done-protocol bookkeeping the builder always commits (status + README row + limitations)
-    # — allowlisted so they aren't flagged as scope creep. (The in-place variant's loop owns status, so
-    # it allowlists only the worklog. See TODO.md: reconcile so README isn't blanket-exempt here.)
-    case "$f" in .harness/worklog/*|.harness/TASKS.json|README.md|.harness/LIMITATIONS.md) continue ;; esac
+    # STRICT — same allowlist as the in-place variant: only the task's own worklog + test files.
+    # The loop (not the builder) owns .harness/tracking/TASKS.json status (record_outcome, after
+    # this gate + the audit pass), so it is never exempted here; a task needing README/LIMITATIONS
+    # updated declares that file in its own `scope` like any other file.
+    case "$f" in .harness/worklog/*) continue ;; esac
     if printf '%s\n' "$f" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then continue; fi
     inscope=0
     while IFS= read -r s; do

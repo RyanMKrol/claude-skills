@@ -278,11 +278,14 @@ It differs from the worktree loop as follows:
 - **Works directly on `main` in the primary checkout** — no sibling worktree, no per-task `tNNN`
   branches. So it *can* see the untracked local state the build needs.
 - **Reads `TASKS.json` from the local working file**, not `origin/main`.
-- **The shell owns task status.** The worker commits the task but does **not** edit `TASKS.json`;
-  after CI is green the loop sets `status:"done"` itself (a `[skip ci]` commit) and pushes — and
-  sweeps `worklog/` into that commit so a stray note can't dirty the tree.
 - **Every attempt starts fresh (cold)** — the in-place loop discards any leftover working-tree
   changes before building, so no attempt ever resumes partial work (§2.4).
+
+Both variants agree that **the shell owns task status** — the worker commits the task but does
+**not** edit `TASKS.json`; only after the structural checks + audit gate pass does the loop itself
+set `status:"done"` (a `[skip ci]` commit) and push. In-place does this directly on `main`,
+sweeping `worklog/` into the same commit so a stray note can't dirty the tree; worktree does it via
+a detached-worktree commit (`record_outcome`, mirroring how it already records the outcome ledger).
 
 **Safety model.** Without worktree isolation, two things stand in for it: (1) every task is one
 commit on `main`, so a bad one is a one-line `git revert`; and (2) a **load-bearing pre-push
@@ -377,7 +380,7 @@ the top carries the human note (JSON has no comments). One task object:
 |---|---|
 | `id` | Task identifier, zero-padded, ≥ three digits (`T001`…`T999`). The branch is `tNNN`. |
 | `title` | One-line human summary (shown on the status board). |
-| `status` | `"pending"` or `"done"` — the **only** status source. Runtime failure/retry state lives in `worklog/` + `.result`, not here. The build pass sets `"done"` in the same commit as the work. |
+| `status` | `"pending"` or `"done"` — the **only** status source. Runtime failure/retry state lives in `worklog/` + `.result`, not here. The LOOP (not the builder) sets `"done"`, in a follow-up commit, once the build clears the structural checks + the audit gate — both isolation variants now work this way (§6). |
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
 | `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
 | `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. |

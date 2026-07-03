@@ -48,8 +48,13 @@ the same commit** — never as a follow-up. A task is **done when its branch is 
 `main`** (code + docs both updated). On every change:
 
 - **`README.md`** — update the implementation-status section in the same commit so it always
-  reflects what the code does. Flip a task's status row to ✅ in the commit that completes it.
-- **`TASKS.json`** — in the same commit, set the task's `"status"` to `"done"`.
+  reflects what the code does, IF you're working by hand (outside the harness). Under the
+  autonomous loop (either isolation variant), the LOOP is the sole writer of
+  `.harness/tracking/TASKS.json` `"status"` — it flips a task to `"done"` itself, in a follow-up
+  commit, once the build clears the structural checks and the audit gate. Never set `"status"`
+  yourself while working on a harness-driven task; doing so trips the scope gate.
+- **`TASKS.json`** — if working BY HAND (no harness / no loop running), set the task's `"status"`
+  to `"done"` in the same commit as the work, same as any other doc update.
 - **`PLAN.md` / design docs** — update only if the change alters the design or an
   architectural decision. Day-to-day implementation usually doesn't touch them.
 - If a change introduces a convention or decision worth remembering, note it here in

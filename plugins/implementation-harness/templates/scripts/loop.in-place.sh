@@ -12,7 +12,7 @@
 #
 #   The trade-off: the loop commits on the real `main`, so the safety model is git itself (every
 #   task is one commit; a bad one is a one-line `git revert`) PLUS a load-bearing pre-push guard
-#   (below) that refuses to push if any sensitive/gitignored path is staged. See .harness/HARNESS.md.
+#   (below) that refuses to push if any sensitive/gitignored path is staged. See .harness/docs/HARNESS.md.
 #
 # Each iteration:
 #   SELECT (shell)  — from TASKS.json: the next not-done task whose dependsOn are all done and
@@ -230,7 +230,7 @@ run_integrate_hook() {
 # The loop rides ONE global difficulty ladder (facets.json .tiers.ladder, cheapest→priciest) offset
 # by a policy-chosen START tier (cur_base). rung 0 = the policy's start tier; escalation walks UP the
 # global ladder. Tasks carry NO per-task model/effort/escalation — `facets` drive the policy and the
-# global ladder is the safety net; the cold-start prior is just the cheapest tier. See .harness/HARNESS.md §6.
+# global ladder is the safety net; the cold-start prior is just the cheapest tier. See .harness/docs/HARNESS.md §6.
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
   < <(jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' "$FACETS" 2>/dev/null)
@@ -341,19 +341,19 @@ prompt() {
   cat <<'EOF'
 You work DIRECTLY on the `main` branch in the primary checkout — NO worktree, NO new branches.
 Do NOT create/switch branches. Do NOT push. Do NOT merge. The loop pushes + gates on CI after you finish.
-You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harness/HARNESS.md exactly.
+You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, and .harness/docs/HARNESS.md exactly.
 
 1. ORIENT. Read CLAUDE.md (conventions) and find this task:
-   `jq '.tasks[]|select(.id=="<TASK>")' .harness/TASKS.json` (read its scope/verify and orchestration
-   fields; if its `design` field points to a .harness/designs/… doc, READ and follow it). The task's
+   `jq '.tasks[]|select(.id=="<TASK>")' .harness/tracking/TASKS.json` (read its scope/verify and orchestration
+   fields; if its `design` field points to a .harness/docs/designs/… doc, READ and follow it). The task's
    `do` + `done-when` live in the Markdown spec at the JSON `spec` path (.harness/tasks/<TASK>.md,
    sections '## Do' / '## Done when') — its FULL TEXT is appended at the end of this prompt. You are
    starting COLD on a CLEAN tree: do NOT look for or rely on any prior-attempt state (worklog, partial
    work) — build this task FRESH from the spec alone. Stay within the task's `scope` — the exact
    allowed-files list + the HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
 
-2. DEFINITION OF DONE (.harness/HARNESS.md §6 — all must hold before you report `done`):
-   a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/HARNESS.md §6
+2. DEFINITION OF DONE (.harness/docs/HARNESS.md §6 — all must hold before you report `done`):
+   a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/docs/HARNESS.md §6
       (format, lint, tests, build). These MIRROR CI — run them locally first; every check must pass.
       Add tests for new behaviour.
    b. Run the task's integration / end-to-end checks when their preconditions are met. A check that
@@ -368,9 +368,9 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/TASKS.json, and .harn
    whole run if any sensitive path is staged — so stage precisely.
 
 4. DOCS IN LOCKSTEP (same commit) — but ONLY docs that are in your SCOPE. If a convention/feature
-   change needs README.md / CLAUDE.md / .harness/LIMITATIONS.md AND that file is in your scope, update it; if a
+   change needs README.md / CLAUDE.md / .harness/docs/LIMITATIONS.md AND that file is in your scope, update it; if a
    needed doc is NOT in scope, do NOT edit it (it trips the scope gate) — record `failed:blocked` noting the
-   missing doc. Do NOT edit .harness/TASKS.json — the loop owns task status. Write your notes to
+   missing doc. Do NOT edit .harness/tracking/TASKS.json — the loop owns task status. Write your notes to
    .harness/worklog/<TASK>.md (always allowed; a dated entry: what you did, checks run, what remains).
 
 5. COMMIT `<TASK>: <summary>` (do NOT push), staging your intended files explicitly. Your commit

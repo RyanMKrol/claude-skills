@@ -3,19 +3,7 @@
 Items we identified but deliberately deferred, captured so they're not lost. (Dev-only file — not
 under `templates/`, so it isn't installed into scaffolded projects and needs no version bump.)
 
-## 1. Reconcile the worktree done-protocol with the scope gate (stopgap in place)
-
-**Status:** the WORKTREE variant's builder done-protocol edits `.harness/TASKS.json` (sets status), the
-`README.md` status row, and `.harness/LIMITATIONS.md` — none ever in a task's `scope`. The scope gate
-(v0.9.4/0.9.5) would flag those as creep, so `loop.sh`'s `structural_checks` currently **allowlists**
-those three files. That works but is loose — a worktree builder can change README / LIMITATIONS freely,
-outside scope. The in-place variant has no such issue (its loop owns status; its builder edits only
-in-scope docs), so its allowlist stays strict: just worklog + tests.
-
-**To do — the clean fix:** align the worktree done-protocol to the in-place model — the builder commits
-code + worklog only; the LOOP's integrate step sets status / flips the README row. Then drop the
-`.harness/TASKS.json|README.md|.harness/LIMITATIONS.md` allowlist from `loop.sh`'s `structural_checks`
-(make it strict like in-place) and remove the "done-protocol bookkeeping" clause from its build prompt.
+Nothing currently deferred — see "Done" below for the most recent resolved items.
 
 ---
 
@@ -30,3 +18,10 @@ code + worklog only; the LOOP's integrate step sets status / flips the README ro
   cheapest rung) for a risky task, even if historical calibration would otherwise let index 0 clear
   the floor. Both loop variants' `pick_base`/`audit_gate` now extract and pass the current task's
   risk flags. See `docs/designs/difficulty-autotune.md`.
+- **Worktree done-protocol reconciled with the scope gate — v1.6.0.** Moved `TASKS.json`
+  status-ownership out of the worktree builder and into `loop.sh` itself: `record_outcome()` now
+  flips `status:"done"` in the SAME detached-worktree commit as the outcome-ledger row, after
+  structural checks + the audit gate pass — mirroring the in-place variant's `mark_done()`. The
+  builder's prompt no longer mentions `TASKS.json`/README/LIMITATIONS bookkeeping, and
+  `structural_checks`' 3-file stopgap allowlist is gone — it's strict (worklog + tests only) like
+  the in-place variant now.
