@@ -60,6 +60,7 @@ REQUIRE_CI="${REQUIRE_CI:-1}"                     # 1 = never merge without gree
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"             # optional cmd run after each task integrates (deploy/restart)
 UI_VERIFY_HOOK="${UI_VERIFY_HOOK:-}"             # optional cmd for visual UI verification — injected for facets.workType=="component" tasks only
 SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"     # optional space-separated extra path prefixes structural_checks always allows, beyond worklog+tests
+PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
 TASKS_REF="${TASKS_REF:-origin/main}"            # decisions are read from here, never a worktree
 LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolation worktree
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
@@ -331,9 +332,30 @@ wait_ci_green() {   # 0=green 1=red 2=indeterminate
 
 # Integrate by fast-forwarding main. Single-flight keeps it a ff; if main moved
 # (another actor pushed), the ff is rejected and we soft-fail so the agent absorbs it.
+# throttled_push <dir> <push-args...> — like `git -C <dir> push <push-args...>`, but enforces
+# PUSH_COOLDOWN_SECONDS between successful pushes (persisted in a gitignored-equivalent file under
+# .git, so it survives across loop.sh invocations). 0 (default) = no throttle, zero overhead.
+PUSH_COOLDOWN_FILE="$GIT_COMMON/${NAME}-last-push"
+throttled_push() {
+  local dir="$1"; shift
+  if [ "$PUSH_COOLDOWN_SECONDS" -gt 0 ] 2>/dev/null; then
+    local last now elapsed wait
+    last="$(cat "$PUSH_COOLDOWN_FILE" 2>/dev/null || echo 0)"
+    now=$(date +%s); elapsed=$(( now - last ))
+    if [ "$elapsed" -lt "$PUSH_COOLDOWN_SECONDS" ]; then
+      wait=$(( PUSH_COOLDOWN_SECONDS - elapsed ))
+      log "push cooldown: waiting ${wait}s (PUSH_COOLDOWN_SECONDS=$PUSH_COOLDOWN_SECONDS)"
+      sleep "$wait"
+    fi
+  fi
+  git -C "$dir" push "$@"; local rc=$?
+  [ "$rc" = 0 ] && date +%s >"$PUSH_COOLDOWN_FILE" 2>/dev/null
+  return "$rc"
+}
+
 integrate() {
   local branch="$1"
-  git -C "$LOOP_WT" push --quiet origin "$branch:main" 2>/dev/null && return 0
+  throttled_push "$LOOP_WT" --quiet origin "$branch:main" 2>/dev/null && return 0
   log "ff to main rejected (main moved under us) — soft"; return 1
 }
 
@@ -430,6 +452,54 @@ EOF
 
 # --- Claude invocation with rate-limit detection ----------------------------
 RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|resets? (at|in)|try again later|overloaded|quota|insufficient.*credit|exceeded your'
+RL_BUFFER="${RL_BUFFER:-60}"   # seconds of slack added on top of a parsed reset time
+
+# rl_reset_wait <output-file> — best-effort: parse a reset time out of Claude's own rate-limit
+# message and return how many seconds to sleep until then (+ RL_BUFFER slack). Falls back to
+# RL_POLL when no reset time is found or it fails to parse — never blocks on a bad parse. Handles
+# three shapes Claude's CLI has been observed to use: an absolute clock time ("resets at 3:45 PM"),
+# a relative duration ("resets in 45 minutes"), and an ISO-8601 timestamp.
+rl_reset_wait() {
+  local out="$1" now line target iso n unit clock
+  now=$(date +%s)
+  line="$(grep -oiE 'resets?[^.]{0,40}' "$out" 2>/dev/null | tail -1)"
+  [ -n "$line" ] || { printf '%s' "$RL_POLL"; return; }
+
+  iso="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})?' | head -1)"
+  if [ -n "$iso" ]; then
+    case "$iso" in
+      *Z) target="$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%S' "${iso:0:19}" +%s 2>/dev/null || TZ=UTC date -d "${iso:0:19}" +%s 2>/dev/null || true)" ;;
+      *)  target="$(date -j -f '%Y-%m-%dT%H:%M:%S' "${iso:0:19}" +%s 2>/dev/null || date -d "$iso" +%s 2>/dev/null || true)" ;;
+    esac
+  fi
+
+  if [ -z "${target:-}" ]; then
+    read -r n unit <<<"$(printf '%s' "$line" | grep -oiE '[0-9]+ *(second|minute|hour)s?' | head -1 | sed -E 's/([0-9]+) *([a-zA-Z]+)s?/\1 \2/')"
+    if [ -n "$n" ]; then
+      case "$unit" in
+        [Ss]econd*) target=$((now + n)) ;;
+        [Mm]inute*) target=$((now + n * 60)) ;;
+        [Hh]our*)   target=$((now + n * 3600)) ;;
+      esac
+    fi
+  fi
+
+  if [ -z "${target:-}" ]; then
+    clock="$(printf '%s' "$line" | grep -oiE '[0-9]{1,2}:[0-9]{2} *[ap]m' | head -1)"
+    if [ -n "$clock" ]; then
+      target="$(LC_ALL=C date -j -f '%I:%M %p' "$(printf '%s' "$clock" | tr '[:lower:]' '[:upper:]')" +%s 2>/dev/null \
+             || date -d "$clock" +%s 2>/dev/null || true)"
+      [ -n "${target:-}" ] && [ "$target" -lt "$now" ] && target=$((target + 86400))
+    fi
+  fi
+
+  if [ -n "${target:-}" ] && [ "$target" -gt "$now" ]; then
+    printf '%s' "$(( target - now + RL_BUFFER ))"
+  else
+    printf '%s' "$RL_POLL"
+  fi
+}
+
 # run_claude <model> <effort> <prompt> → 0 ok | 10 rate/usage-limited | other = failure
 run_claude() {
   local model="$1" effort="$2" pr="$3" out="$LOOP_WT/.harness/worklog/.claude-out" rc
@@ -550,10 +620,12 @@ audit_gate() {
   diff="$(git -C "$LOOP_WT" diff origin/main..HEAD 2>/dev/null)"
   rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$LOOP_WT/$rel" ] && spec="$(cat "$LOOP_WT/$rel")"
   out="$LOOP_WT/.harness/worklog/$id.audit.md"
-  rlpoll="${RL_POLL:-${RL_BACKOFF_MIN:-300}}"
   while :; do
     set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")"; arc=$?; set -e
-    [ "$arc" = 10 ] && { log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue; }
+    if [ "$arc" = 10 ]; then
+      rlpoll="$(rl_reset_wait "$LOOP_WT/.harness/worklog/.claude-out")"
+      log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue
+    fi
     break
   done
   cp "$LOOP_WT/.harness/worklog/.claude-out" "$out" 2>/dev/null || true
@@ -654,8 +726,9 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         board; exit 5
       fi
-      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
-      sleep "$RL_POLL"; rl_waited=$(( rl_waited + RL_POLL )); continue
+      rlwait="$(rl_reset_wait "$LOOP_WT/.harness/worklog/.claude-out")"
+      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${rlwait}s (not a failure; waited ${rl_waited}s so far)."
+      sleep "$rlwait"; rl_waited=$(( rl_waited + rlwait )); continue
     fi
     break
   done
@@ -669,8 +742,19 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   case "$status" in
     done)
       log "task $rtask built on branch $branch"
-      if [ "$REQUIRE_CI" = "1" ] && ! wait_ci_green "$branch"; then
-        log "CI not green for $task — failed attempt; tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "ci-not-green"; bump "$task"; board; continue
+      if [ "$REQUIRE_CI" = "1" ]; then
+        ci_rc=0; wait_ci_green "$branch" || ci_rc=$?
+        if [ "$ci_rc" = 2 ]; then
+          # INDETERMINATE (no run appeared / cancelled / skipped / stale / neutral) isn't the same as
+          # red — give it one re-check before counting it as a failed attempt against this task's
+          # difficulty calibration, so a merely-slow/superseded CI run doesn't cost a soft failure.
+          log "CI INDETERMINATE for $task — re-checking once after ${WAIT_SECONDS}s before deciding."
+          sleep "$WAIT_SECONDS"
+          ci_rc=0; wait_ci_green "$branch" || ci_rc=$?
+        fi
+        if [ "$ci_rc" != 0 ]; then
+          log "CI $([ "$ci_rc" = 2 ] && echo "still indeterminate" || echo "not green") for $task — failed attempt; tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "ci-not-green"; bump "$task"; board; continue
+        fi
       fi
       # Structural gate THEN the blocking audit, on the CI-green branch, BEFORE integrating — so
       # nothing unaudited reaches main. Either fail = a failed attempt (tear down → cold retry).

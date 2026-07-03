@@ -28,3 +28,22 @@ Never hand-edit `TASKS.json`'s `status` field directly — the loop is its sole 
 overturns a `done` task the loop/audit got wrong; `scripts/mark-reviewed.sh TNNN` sets the cosmetic
 reviewed flag. Each writes one `tracking/*.json` overlay file, which `reconcile_overlays()` promotes
 into `TASKS.json` status on the loop's next iteration. Background: `docs/designs/manual-fail-signal.md`.
+
+## Known-but-deferred issues (log real incidents here, dated)
+
+A running, dated log of real problems hit while operating THIS harness — not aspirational design
+notes, actual incidents with a root cause and a fix. This is institutional memory: the next person
+(human or agent) debugging a strange loop failure should check here before re-deriving the cause
+from scratch. Add an entry whenever you diagnose a genuine harness-mechanism bug (not a one-off
+project bug), in this shape:
+
+```
+### YYYY-MM-DD — <one-line symptom>
+**Root cause:** <what was actually wrong, and why it wasn't obvious>
+**Fix:** <what changed, with a file/function pointer>
+**Verification:** <how you confirmed the fix actually works>
+```
+
+Keep entries even after the fix ships — they're the record of *why* the current behavior exists,
+which saves the next debugging session from re-discovering the same failure mode. (No entries yet
+in a freshly-scaffolded project — this section is the template for adding them.)

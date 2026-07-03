@@ -34,7 +34,9 @@ window, so every invocation is cheap to (re)start and an interruption is surviva
 2. **One task per iteration, fresh context.** No batching.
 3. **Sequential, single-flight.** At most one task in motion, so an interruption damages at
    most one task — the core lever for not wasting tokens.
-4. **Resume, never restart.** Interrupted work is continued from its branch + worklog.
+4. **Every attempt is cold.** No attempt reads a prior worklog or resumes partial work — each one
+   measures a fresh pass from the spec alone, which is what makes the difficulty auto-tuning and
+   audit signals meaningful. An interruption just means the next attempt starts over, cleanly.
 5. **The Definition of Done is empirical** — compiled, tested, CI green, behaviour observed.
 6. **Determinism where it's cheap; the model only where judgement is needed.** Sync, CI-watch,
    merge, cleanup are plain shell; the model implements, fixes, and judges.
@@ -95,8 +97,10 @@ deliberately *not* parallel).
 
 ## Requirements
 
-- **`claude`** CLI (Claude Code), authenticated, with a model that accepts `--model` /
-  `--effort` (the loop pins `claude-opus-4-8` / `high` by default).
+- **`claude`** CLI (Claude Code), authenticated, with a model that accepts `--model` / `--effort`.
+  The loop starts every task at the CHEAPEST configured tier (bias-cheap cold-start floor, set in
+  `config/harness.env`) and escalates up the global ladder only on real failure — it does not pin
+  an expensive model by default.
 - **`gh`** (GitHub CLI), authenticated with `repo` + `workflow` scopes — the loop watches CI
   runs and integrates via push.
 - **`git`** with worktree support, and a GitHub remote named `origin` for `main`.

@@ -135,6 +135,34 @@ up front, **you author that doc** — interactively, with Claude at `--effort ma
 `.harness/docs/designs/TNNN-*.md`, and the high-effort build pass implements from it. So `max` effort
 exists in the project but lives **out of band** (optional, human-driven), never in the loop.
 
+### Bumping the base model (migration runbook)
+
+When a new model generation supersedes the one `config/facets.json`'s `.tiers.ladder` is pinned to,
+migrate the ladder and BOTH ledgers together, in this order, so calibration survives the move
+instead of silently cold-starting:
+
+1. **Update the ladder.** Edit `config/facets.json → .tiers.ladder`, replacing each old model id
+   with its successor at the equivalent effort rung (same rung COUNT and ORDER — don't add or
+   remove rungs in the same pass, or the ledger migration in the next step can't map old indices to
+   new ones cleanly).
+2. **Migrate `ledgers/outcomes.jsonl`.** Every row's `startModel`/`finalModel` must be rewritten to
+   the new ids at the SAME rung position — a plain `sed` substitution per old→new model-id pair
+   across the whole file works, since the ladder positions didn't move. Do the same for
+   `ledgers/failures.jsonl`'s `model` field (diagnostics only, but keep it consistent).
+3. **Verify calibration survived.** Run `policy.jq` in tier-selection mode for a few real
+   `(layer, work-type)` cells you know have history, before and after the migration, and confirm
+   the chosen index is unchanged (same cheapest-tier-clearing-floor result) — a mismatch means a
+   rung got mapped to the wrong new-model index in step 2.
+4. **Update the cold-start floor** in `config/harness.env` (`MODEL`/`EFFORT`) if the cheapest rung
+   itself changed.
+5. **Commit the ladder + both ledgers together**, so `git log` shows the migration as one atomic
+   change rather than a period where the ladder and ledger disagree.
+
+Skipping step 2 doesn't break anything catastrophically — a ledger row with an old model id simply
+stops matching any ladder tier (`tidx()` returns `-1` and the row is dropped from calibration), so
+the practical effect is silent, partial data loss: every cell's calibration quietly resets to its
+cold-start prior instead of carrying forward what the harness had already learned.
+
 ---
 
 ## 4. Operating model — one iteration, end to end
@@ -299,6 +327,19 @@ worker is therefore instructed to stage files **explicitly** (never `git add -A`
 **Trade-off.** The in-place loop works *on* the shared checkout, so it isn't safe to run while
 other work happens there (unlike the worktree loop). Choose it only when the local-state
 requirement forces it; prefer the worktree variant otherwise.
+
+**`LOOP_AUTORESET` (opt-in, in-place only, default off).** The loop refuses to start on a dirty
+tree by default (§9 incident). Set `LOOP_AUTORESET=1` ONLY for a checkout dedicated solely to the
+loop — then a dirty tree at startup is almost always orphaned partial work from an interrupted
+prior run, and the loop stashes it (recoverable via `git stash`) and self-heals instead of
+refusing. The worktree variant never needs this — its worktrees are always freshly torn down.
+
+**`PUSH_COOLDOWN_SECONDS` (optional, both variants, default 0/off).** Enforces a minimum
+wall-clock gap between successful integration pushes to `main`, for projects whose deploy webhook
+has its own rate limit that a rapid string of task-completion pushes can trip even though each
+individual push is fine (`throttled_push()`, persisted in a gitignored-equivalent file under
+`.git/`). Only the final integration push is throttled, not internal status/ledger bookkeeping
+commits.
 
 The in-place variant also adds **rate-limit handling** (on a Claude usage limit it sleeps and
 re-attempts the same task COLD, not a soft failure) and honours the optional `INTEGRATE_HOOK` (a

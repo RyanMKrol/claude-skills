@@ -62,6 +62,8 @@ MAIN_BRANCH="${MAIN_BRANCH:-main}"
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"               # optional cmd run after each task integrates (deploy/restart)
 UI_VERIFY_HOOK="${UI_VERIFY_HOOK:-}"               # optional cmd for visual UI verification — injected for facets.workType=="component" tasks only
 SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"       # optional space-separated extra path prefixes structural_checks always allows, beyond worklog+tests
+PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
+LOOP_AUTORESET="${LOOP_AUTORESET:-0}"              # opt-in: self-heal (stash+reset) a dirty tree at startup instead of refusing — dedicated checkouts only
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 # Rate-limit-aware handling: when Claude hits a usage/session limit, POLL on a fixed short
@@ -181,6 +183,27 @@ flush_failures() {
   [ -s "$FAILURES_BUF" ] || return 0
   cat "$FAILURES_BUF" >>"$FAILURES" 2>/dev/null || true
   : >"$FAILURES_BUF"
+}
+
+# throttled_push <dir> <push-args...> — like `git -C <dir> push <push-args...>`, but enforces
+# PUSH_COOLDOWN_SECONDS between successful pushes (persisted in a gitignored-equivalent file under
+# .git, so it survives across loop.sh invocations). 0 (default) = no throttle, zero overhead.
+PUSH_COOLDOWN_FILE="$GIT_COMMON/${NAME}-last-push"
+throttled_push() {
+  local dir="$1"; shift
+  if [ "$PUSH_COOLDOWN_SECONDS" -gt 0 ] 2>/dev/null; then
+    local last now elapsed wait
+    last="$(cat "$PUSH_COOLDOWN_FILE" 2>/dev/null || echo 0)"
+    now=$(date +%s); elapsed=$(( now - last ))
+    if [ "$elapsed" -lt "$PUSH_COOLDOWN_SECONDS" ]; then
+      wait=$(( PUSH_COOLDOWN_SECONDS - elapsed ))
+      log "push cooldown: waiting ${wait}s (PUSH_COOLDOWN_SECONDS=$PUSH_COOLDOWN_SECONDS)"
+      sleep "$wait"
+    fi
+  fi
+  git -C "$dir" push "$@"; local rc=$?
+  [ "$rc" = 0 ] && date +%s >"$PUSH_COOLDOWN_FILE" 2>/dev/null
+  return "$rc"
 }
 
 mark_done() {
@@ -341,6 +364,54 @@ wait_ci_green() {   # 0=green 1=red 2=indeterminate
 
 # --- Claude invocation with rate-limit detection ----------------------------
 RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|resets? (at|in)|try again later|overloaded|quota|insufficient.*credit|exceeded your'
+RL_BUFFER="${RL_BUFFER:-60}"   # seconds of slack added on top of a parsed reset time
+
+# rl_reset_wait <output-file> — best-effort: parse a reset time out of Claude's own rate-limit
+# message and return how many seconds to sleep until then (+ RL_BUFFER slack). Falls back to
+# RL_POLL when no reset time is found or it fails to parse — never blocks on a bad parse. Handles
+# three shapes Claude's CLI has been observed to use: an absolute clock time ("resets at 3:45 PM"),
+# a relative duration ("resets in 45 minutes"), and an ISO-8601 timestamp.
+rl_reset_wait() {
+  local out="$1" now line target iso n unit clock
+  now=$(date +%s)
+  line="$(grep -oiE 'resets?[^.]{0,40}' "$out" 2>/dev/null | tail -1)"
+  [ -n "$line" ] || { printf '%s' "$RL_POLL"; return; }
+
+  iso="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})?' | head -1)"
+  if [ -n "$iso" ]; then
+    case "$iso" in
+      *Z) target="$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%S' "${iso:0:19}" +%s 2>/dev/null || TZ=UTC date -d "${iso:0:19}" +%s 2>/dev/null || true)" ;;
+      *)  target="$(date -j -f '%Y-%m-%dT%H:%M:%S' "${iso:0:19}" +%s 2>/dev/null || date -d "$iso" +%s 2>/dev/null || true)" ;;
+    esac
+  fi
+
+  if [ -z "${target:-}" ]; then
+    read -r n unit <<<"$(printf '%s' "$line" | grep -oiE '[0-9]+ *(second|minute|hour)s?' | head -1 | sed -E 's/([0-9]+) *([a-zA-Z]+)s?/\1 \2/')"
+    if [ -n "$n" ]; then
+      case "$unit" in
+        [Ss]econd*) target=$((now + n)) ;;
+        [Mm]inute*) target=$((now + n * 60)) ;;
+        [Hh]our*)   target=$((now + n * 3600)) ;;
+      esac
+    fi
+  fi
+
+  if [ -z "${target:-}" ]; then
+    clock="$(printf '%s' "$line" | grep -oiE '[0-9]{1,2}:[0-9]{2} *[ap]m' | head -1)"
+    if [ -n "$clock" ]; then
+      target="$(LC_ALL=C date -j -f '%I:%M %p' "$(printf '%s' "$clock" | tr '[:lower:]' '[:upper:]')" +%s 2>/dev/null \
+             || date -d "$clock" +%s 2>/dev/null || true)"
+      [ -n "${target:-}" ] && [ "$target" -lt "$now" ] && target=$((target + 86400))
+    fi
+  fi
+
+  if [ -n "${target:-}" ] && [ "$target" -gt "$now" ]; then
+    printf '%s' "$(( target - now + RL_BUFFER ))"
+  else
+    printf '%s' "$RL_POLL"
+  fi
+}
+
 # run_claude <model> <effort> <prompt> → 0 ok | 10 rate-limited | other = failure
 run_claude() {
   local model="$1" effort="$2" pr="$3" out="$WORKLOG/.claude-out" rc
@@ -536,10 +607,12 @@ audit_gate() {
   diff="$(git -C "$ROOT" diff "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
   rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$ROOT/$rel" ] && spec="$(cat "$ROOT/$rel")"
   out="$WORKLOG/$id.audit.md"
-  rlpoll="${RL_POLL:-${RL_BACKOFF_MIN:-300}}"
   while :; do
     set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")"; arc=$?; set -e
-    [ "$arc" = 10 ] && { log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue; }
+    if [ "$arc" = 10 ]; then
+      rlpoll="$(rl_reset_wait "$WORKLOG/.claude-out")"
+      log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue
+    fi
     break
   done
   cp "$WORKLOG/.claude-out" "$out" 2>/dev/null || true
@@ -563,10 +636,21 @@ trap 'release_lock' EXIT INT TERM
 
 # SAFETY: the in-place loop cold-resets the working tree (`git reset --hard origin/main`) between
 # every attempt, which DISCARDS any uncommitted work in this checkout. If the tree is dirty at
-# startup, that's external work the loop must NOT destroy — refuse to run (commit/stash first).
+# startup, that's external work the loop must NOT destroy — refuse to run (commit/stash first),
+# UNLESS LOOP_AUTORESET=1 (opt-in, default off): appropriate ONLY for a checkout dedicated solely
+# to this loop, where a dirty tree at startup is virtually always orphaned partial work from an
+# interrupted prior run, not a human's in-progress edits. Default-off preserves the safe behavior
+# for anyone who hasn't deliberately opted in; this guard exists because of a real incident (a
+# forced task id + a destructive cold_reset once destroyed real uncommitted work).
 if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
-  log "REFUSING TO RUN: '$ROOT' has uncommitted changes. The in-place loop cold-resets (git reset --hard) and would discard them. Commit or stash first."
-  exit 3
+  if [ "${LOOP_AUTORESET:-0}" = "1" ]; then
+    stash_ref="loop-autoreset-$(date -u +%Y%m%dT%H%M%SZ)"
+    log "LOOP_AUTORESET=1: '$ROOT' is dirty — stashing as '$stash_ref' (recoverable via git stash) and self-healing."
+    git -C "$ROOT" stash push -u -m "$stash_ref" >/dev/null 2>&1 || true
+  else
+    log "REFUSING TO RUN: '$ROOT' has uncommitted changes. The in-place loop cold-resets (git reset --hard) and would discard them. Commit or stash first, or set LOOP_AUTORESET=1 if this checkout is dedicated solely to the loop."
+    exit 3
+  fi
 fi
 
 cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"
@@ -644,8 +728,9 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         board; exit 5
       fi
-      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${RL_POLL}s (not a failure; waited ${rl_waited}s so far)."
-      sleep "$RL_POLL"; rl_waited=$(( rl_waited + RL_POLL )); continue
+      rlwait="$(rl_reset_wait "$WORKLOG/.claude-out")"
+      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${rlwait}s (not a failure; waited ${rl_waited}s so far)."
+      sleep "$rlwait"; rl_waited=$(( rl_waited + rlwait )); continue
     fi
     break
   done
@@ -673,17 +758,28 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
         cold_reset; record_failure "$task" "audit-fail"; bump "$task"; board; continue
       fi
-      if ! git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH"; then
+      if ! throttled_push "$ROOT" origin "HEAD:$MAIN_BRANCH"; then
         log "push to $MAIN_BRANCH failed (remote moved / network) — soft retry."
         record_failure "$task" "push-race"; bump "$task"; board; continue
       fi
       if [ "$REQUIRE_CI" = "1" ]; then
-        if wait_ci_green; then
+        ci_rc=0; wait_ci_green || ci_rc=$?
+        if [ "$ci_rc" = 2 ]; then
+          # INDETERMINATE (no run appeared / cancelled / skipped / stale / neutral) is NOT the same
+          # as red — a concurrency-cancelled run, or a run that hasn't reported yet, says nothing
+          # about whether the code is actually broken. Give it ONE re-check before falling back to
+          # the red path, so a merely-slow or superseded run doesn't wrongly revert good work.
+          log "CI INDETERMINATE for $task — no conclusive run; re-checking once after ${WAIT_SECONDS}s before deciding."
+          sleep "$WAIT_SECONDS"
+          ci_rc=0; wait_ci_green || ci_rc=$?
+        fi
+        if [ "$ci_rc" = 0 ]; then
           mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
         else
-          # NEVER halt the whole loop on one red CI: revert the pushed commit to restore main, then
-          # soft-retry the task. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
-          log "CI RED for $task — reverting the pushed commit to restore $MAIN_BRANCH, then retrying."
+          # NEVER halt the whole loop on one red (or still-indeterminate) CI: revert the pushed
+          # commit to restore main, then soft-retry the task. If it keeps failing, bump eventually
+          # BLOCKS it and the loop moves on.
+          log "CI $([ "$ci_rc" = 2 ] && echo "still indeterminate" || echo "RED") for $task — reverting the pushed commit to restore $MAIN_BRANCH, then retrying."
           if git -C "$ROOT" revert --no-edit HEAD 2>/dev/null && git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null; then
             log "reverted $task; $MAIN_BRANCH is clean again."
           else
