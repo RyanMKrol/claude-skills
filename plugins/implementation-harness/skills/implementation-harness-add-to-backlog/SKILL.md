@@ -238,7 +238,7 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
 ## 6. Hand off
 
 Tell the user the loop will pick these up in dependency order on the next `.harness/scripts/loop.sh` /
-`.harness/supervise.sh` pass — building one at a time, the policy choosing each task's starting tier
+`.harness/scripts/supervise.sh` pass — building one at a time, the policy choosing each task's starting tier
 from its facets and escalating up the global ladder on repeated failure, and stopping at any `gate` /
 `needs-human` task for them.
 

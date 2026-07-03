@@ -22,7 +22,7 @@ mkdir -p .harness/worklog
 git fetch origin --quiet 2>/dev/null || true
 
 # All reads come from origin/main (mirrors loop.sh), so the board matches what runs.
-# TASKS.json (schema: .harness/HARNESS.md §8.1) is parsed with jq — same as loop.sh.
+# TASKS.json (schema: .harness/docs/HARNESS.md §8.1) is parsed with jq — same as loop.sh.
 command -v jq >/dev/null 2>&1 || { echo "[postflight] jq is required to parse TASKS.json — install it (e.g. brew install jq)" >&2; exit 0; }
 blob()         { git show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
 tj()           { blob tracking/TASKS.json | jq "$@" 2>/dev/null; }

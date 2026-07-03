@@ -36,7 +36,7 @@
       "gate": null,
       "tags": ["coding"],
       "scope": ["src/feature_x.*", "tests/feature_x_*"],
-      "design": ".harness/designs/T003-feature-x.md",
+      "design": ".harness/docs/designs/T003-feature-x.md",
       "verify": [],
       "spec": ".harness/tasks/T003.md",
       "facets": { "layer": "backend", "workType": "feature", "risk": [] }
