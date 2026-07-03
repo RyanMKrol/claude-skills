@@ -58,6 +58,8 @@ CI_TIMEOUT="${CI_TIMEOUT:-1200}"                 # max seconds to wait for a CI 
 CI_WORKFLOW="${CI_WORKFLOW:-CI}"                 # MUST match `name:` in your CI workflow yaml
 REQUIRE_CI="${REQUIRE_CI:-1}"                     # 1 = never merge without green CI
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"             # optional cmd run after each task integrates (deploy/restart)
+UI_VERIFY_HOOK="${UI_VERIFY_HOOK:-}"             # optional cmd for visual UI verification — injected for facets.workType=="component" tasks only
+SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"     # optional space-separated extra path prefixes structural_checks always allows, beyond worklog+tests
 TASKS_REF="${TASKS_REF:-origin/main}"            # decisions are read from here, never a worktree
 LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolation worktree
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
@@ -342,6 +344,22 @@ run_integrate_hook() {
   ( cd "$ROOT" && eval "$INTEGRATE_HOOK" ) || log "WARN: integrate hook failed (non-fatal)"
 }
 
+# ui_verify_block <id> — print an instruction block telling the reader (builder or auditor) to run
+# UI_VERIFY_HOOK and actually LOOK at the result before declaring done, when set AND this task's
+# facets.workType is "component" (a new/changed UI component or page — see facets.json). No-op
+# (prints nothing) otherwise, so non-UI tasks and non-UI projects pay zero cost. See
+# docs/designs/ui-verification.md for the rationale and a worked screenshot-harness example.
+ui_verify_block() {
+  local tid="$1" wt
+  [ -n "$UI_VERIFY_HOOK" ] || return 0
+  wt="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
+  [ "$wt" = "component" ] || return 0
+  printf '\n--- UI VISUAL VERIFICATION (required before reporting done — see docs/designs/ui-verification.md) ---\n'
+  printf 'This is a UI task (facets.workType=="component"). Passing tests/build alone is NOT sufficient.\n'
+  printf 'Run `%s` and actually LOOK at what it produces (e.g. screenshots) to confirm the change\n' "$UI_VERIFY_HOOK"
+  printf 'renders and behaves as intended. Record what you OBSERVED (not just "ran it") in the worklog.\n'
+}
+
 # --- Per-task build prompt --------------------------------------------------
 prompt() {
   local tid="$1" branch="$2"
@@ -394,6 +412,7 @@ EOF
   printf 'You may change ONLY these files:\n'
   if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
   printf '%s\n' 'PLUS you may always add/change TEST files and your own .harness/worklog/<TASK>.md. Touching ANY OTHER file — including .harness/tracking/TASKS.json (the loop owns it) or a doc not listed above — AUTO-FAILS this task. If you genuinely need a file that is not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
+  ui_verify_block "$tid"
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — read from the git ref. The
   # `spec` field is ALREADY a full repo-relative path (.harness/tasks/<TASK>.md), so read it directly
   # with `git show "$TASKS_REF:$rel"` — do NOT route it through blob() (which re-prefixes .harness/).
@@ -427,6 +446,19 @@ run_claude() {
 # green and BEFORE the fast-forward to main, so unaudited work never reaches main. Cold-ness is
 # enforced by tearing the branch/worktree down on every capability failure (see the done/fail paths).
 
+# in_scope_exempt <file> — true if <file> matches one of SCOPE_EXEMPT_GLOBS (space-separated
+# repo-relative path prefixes, exact-path-or-directory-prefix — same rule as `scope` itself).
+# Empty SCOPE_EXEMPT_GLOBS (the default) exempts nothing.
+in_scope_exempt() {
+  local f="$1" g
+  for g in $SCOPE_EXEMPT_GLOBS; do
+    [ -z "$g" ] && continue
+    [ "$f" = "$g" ] && return 0
+    [ "${f#"$g"/}" != "$f" ] && return 0
+  done
+  return 1
+}
+
 # structural_checks <id> — cheap, model-agnostic gate on the branch diff, BEFORE the audit. 0=pass 1=fail.
 structural_checks() {
   local id="$1" changed want_test scope creep f s inscope
@@ -439,12 +471,14 @@ structural_checks() {
   creep=""
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    # STRICT — same allowlist as the in-place variant: only the task's own worklog + test files.
+    # STRICT — same allowlist as the in-place variant: only the task's own worklog + test files,
+    # plus any project-declared SCOPE_EXEMPT_GLOBS (e.g. a shared UI-verification harness script).
     # The loop (not the builder) owns .harness/tracking/TASKS.json status (record_outcome, after
     # this gate + the audit pass), so it is never exempted here; a task needing README/LIMITATIONS
     # updated declares that file in its own `scope` like any other file.
     case "$f" in .harness/worklog/*) continue ;; esac
     if printf '%s\n' "$f" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then continue; fi
+    if in_scope_exempt "$f"; then continue; fi
     inscope=0
     while IFS= read -r s; do
       [ -z "$s" ] && continue
@@ -486,6 +520,7 @@ $spec
 --- IMPLEMENTATION DIFF (origin/main..HEAD) ---
 $diff
 EOF
+  ui_verify_block "$id"
 }
 
 # audit_gate <id> — per-cell SAMPLED blocking audit (§4.3/4.6) on the CI-green branch. Sets

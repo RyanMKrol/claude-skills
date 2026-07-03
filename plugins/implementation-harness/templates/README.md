@@ -130,6 +130,15 @@ open question back to you in one batch, then runs `scripts/consolidate-ideas.sh`
 locked pass that allocates real task ids, writes each task's spec, appends to `TASKS.json`, and
 removes the converted bullets.
 
+## UI visual verification (optional)
+
+Automated checks can pass while a UI change still renders wrong. Set `UI_VERIFY_HOOK` in
+`config/harness.env` to a command that produces something inspectable (a screenshot script, for
+example) and it's injected into the builder + auditor prompt for tasks whose `facets.workType` is
+`component` — zero cost for every other kind of task, and zero cost if left empty. See
+`docs/designs/ui-verification.md` for the rationale and an optional convention (a shared
+`PAGES`/`FLOWS` script) for larger UI surfaces.
+
 ## Gates — what the loop won't do on its own
 
 Set a task's `gate` field in `TASKS.json` to stop autonomous execution:
