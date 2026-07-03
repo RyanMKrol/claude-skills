@@ -138,7 +138,7 @@ it to invoke the add-to-backlog skill).
 ```bash
 T="<target>"          # the REPO ROOT
 H="$T/.harness"       # the self-contained harness folder (everything but ci.yml lives here)
-mkdir -p "$H/config" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$T/.github/workflows"
+mkdir -p "$H/config" "$H/dashboard" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$T/.github/workflows"
 # Install the loop variant chosen in step 0 — BOTH install as .harness/scripts/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
   cp -p "$TPL/scripts/loop.in-place.sh" "$H/scripts/loop.sh"
@@ -146,6 +146,8 @@ else
   cp -p "$TPL/scripts/loop.sh" "$H/scripts/loop.sh"
 fi
 cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/policy.jq" "$H/scripts/"
+cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$H/scripts/"
+cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack)
 cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + tier ladder + policy knobs (tailored below)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/docs/"
 cp -p "$TPL/docs/designs/"*.md "$H/docs/designs/"
@@ -230,13 +232,17 @@ grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
 grep -q "CI_WORKFLOW:=${W}" "$T/.harness/config/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-for s in loop.sh supervise.sh postflight.sh repo-lock.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh; do
+for s in loop.sh supervise.sh postflight.sh repo-lock.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh; do
   test -x "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s not executable"
   bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"
 done
 "$T/.harness/scripts/repo-lock.sh" --selftest >/dev/null || echo "FAIL: repo-lock self-test failed"
 "$T/.harness/scripts/mark-done-bulk.test.sh" >/dev/null || echo "FAIL: mark-done-bulk.test.sh failed"
 jq empty "$T/.harness/tracking/human-done.json" "$T/.harness/tracking/manual-fail.json" "$T/.harness/tracking/reviews.json" || echo "FAIL: an owner-overlay file is not valid JSON"
+command -v node >/dev/null || echo "WARN: node not installed — the dashboard (.harness/dashboard/) needs it regardless of this project's own stack"
+node --check "$T/.harness/dashboard/server.js" 2>/dev/null || echo "FAIL: dashboard/server.js has a syntax error"
+node --check "$T/.harness/dashboard/lib.js" 2>/dev/null || echo "FAIL: dashboard/lib.js has a syntax error"
+node "$T/.harness/dashboard/lib.test.js" >/dev/null 2>&1 || echo "FAIL: dashboard/lib.test.js failed"
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done

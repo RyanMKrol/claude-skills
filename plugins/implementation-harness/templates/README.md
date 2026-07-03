@@ -53,12 +53,16 @@ deliberately *not* parallel).
 | `scripts/postflight.sh` | Zero-token, read-only status board (`worklog/STATUS.md`). |
 | `scripts/repo-lock.sh` | Shared mkdir-based lock, sourced by the loop and owner CLIs (`mark-*.sh`). |
 | `scripts/policy.jq` | Difficulty auto-tuning policy: tier selection + audit sampling. |
+| `scripts/mark-done.sh` / `mark-failed.sh` / `mark-reviewed.sh` | Owner CLIs that write the `tracking/` overlays (also what the dashboard's buttons call). |
+| `scripts/check-task-scope.sh` | Advisory linter: warns when a task's spec mentions a file outside its declared `scope`. |
+| `dashboard/server.js` | Portable, dependency-free backlog viewer (`node dashboard/server.js`) — see below. |
 | `config/harness.env` | Optional config: model, effort, caps, CI workflow name. |
 | `config/facets.json` | Facet vocabulary + global tier ladder + policy knobs. |
 | `docs/HARNESS.md` | Authoritative design of the harness. |
 | `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
 | `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
 | `tracking/TASKS.json` | The backlog: schema + example tasks (replace with your own). |
+| `tracking/human-done.json` / `manual-fail.json` / `reviews.json` | Owner-overlay files — see `docs/designs/manual-fail-signal.md`. |
 | `ledgers/outcomes.jsonl` | One terminal row per built task — the sole input to difficulty calibration. |
 | `ledgers/failures.jsonl` | One row per failed attempt — diagnostics only, never read by calibration. |
 | `.github/workflows/ci.yml` | CI template — wire your real Definition of Done here. |
@@ -96,6 +100,22 @@ deliberately *not* parallel).
 - **`git`** with worktree support, and a GitHub remote named `origin` for `main`.
 - **`jq`** — the loop and status board parse `TASKS.json` with it (`brew install jq`).
 - **`bash`** (the scripts target bash, not POSIX sh).
+- **`node`** (any recent version) — only for the optional backlog dashboard (`dashboard/`) and,
+  if you use the ideas-to-tasks pipeline, its consolidation script. This is a harness-tooling
+  dependency independent of your project's own stack — like `jq`/`gh`, it doesn't need to be
+  something your project itself uses.
+
+## Backlog dashboard (optional)
+
+`dashboard/server.js` is a small, dependency-free Node HTTP server (core modules only — no
+`npm install`, no build step) that renders the live backlog: ready / waiting / needs-you / done,
+with per-task detail (spec, worklog, audit log) and buttons that call the same `mark-*.sh` scripts
+a human would run by hand. It re-reads everything from disk on every request — no daemon, no cache.
+
+```sh
+node dashboard/server.js                 # binds 127.0.0.1:4790
+HARNESS_DASHBOARD_PORT=5000 node dashboard/server.js   # different port
+```
 
 ## Gates — what the loop won't do on its own
 
