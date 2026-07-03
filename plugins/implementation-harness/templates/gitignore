@@ -1,5 +1,7 @@
 # Transient loop scratch (last-iteration verdict) + the generated status board.
 .harness/worklog/.result
+.harness/worklog/.claude-out
+.harness/worklog/.failures.buf
 .harness/worklog/STATUS.md
 .harness/worklog/*.log
 .harness/worklog/*.audit.md
@@ -13,4 +15,4 @@
 # *.pyc
 
 # harness: atomic-write temp for TASKS.json (in-place variant)
-.harness/TASKS.json.tmp
+.harness/tracking/TASKS.json.tmp

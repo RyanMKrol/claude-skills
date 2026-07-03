@@ -12,7 +12,7 @@
 # window no matter how long a cycle takes. Default 5h + 15m buffer (tokens refresh ~5h after
 # first use; the buffer avoids firing just before reset). Tune for your own quota window.
 #
-# Usage:  .harness/supervise.sh [interval_seconds] [max_cycles]
+# Usage:  .harness/scripts/supervise.sh [interval_seconds] [max_cycles]
 #   interval_seconds  default 18900 (5h15m) — normal cadence between cycles
 #   max_cycles        default 0 (run forever)
 #   RETRY_INTERVAL    env, default 900 (15m) — used INSTEAD of interval when the loop gave up
@@ -22,8 +22,8 @@
 # Tip: the loop streams its own progress; this just paces and re-launches it.
 set -uo pipefail
 
-HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # the .harness/ dir this script lives in
-LOOP="${LOOP:-$HARNESS_DIR/loop.sh}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .harness/scripts — this script's own dir
+LOOP="${LOOP:-$SCRIPT_DIR/loop.sh}"
 INTERVAL="${1:-18900}"
 MAX_CYCLES="${2:-0}"
 RETRY_INTERVAL="${RETRY_INTERVAL:-900}"

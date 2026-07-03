@@ -1,10 +1,10 @@
 ---
 name: implementation-harness-add-to-backlog
 description: >-
-  Use when a project already has the implementation harness (.harness/HARNESS.md, .harness/loop.sh, TASKS.json
+  Use when a project already has the implementation harness (.harness/docs/HARNESS.md, .harness/scripts/loop.sh, tracking/TASKS.json
   present) and the user wants to draft or extend the task backlog — phrases like "add tasks",
   "write the backlog", "turn this feature into tasks", "plan the next phase for the loop". Runs a
-  focused interview that turns a feature description into atomic, dependency-ordered TASKS.json task
+  focused interview that turns a feature description into atomic, dependency-ordered tracking/TASKS.json task
   objects following the HARNESS.md §8.1 schema (dependsOn / scope / design / verify / facets + a
   per-task `spec` Markdown file), with difficulty auto-tuned from facets, gate / needs-human markers, appended without
   disturbing existing tasks.
@@ -12,9 +12,9 @@ argument-hint: "[feature or phase to break into tasks]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
 
-# Author / extend the TASKS.json backlog
+# Author / extend the tracking/TASKS.json backlog
 
-You are turning a feature or phase description into well-formed `TASKS.json` task objects that the
+You are turning a feature or phase description into well-formed `tracking/TASKS.json` task objects that the
 single-loop harness can build. Read this whole file, then execute in order. The cardinal rule:
 **append, never clobber** — existing *pending / in-flight* task objects and their `status` are
 sacred. (Completed `done` tasks may be deliberately pruned to keep the backlog readable — see §7 —
@@ -22,25 +22,25 @@ but are never silently altered during an append.)
 
 ## 1. Pre-flight
 
-- Require the harness: `TASKS.json`, `.harness/HARNESS.md`, and `.harness/loop.sh` must exist in the
+- Require the harness: `tracking/TASKS.json`, `.harness/docs/HARNESS.md`, and `.harness/scripts/loop.sh` must exist in the
   project. If any is missing, stop and point the user at `/implementation-harness-create` first.
-  (Either loop variant — worktree or in-place — installs as `.harness/loop.sh` and keeps
-  `TASKS.json` at the repo root, so this skill is identical for both.)
+  (Either loop variant — worktree or in-place — installs as `.harness/scripts/loop.sh` and keeps
+  `tracking/TASKS.json` at the same fixed path, so this skill is identical for both.)
 - Require `jq` (the loop and this skill use it). If absent, tell the user to `brew install jq`.
-- **Read `.harness/HARNESS.md` §8.1** (the task schema) live — bind to the actual schema in this
+- **Read `.harness/docs/HARNESS.md` §8.1** (the task schema) live — bind to the actual schema in this
   project, in case it has evolved. Don't rely on a hardcoded copy.
-- **Read `TASKS.json`** and extract, with jq:
-  - the highest existing id — `jq -r '.tasks[].id' TASKS.json | sort | tail -1` → new ids continue
+- **Read `tracking/TASKS.json`** and extract, with jq:
+  - the highest existing id — `jq -r '.tasks[].id' tracking/TASKS.json | sort | tail -1` → new ids continue
     monotonically, zero-padded to the same width (≥3 digits);
   - all existing ids (`jq -r '.tasks[].id'`), so `dependsOn` references real tasks, never a dupe;
   - Tasks carry NO per-task model/effort/escalation; the policy auto-tunes difficulty from
-    `facets` + the ledger (the cold-start floor lives in `harness.env`, not `TASKS.json`).
-- **Read `facets.json`** (`jq '.facets'`) — the controlled facet vocabulary you'll assign in §2.4.
+    `facets` + the ledger (the cold-start floor lives in `config/harness.env`, not `tracking/TASKS.json`).
+- **Read `config/facets.json`** (`jq '.facets'`) — the controlled facet vocabulary you'll assign in §2.4.
 
-- **Poor-fit gate — has the `layer` vocabulary drifted?** If `facet-misfits.jsonl` exists, count its
-  lines; if that count ≥ `facets.json`'s `.policy.poorFitThreshold` (default 5), run a **layer
+- **Poor-fit gate — has the `layer` vocabulary drifted?** If `config/facet-misfits.jsonl` exists, count its
+  lines; if that count ≥ `config/facets.json`'s `.policy.poorFitThreshold` (default 5), run a **layer
   re-evaluation BEFORE authoring anything**:
-  1. **Re-cluster (you do this):** read the recent backlog + `facet-misfits.jsonl` + the current
+  1. **Re-cluster (you do this):** read the recent backlog + `config/facet-misfits.jsonl` + the current
      `layer` values, and propose an updated `layer` set (add / split / merge / rename) that fits the
      project as it now is.
   2. **Surface it to the human — TEACH first, they may not know this machinery exists.** Open with a
@@ -55,10 +55,10 @@ but are never silently altered during an append.)
      > re-groups recent work so the harness keeps predicting difficulty accurately. It's optional and
      > reversible — declining just keeps the current layers."*
 
-  3. **On accept — MIGRATE history (don't skip):** update `facets.json`'s `layer` values; remap the
-     `facets.layer` in existing `outcomes.jsonl` rows AND re-tag affected tasks' `facets` in
-     `TASKS.json` to the new values (rename = substitute; split = reassign by scope; merge = union) —
-     otherwise the changed calibration cells silently cold-start. Then **clear `facet-misfits.jsonl`**
+  3. **On accept — MIGRATE history (don't skip):** update `config/facets.json`'s `layer` values; remap the
+     `facets.layer` in existing `ledgers/outcomes.jsonl` rows AND re-tag affected tasks' `facets` in
+     `tracking/TASKS.json` to the new values (rename = substitute; split = reassign by scope; merge = union) —
+     otherwise the changed calibration cells silently cold-start. Then **clear `config/facet-misfits.jsonl`**
      (cooldown, so it doesn't re-fire next task). The human approves/nudges/declines — they never do
      the clustering. On decline, leave everything and proceed.
 
@@ -73,7 +73,7 @@ Use `AskUserQuestion`. Establish:
    - anything that should be a separate task because it touches a different scope.
 3. **Per task**, settle:
    - **scope** — the files this task should touch (keeps diffs tight for the CI gate).
-   - **design** — does it need a fuller `.harness/designs/TNNN-slug.md` plan doc? Optional; only when
+   - **design** — does it need a fuller `.harness/docs/designs/TNNN-slug.md` plan doc? Optional; only when
      warranted (those are authored separately, interactively, at `--effort max`). Else `null`.
    - **verify** — does it need an empirical check (e.g. `["run-app"]`, `["live-api"]`)? If the
      project captured a run/backtest command at scaffold time, reuse that label. Else `[]`.
@@ -83,8 +83,8 @@ Use `AskUserQuestion`. Establish:
      in done-when — that lives once in HARNESS §6.
 4. **Facets (per task) — DESCRIBE the task; the policy decides difficulty.** Difficulty (which model
    + effort to start on) is now AUTO-TUNED by the loop's policy from escalation history — you do NOT
-   guess it (see `.harness/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the
-   project's `facets.json` (`jq '.facets' facets.json`) and assign, choosing values ONLY from that
+   guess it (see `.harness/docs/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the
+   project's `config/facets.json` (`jq '.facets' config/facets.json`) and assign, choosing values ONLY from that
    controlled vocabulary:
    - **`layer`** (exactly one) — WHERE the change lives. Use the task's `scope` file paths as the
      primary signal (paths → layers).
@@ -93,14 +93,14 @@ Use `AskUserQuestion`. Establish:
 
    Put these in a `"facets": { "layer": "...", "workType": "...", "risk": [...] }` object on the task.
    Do **NOT** set per-task `model`/`effort`/`escalation` at all — the policy picks the starting tier
-   from facets + the outcomes ledger, escalation rides the global tier ladder in `facets.json`, and
-   the cold-start floor lives in `harness.env`. `facets` is the ONLY difficulty signal you author.
+   from facets + the outcomes ledger, escalation rides the global tier ladder in `config/facets.json`, and
+   the cold-start floor lives in `config/harness.env`. `facets` is the ONLY difficulty signal you author.
    `needs-human`/gated tasks need NO facets (they never run through the loop).
 
    **If nothing fits — record a poor-fit signal; do NOT invent a value.** Minting an ad-hoc facet
    value re-fragments the calibration. If you're genuinely confident no existing `layer` (or
    `work-type`) fits, pick the CLOSEST existing value, tag the task with it, AND append a
-   context-carrying line to `facet-misfits.jsonl` (at the harness root):
+   context-carrying line to `config/facet-misfits.jsonl` (under .harness/config/):
    `{ "taskId": "...", "axis": "layer"|"work-type", "closest": "...", "note": "<one line: what was missing>", "ts": "<iso8601>" }`.
 5. **Gates.** The loop's selection **skips any task with a non-null `gate` entirely** — it never
    builds it, and a gated task still blocks its dependents until a human clears it. So mark as
@@ -147,7 +147,7 @@ For each task, in dependency order, produce a JSON object:
   "tags": ["<type>"],                 // optional, DESCRIPTIVE (feature area) — NOT the calibration key
   "facets": { "layer": "...", "workType": "...", "risk": [] },  // §2.4 — the ONLY difficulty signal; OMIT for needs-human/gated tasks
   "scope": ["<files/globs>"],
-  "design": null,                     // or ".harness/designs/TNNN-slug.md"
+  "design": null,                     // or ".harness/docs/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
   "expectsTest": false,               // true → the loop requires a test file in the diff (structural gate); set for test-pinnable tasks
   "spec": ".harness/tasks/TNNN.md"    // the task's do/done-when (## Do / ## Done when) — author this MD file too
@@ -201,9 +201,9 @@ Append the new objects so existing tasks and their `status` are untouched. Build
 a JSON array in a temp file `new-tasks.json`, then:
 
 ```sh
-jq --slurpfile add new-tasks.json '.tasks += $add[0]' TASKS.json > TASKS.json.tmp \
-  && jq empty TASKS.json.tmp \
-  && mv TASKS.json.tmp TASKS.json
+jq --slurpfile add new-tasks.json '.tasks += $add[0]' tracking/TASKS.json > tracking/TASKS.json.tmp \
+  && jq empty tracking/TASKS.json.tmp \
+  && mv tracking/TASKS.json.tmp tracking/TASKS.json
 ```
 
 Never hand-edit existing task objects, and never change any existing `status`. (jq normalises
@@ -222,22 +222,22 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
 
 ## 5. Validate before finishing
 
-- `jq empty TASKS.json` passes (still valid JSON).
-- Existing task count + new count == total: `jq '.tasks | length' TASKS.json` matches expectation,
+- `jq empty tracking/TASKS.json` passes (still valid JSON).
+- Existing task count + new count == total: `jq '.tasks | length' tracking/TASKS.json` matches expectation,
   and no prior `status` changed (`jq -r '.tasks[]|select(.status=="done")|.id'` is unchanged).
 - Every `dependsOn` id exists (`jq` cross-check), no dangling deps, no cycles, no duplicate ids.
 - `gate` is one of `null` / `"gate"` / `"needs-human"`; no task carries `model`/`effort`/`escalation`.
 - **Every task has a `spec` path AND a matching `.harness/tasks/TNNN.md` on disk** (sections `## Do` /
-  `## Done when`) — no inline `do`/`doneWhen` in the JSON. (`for s in $(jq -r '.tasks[].spec' TASKS.json); do test -f "$s" || echo "missing $s"; done`)
+  `## Done when`) — no inline `do`/`doneWhen` in the JSON. (`for s in $(jq -r '.tasks[].spec' tracking/TASKS.json); do test -f "$s" || echo "missing $s"; done`)
 - **Every buildable (non-needs-human) task has a `facets` object** with a `layer` + `workType` drawn
-  from `facets.json`'s vocabulary, and any `risk` flags valid; needs-human/gated tasks have none.
+  from `config/facets.json`'s vocabulary, and any `risk` flags valid; needs-human/gated tasks have none.
 - Print a short summary: tasks added, each with its deps + **facets** (layer/work-type), so the user
   can confirm the dependency graph and the facet classification read correctly. (Don't report a
   "chosen model" — the policy decides difficulty now.)
 
 ## 6. Hand off
 
-Tell the user the loop will pick these up in dependency order on the next `.harness/loop.sh` /
+Tell the user the loop will pick these up in dependency order on the next `.harness/scripts/loop.sh` /
 `.harness/supervise.sh` pass — building one at a time, the policy choosing each task's starting tier
 from its facets and escalating up the global ladder on repeated failure, and stopping at any `gate` /
 `needs-human` task for them.
@@ -252,15 +252,15 @@ still lists as a dependency would dangle it forever.
 
 ```sh
 # Drop completed tasks, but ABORT if that would leave a dangling dependsOn or invalid JSON.
-jq '.tasks |= map(select(.status != "done"))' TASKS.json > TASKS.json.tmp \
-  && jq -e '([.tasks[].id]) as $ids | all(.tasks[].dependsOn[]?; . as $d | $ids|index($d))' TASKS.json.tmp >/dev/null \
-  && jq empty TASKS.json.tmp && mv TASKS.json.tmp TASKS.json \
-  || { echo "ABORT: pruning would dangle a dependsOn (or invalid JSON) — left TASKS.json untouched"; rm -f TASKS.json.tmp; }
+jq '.tasks |= map(select(.status != "done"))' tracking/TASKS.json > tracking/TASKS.json.tmp \
+  && jq -e '([.tasks[].id]) as $ids | all(.tasks[].dependsOn[]?; . as $d | $ids|index($d))' tracking/TASKS.json.tmp >/dev/null \
+  && jq empty tracking/TASKS.json.tmp && mv tracking/TASKS.json.tmp tracking/TASKS.json \
+  || { echo "ABORT: pruning would dangle a dependsOn (or invalid JSON) — left tracking/TASKS.json untouched"; rm -f tracking/TASKS.json.tmp; }
 ```
 
 - **Keep ids monotonic.** Never renumber the survivors or reuse a pruned id — `worklog/<id>.md`
   files and git history still reference the originals. New tasks continue from the highest id ever
   used, even if it was pruned.
-- **The shell owns `status`.** Prune only from a quiet loop (no `.harness/loop.sh` running), and
-  commit the pruned `TASKS.json` like any backlog edit. To keep a record instead of deleting, move
+- **The shell owns `status`.** Prune only from a quiet loop (no `.harness/scripts/loop.sh` running), and
+  commit the pruned `tracking/TASKS.json` like any backlog edit. To keep a record instead of deleting, move
   the done tasks into a `TASKS.done.json` archive rather than dropping them.

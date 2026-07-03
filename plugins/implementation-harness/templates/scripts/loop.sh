@@ -29,19 +29,24 @@
 #   GATE   (shell)  — watch the branch's CI; green → audit → fast-forward `main` (push) and tear the
 #                     worktree/branch down; red / audit-fail → a failed attempt (tear down → COLD retry).
 #
-# Usage:  .harness/loop.sh [TNNN]      # optional: force a specific task id this run
-# Config: .harness/harness.env (sourced if present) and/or the environment override the
+# Usage:  .harness/scripts/loop.sh [TNNN]  # optional: force a specific task id this run
+# Config: .harness/config/harness.env (sourced if present) and/or the environment override the
 #         defaults below. Real environment > harness.env > built-in default.
 set -euo pipefail
 
-HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # the .harness/ dir this script lives in
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .harness/scripts — this script's own dir
+HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"                    # the .harness/ dir (config/ docs/ ledgers/ scripts/ tasks/ tracking/ worklog/)
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make absolute
 
 # Optional project config (model, caps, CI workflow name, …). Uses `: "${VAR:=…}"` form,
 # so anything already set in the real environment wins over it.
-[ -f "$HARNESS_DIR/harness.env" ] && . "$HARNESS_DIR/harness.env"
+[ -f "$HARNESS_DIR/config/harness.env" ] && . "$HARNESS_DIR/config/harness.env"
+
+# Shared mkdir-based repo lock (acquire_lock/release_lock) — sourced so its path derivation can
+# never drift from other scripts (mark-*.sh, consolidate-ideas.sh) that coordinate with this loop.
+. "$SCRIPT_DIR/repo-lock.sh"
 
 NAME="$(basename "$ROOT")"                       # repo dir name → worktree + lock naming
 MODEL="${MODEL:-claude-sonnet-4-6}"              # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here (pin the full id; the bare alias drifts)
@@ -55,7 +60,6 @@ REQUIRE_CI="${REQUIRE_CI:-1}"                     # 1 = never merge without gree
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"             # optional cmd run after each task integrates (deploy/restart)
 TASKS_REF="${TASKS_REF:-origin/main}"            # decisions are read from here, never a worktree
 LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolation worktree
-LOCK="$GIT_COMMON/${NAME}-loop.lock"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 # Rate-limit handling: poll + resume the SAME task on a usage/session limit (don't exit), so we
@@ -63,7 +67,7 @@ CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 RL_POLL="${RL_POLL:-900}"                         # poll again every 15 min while limited
 RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise after ~6h limited
 FORCE_TASK="${1:-}"
-POSTFLIGHT="$HARNESS_DIR/postflight.sh"
+POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
@@ -72,28 +76,10 @@ board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
 # TASKS.json is parsed with jq throughout — fail fast if it's missing.
 command -v jq >/dev/null 2>&1 || { log "jq is required to parse TASKS.json — install it (e.g. brew install jq)"; exit 3; }
 
-# --- Concurrency guard: only one loop at a time (exit, don't queue) ---------
-acquire_lock() {
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    local owner; owner="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      log "stale loop lock (dead PID $owner) — reclaiming"
-      rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true
-    else
-      log "another loop is already running (PID ${owner:-?}) — exiting."; exit 0
-    fi
-  done
-  echo "$$" >"$LOCK/pid"
-}
-release_lock() {
-  [ -f "$LOCK/pid" ] && [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] \
-    && { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true; } || true
-}
-
 # --- TASKS.json / worklog helpers (read from origin/main, NOT any working tree) -
 # TASKS.json is the structured backlog (schema: .harness/HARNESS.md §8.1), parsed with jq.
 blob()         { git -C "$ROOT" show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
-tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }                 # query TASKS.json
+tj()           { blob tracking/TASKS.json | jq "$@" 2>/dev/null; }        # query TASKS.json
 all_tasks()    { tj -r '.tasks[].id'; }                                   # in array (=dependency) order
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
@@ -109,20 +95,21 @@ task_spec_rel() { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.spec // empty'
 # drive the policy and the global ladder is the safety net; the cold-start prior is the cheapest tier.
 # WORKTREE MODEL: decisions/state are read from origin/main via `blob` (never a working tree), and
 # the outcome ledger is committed to main through a detached worktree (like block_task).
-POLICY_JQ="$HARNESS_DIR/policy.jq"               # .harness/policy.jq, alongside this loop
+POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
-  < <(blob facets.json | jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' 2>/dev/null)
+  < <(blob config/facets.json | jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' 2>/dev/null)
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")    # fallback if facets.json absent
-POLICY_FLOOR="$(blob facets.json | jq -r '.policy.floor // 0.75' 2>/dev/null)"; POLICY_FLOOR="${POLICY_FLOOR:-0.75}"
-POLICY_MINN="$(blob facets.json | jq -r '.policy.minN // 6' 2>/dev/null)"; POLICY_MINN="${POLICY_MINN:-6}"
+POLICY_FLOOR="$(blob config/facets.json | jq -r '.policy.floor // 0.75' 2>/dev/null)"; POLICY_FLOOR="${POLICY_FLOOR:-0.75}"
+POLICY_MINN="$(blob config/facets.json | jq -r '.policy.minN // 6' 2>/dev/null)"; POLICY_MINN="${POLICY_MINN:-6}"
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6). Read from origin/main via blob.
-AUDIT_START_N="$(blob facets.json | jq -r '.policy.auditStartN // 3' 2>/dev/null)"; AUDIT_START_N="${AUDIT_START_N:-3}"
-AUDIT_FLOOR_N="$(blob facets.json | jq -r '.policy.auditFloorN // 8' 2>/dev/null)"; AUDIT_FLOOR_N="${AUDIT_FLOOR_N:-8}"
-AUDIT_FLOOR_PM="$(blob facets.json | jq -r '((.policy.auditFloor // 0.10) * 1000) | round' 2>/dev/null)"; AUDIT_FLOOR_PM="${AUDIT_FLOOR_PM:-100}"
-AUDITOR_MODEL="$(blob facets.json | jq -r '.policy.auditorModel // "claude-opus-4-8"' 2>/dev/null)"; AUDITOR_MODEL="${AUDITOR_MODEL:-claude-opus-4-8}"
-AUDITOR_EFFORT="$(blob facets.json | jq -r '.policy.auditorEffort // "medium"' 2>/dev/null)"; AUDITOR_EFFORT="${AUDITOR_EFFORT:-medium}"
+AUDIT_START_N="$(blob config/facets.json | jq -r '.policy.auditStartN // 3' 2>/dev/null)"; AUDIT_START_N="${AUDIT_START_N:-3}"
+AUDIT_FLOOR_N="$(blob config/facets.json | jq -r '.policy.auditFloorN // 8' 2>/dev/null)"; AUDIT_FLOOR_N="${AUDIT_FLOOR_N:-8}"
+AUDIT_FLOOR_PM="$(blob config/facets.json | jq -r '((.policy.auditFloor // 0.10) * 1000) | round' 2>/dev/null)"; AUDIT_FLOOR_PM="${AUDIT_FLOOR_PM:-100}"
+AUDITOR_MODEL="$(blob config/facets.json | jq -r '.policy.auditorModel // "claude-opus-4-8"' 2>/dev/null)"; AUDITOR_MODEL="${AUDITOR_MODEL:-claude-opus-4-8}"
+AUDITOR_EFFORT="$(blob config/facets.json | jq -r '.policy.auditorEffort // "medium"' 2>/dev/null)"; AUDITOR_EFFORT="${AUDITOR_EFFORT:-medium}"
 LOCAL_DOD="${LOCAL_DOD:-}"   # optional cheap gate run before the audit; empty = rely on CI (which the worktree variant already has)
+FAILURES_BUF="$HARNESS_DIR/worklog/.failures.buf"   # gitignored, in the PRIMARY checkout (survives worktree rebuilds); per-current-task, flushed into ledgers/failures.jsonl at each terminal outcome
 
 # gtier <idx> — echo "model effort" for the ladder tier at idx, clamped to [0, top].
 gtier() {
@@ -138,11 +125,11 @@ pick_base() {
   local id="$1" layer wt am ae cold tiers rows
   am="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.model // empty')"; am="${am:-$MODEL}"
   ae="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.effort // empty')"; ae="${ae:-$EFFORT}"
-  tiers="$(blob facets.json | jq -c '.tiers.ladder' 2>/dev/null)"
+  tiers="$(blob config/facets.json | jq -c '.tiers.ladder' 2>/dev/null)"
   cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$am" --arg e "$ae" '($t|map(.model==$m and .effort==$e)|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-  rows="$(blob outcomes.jsonl | jq -s -c '.' 2>/dev/null)"
+  rows="$(blob ledgers/outcomes.jsonl | jq -s -c '.' 2>/dev/null)"
   if [ -z "$layer" ] || [ -z "$wt" ] || [ -z "$tiers" ] || [ -z "$rows" ] || [ "$rows" = "[]" ]; then printf '%s' "$cold"; return; fi
   jq -n --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
      --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" --argjson coldIdx "$cold" \
@@ -171,6 +158,30 @@ outcome_row() {
      }'
 }
 
+# record_failure <id> <kind> [detail] — buffer ONE per-attempt diagnostic row locally (never
+# committed directly). Diagnostics only — never read by calibration (policy.jq reads only
+# ledgers/outcomes.jsonl). Flushed into ledgers/failures.jsonl by flush_failures at the task's next
+# terminal outcome (done or blocked), so a task with 3 soft failures then a success gets 3 failure
+# rows + 1 outcome row, all in the same terminal commit.
+record_failure() {
+  local id="$1" kind="$2" detail="${3:-}" ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq -nc --arg id "$id" --arg ts "$ts" --arg kind "$kind" --argjson rung "${cur_rung:-0}" \
+     --argjson attempt "${cur_attempts:-0}" --arg model "$MODEL" --arg detail "$detail" \
+     '{id:$id, ts:$ts, kind:$kind, rung:$rung, attempt:$attempt, model:$model, detail:$detail}' \
+     >>"$FAILURES_BUF" 2>/dev/null || true
+}
+
+# flush_failures <id> <dest> — append the buffered rows into <dest> (a ledgers/failures.jsonl path
+# inside the commit worktree; the caller stages + commits it), then clear the buffer for the next task.
+flush_failures() {
+  local dest="$2"
+  [ -s "$FAILURES_BUF" ] || return 0
+  mkdir -p "$(dirname "$dest")"
+  cat "$FAILURES_BUF" >>"$dest" 2>/dev/null || true
+  : >"$FAILURES_BUF"
+}
+
 # record_outcome <id> <blocked> [reason] — append an outcome row to the ledger ON MAIN, committed
 # via a detached worktree (mirrors block_task). Used for the SUCCESS case; block_task folds the row
 # into its own commit. Forward-only + best-effort — never fails the caller.
@@ -180,8 +191,10 @@ record_outcome() {
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   remove_wt
   if git -C "$ROOT" worktree add --quiet --force --detach "$LOOP_WT" origin/main 2>/dev/null; then
-    printf '%s\n' "$line" >>"$LOOP_WT/.harness/outcomes.jsonl"
-    git -C "$LOOP_WT" add .harness/outcomes.jsonl 2>/dev/null || true
+    mkdir -p "$LOOP_WT/.harness/ledgers"
+    printf '%s\n' "$line" >>"$LOOP_WT/.harness/ledgers/outcomes.jsonl"
+    flush_failures "$id" "$LOOP_WT/.harness/ledgers/failures.jsonl"
+    git -C "$LOOP_WT" add .harness/ledgers/outcomes.jsonl .harness/ledgers/failures.jsonl 2>/dev/null || true
     git -C "$LOOP_WT" commit -q -m "$id: record outcome [skip ci]" 2>/dev/null || true
     git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push outcome for $id"
     remove_wt
@@ -436,7 +449,7 @@ audit_gate() {
   cur_verification="ci-only"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-  count="$(blob outcomes.jsonl | jq -s --arg l "$layer" --arg w "$wt" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited")]|length' 2>/dev/null || echo 0)"
+  count="$(blob ledgers/outcomes.jsonl | jq -s --arg l "$layer" --arg w "$wt" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited")]|length' 2>/dev/null || echo 0)"
   count="${count:-0}"
   pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" \
         --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
@@ -446,7 +459,7 @@ audit_gate() {
     log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
   fi
   bi=$(( cur_base + cur_rung ))
-  ai="$(blob facets.json | jq --arg m "$AUDITOR_MODEL" --arg e "$AUDITOR_EFFORT" '(.tiers.ladder|map(.model==$m and .effort==$e)|index(true)) // 3' 2>/dev/null || echo 3)"
+  ai="$(blob config/facets.json | jq --arg m "$AUDITOR_MODEL" --arg e "$AUDITOR_EFFORT" '(.tiers.ladder|map(.model==$m and .effort==$e)|index(true)) // 3' 2>/dev/null || echo 3)"
   (( ai > bi )) && bi=$ai
   read -r am ae <<<"$(gtier "$bi")"
   log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → AUDITING at $am/$ae (max of opus-medium + builder rung)"
@@ -489,10 +502,11 @@ block_task() {
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   remove_wt
   if git -C "$ROOT" worktree add --quiet --force --detach "$LOOP_WT" origin/main 2>/dev/null; then
-    mkdir -p "$LOOP_WT/worklog"
+    mkdir -p "$LOOP_WT/.harness/worklog" "$LOOP_WT/.harness/ledgers"
     printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$LOOP_WT/.harness/worklog/$id.md"
-    outcome_row "$id" true "$reason" >>"$LOOP_WT/.harness/outcomes.jsonl"   # fold the blocked outcome into THIS commit
-    git -C "$LOOP_WT" add ".harness/worklog/$id.md" .harness/outcomes.jsonl 2>/dev/null || true
+    outcome_row "$id" true "$reason" >>"$LOOP_WT/.harness/ledgers/outcomes.jsonl"   # fold the blocked outcome into THIS commit
+    flush_failures "$id" "$LOOP_WT/.harness/ledgers/failures.jsonl"
+    git -C "$LOOP_WT" add ".harness/worklog/$id.md" .harness/ledgers/outcomes.jsonl .harness/ledgers/failures.jsonl 2>/dev/null || true
     git -C "$LOOP_WT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
     git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push block marker for $id"
     remove_wt
@@ -571,25 +585,25 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     done)
       log "task $rtask built on branch $branch"
       if [ "$REQUIRE_CI" = "1" ] && ! wait_ci_green "$branch"; then
-        log "CI not green for $task — failed attempt; tearing down for a COLD retry."; cleanup_task "$branch"; bump "$task"; board; continue
+        log "CI not green for $task — failed attempt; tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "ci-not-green"; bump "$task"; board; continue
       fi
       # Structural gate THEN the blocking audit, on the CI-green branch, BEFORE integrating — so
       # nothing unaudited reaches main. Either fail = a failed attempt (tear down → cold retry).
       if ! structural_checks "$task"; then
-        log "structural checks failed for $task — tearing down branch + cold retry."; cleanup_task "$branch"; bump "$task"; board; continue
+        log "structural checks failed for $task — tearing down branch + cold retry."; cleanup_task "$branch"; record_failure "$task" "structural-fail"; bump "$task"; board; continue
       fi
       if ! audit_gate "$task"; then
-        log "AUDIT FAILED for $task — tearing down branch (never integrated) + cold retry."; cleanup_task "$branch"; bump "$task"; board; continue
+        log "AUDIT FAILED for $task — tearing down branch (never integrated) + cold retry."; cleanup_task "$branch"; record_failure "$task" "audit-fail"; bump "$task"; board; continue
       fi
       if integrate "$branch"; then
         record_outcome "$task" false                # difficulty auto-tuning: record the success on main (verification in the row)
         log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       else
-        bump "$task"
+        record_failure "$task" "integrate-race" "ff to main rejected"; bump "$task"
       fi
       ;;
-    failed:soft)    log "agent soft-failed $rtask: ${extra:-} — tearing down for a COLD retry."; cleanup_task "$branch"; bump "$task" ;;
-    failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
+    failed:soft)    log "agent soft-failed $rtask: ${extra:-} — tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;
+    failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; record_failure "$task" "agent-blocked" "${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
     idle)           log "agent reports idle — nothing to do"; board; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;

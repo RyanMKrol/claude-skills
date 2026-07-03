@@ -9,7 +9,7 @@ description: >-
   CI workflow name, cold-start difficulty floor (cheapest tier), optional empirical
   run/backtest check), copies the verbatim harness files in, and writes the personalized CLAUDE.md,
   ci.yml, .gitignore, harness.env, README.md, and an initial TASKS.json. Leaves the project ready to
-  run .harness/supervise.sh.
+  run .harness/scripts/supervise.sh.
 argument-hint: "[target project dir — defaults to cwd]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -31,7 +31,7 @@ by context) and cache the path as `TPL`:
 TPL="${CLAUDE_PLUGIN_ROOT:-}/templates"
 [ -d "$TPL" ] || TPL="${CLAUDE_SKILL_DIR}/../../templates"
 TPL="$(cd "$TPL" && pwd)"   # normalize
-ls "$TPL"                    # sanity: expect scripts/ docs/ .github/ worklog/ CLAUDE.md TASKS.json README.md gitignore
+ls "$TPL"                    # sanity: expect config/ docs/ scripts/ tasks/ tracking/ worklog/ .github/ CLAUDE.md README.md gitignore
 ```
 
 If `TPL` doesn't resolve to a dir containing `scripts/loop.sh`, stop and tell the user the
@@ -51,12 +51,12 @@ plugin install looks broken (templates not found).
 
 ## 2. Pre-flight: don't clobber existing work
 
-Glob the target for: `.harness/loop.sh`, `.harness/HARNESS.md`, `CLAUDE.md`, `TASKS.json`,
-`.github/workflows/ci.yml`, `README.md`. Also require `jq` on PATH (the loop parses
-`TASKS.json` with it) — if missing, tell the user to `brew install jq`.
+Glob the target for: `.harness/scripts/loop.sh`, `.harness/docs/HARNESS.md`, `CLAUDE.md`,
+`.harness/tracking/TASKS.json`, `.github/workflows/ci.yml`, `README.md`. Also require `jq` on PATH
+(the loop parses `TASKS.json` with it) — if missing, tell the user to `brew install jq`.
 
-- **Harness already present** (`.harness/loop.sh` or `.harness/HARNESS.md` exists) → switch to
-  **update mode**: offer (a) refresh the verbatim files from templates, (b) re-personalize
+- **Harness already present** (`.harness/scripts/loop.sh` or `.harness/docs/HARNESS.md` exists) →
+  switch to **update mode**: offer (a) refresh the verbatim files from templates, (b) re-personalize
   specific files, (c) abort. Do only what's chosen. Never blast over personalized files silently.
 - **User content present but no harness** (`CLAUDE.md` / `TASKS.json` / `README.md` exist) → these
   belong to the user. For each, ask: back up to `<file>.pre-harness` and replace, **merge** the
@@ -71,11 +71,11 @@ Use `AskUserQuestion`, batching related questions. Gather:
    build **and** verify entirely from what's committed to the remote, or does it need untracked /
    gitignored local state (private files, local datasets, secrets-driven fixtures)?"
    - *Everything committed* → **worktree** variant (default; max isolation; safe to run while other
-     work happens in the checkout). Installs `.harness/loop.sh`.
+     work happens in the checkout). Installs `.harness/scripts/loop.sh`.
    - *Needs local state* → **in-place** variant: works directly on `main` in the primary checkout
      so it can see that state; safety = one-commit-per-task + a load-bearing pre-push sensitive-path
-     guard. Installs `scripts/loop.in-place.sh` as `.harness/loop.sh`. (See .harness/HARNESS.md
-     "In-place variant".)
+     guard. Installs `scripts/loop.in-place.sh` as `.harness/scripts/loop.sh`. (See
+     `.harness/docs/HARNESS.md` "In-place variant".)
    Record the answer as `ISOLATION=worktree|in-place`; steps 4 and 7 branch on it. Note that the
    `../<repo>-loop` worktree/lock naming surfaced in step 1 applies to the **worktree** variant only.
 
@@ -109,7 +109,7 @@ Use `AskUserQuestion`, batching related questions. Gather:
    tasks; remember it for the initial TASKS.json and to pass to `implementation-harness-add-to-backlog`.
 9. **GitHub remote** — check `git -C "<target>" remote get-url origin`. The loop integrates by
    pushing to `origin/main`, required when `REQUIRE_CI=1`. If there's no `origin`, warn and offer
-   `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `.harness/LIMITATIONS.md`), or guide them
+   `REQUIRE_CI=0` as a stop-gap (record it as a limitation in `.harness/docs/LIMITATIONS.md`), or guide them
    to create the remote.
 10. **Long-running product / deploy hook (`INTEGRATE_HOOK`).** "Does this project run a long-lived
     process — a daemon, server, or preview — that must be restarted/redeployed to reflect new code?"
@@ -125,36 +125,39 @@ Use `AskUserQuestion`, batching related questions. Gather:
 Byte-identical copies from `$TPL` into the target (do **not** template these):
 
 The whole harness lives in a self-contained **`.harness/`** folder at the repo root (`$T` is the
-REPO ROOT). Its scripts/docs/state all sit FLAT inside `.harness/` (NOT in `scripts/`/`docs/`
-subdirs) — only `.github/workflows/ci.yml` lives at the repo root (GitHub requires it there).
-The repo-root `CLAUDE.md`, `.gitignore`, `README.md` are written/merged in §5. Note there are **two
-CLAUDE.md files** and they are NOT the same: the **repo-root `CLAUDE.md`** (§5, personalized — the
-project's full conventions + golden rules, loaded for ALL work) and **`.harness/CLAUDE.md`** (copied
-verbatim here — the focused *authoring* mandate that loads whenever Claude works inside `.harness/`,
-i.e. exactly when editing `TASKS.json`, telling it to invoke the add-to-backlog skill).
+REPO ROOT), grouped by kind: `config/` (facets + env knobs), `docs/` (design docs), `ledgers/`
+(calibration data), `scripts/` (loop + tooling), `tasks/` (per-task specs), `tracking/` (the
+backlog + owner overlays), `worklog/` (per-task history) — only `.github/workflows/ci.yml` lives at
+the repo root (GitHub requires it there). The repo-root `CLAUDE.md`, `.gitignore`, `README.md` are
+written/merged in §5. Note there are **two CLAUDE.md files** and they are NOT the same: the
+**repo-root `CLAUDE.md`** (§5, personalized — the project's full conventions + golden rules, loaded
+for ALL work) and **`.harness/CLAUDE.md`** (copied verbatim here — the focused *authoring* mandate
+that loads whenever Claude works inside `.harness/`, i.e. exactly when editing `TASKS.json`, telling
+it to invoke the add-to-backlog skill).
 
 ```bash
 T="<target>"          # the REPO ROOT
 H="$T/.harness"       # the self-contained harness folder (everything but ci.yml lives here)
-mkdir -p "$H/designs" "$H/tasks" "$H/worklog" "$T/.github/workflows"
-# Install the loop variant chosen in step 0 — BOTH install as .harness/loop.sh.
+mkdir -p "$H/config" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$T/.github/workflows"
+# Install the loop variant chosen in step 0 — BOTH install as .harness/scripts/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
-  cp -p "$TPL/scripts/loop.in-place.sh" "$H/loop.sh"
+  cp -p "$TPL/scripts/loop.in-place.sh" "$H/scripts/loop.sh"
 else
-  cp -p "$TPL/scripts/loop.sh" "$H/loop.sh"
+  cp -p "$TPL/scripts/loop.sh" "$H/scripts/loop.sh"
 fi
-cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$H/"   # flat in .harness/
-cp -p "$TPL/policy.jq" "$H/policy.jq"                  # difficulty auto-tuning policy (the loop reads .harness/policy.jq)
-cp -p "$TPL/facets.json" "$H/facets.json"             # facet vocabulary + tier ladder + policy knobs (tailored below)
-cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/"          # flat in .harness/ (not .harness/docs/)
-cp -p "$TPL/docs/designs/difficulty-autotune.md" "$H/designs/"
+cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/policy.jq" "$H/scripts/"
+cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + tier ladder + policy knobs (tailored below)
+cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/docs/"
+cp -p "$TPL/docs/designs/"*.md "$H/docs/designs/"
 cp -p "$TPL/tasks/"*.md "$H/tasks/"                    # per-task Markdown specs (## Do / ## Done when), one per example task — replace with yours in §6
 cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/
+cp -p "$TPL/README.md" "$H/README.md"                  # .harness/README.md — the harness's own quick-start explainer (distinct from the repo-root README.md written in §5)
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
-chmod +x "$H/"*.sh
+: >"$H/ledgers/outcomes.jsonl"; : >"$H/ledgers/failures.jsonl"   # seed empty, committed ledgers (calibration input; diagnostics)
+chmod +x "$H/scripts/"*.sh
 ```
 
-**Then tailor `facets.json` to THIS project (difficulty auto-tuning — see `.harness/designs/difficulty-autotune.md`):**
+**Then tailor `facets.json` to THIS project (difficulty auto-tuning — see `.harness/docs/designs/difficulty-autotune.md`):**
 - The `work-type`, `risk`, and `policy` axes are universal — leave them.
 - The **`tiers.ladder`** is the global difficulty ladder — set it to the models this project uses,
   cheapest → priciest (it should span the step-6 default model/effort + any escalation tiers).
@@ -180,7 +183,7 @@ Build each from the corresponding template, substituting the interview answers. 
   one; add the stack's toolchain-setup step (e.g. `actions/setup-node`, `dtolnay/rust-toolchain`,
   `actions/setup-go`, `actions/setup-python`) and an install step where needed. Delete the
   "REPLACE the steps below" comment block.
-- **`.harness/harness.env`** — from `$TPL/scripts/harness.env`. Set `MODEL`, `EFFORT`,
+- **`.harness/config/harness.env`** — from `$TPL/config/harness.env`. Set `MODEL`, `EFFORT`,
   `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI`, and — if the step-10 deploy/restart
   command was given — `INTEGRATE_HOOK`, to the answers (these `MODEL`/`EFFORT` are the cold-start difficulty FLOOR — the cheapest tier; the
   policy escalates up the global ladder from here and learns per-difficulty). Keep the `: "${VAR:=…}"` form so real-env
@@ -188,7 +191,7 @@ Build each from the corresponding template, substituting the interview answers. 
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen
   build-artifact lines, de-duplicated against any pre-existing `.gitignore` in the target. Write
   the result as `<target>/.gitignore`.
-- **`.harness/HARNESS.md` §5** — *optional, confirm first.* Replace the generic example command shapes
+- **`.harness/docs/HARNESS.md` §5** — *optional, confirm first.* Replace the generic example command shapes
   in §5 with the project's real DoD commands so §5 and `ci.yml` match (the doc states "they must
   match"). Targeted Edit, not a rewrite.
 - **`README.md`** — title = project name, opening = purpose, plus an initial implementation-status
@@ -197,16 +200,16 @@ Build each from the corresponding template, substituting the interview answers. 
 
 ## 6. Initial `TASKS.json`
 
-From `$TPL/TASKS.json`, keep the top-level shape (`_doc`, `version`) and **replace the
+From `$TPL/tracking/TASKS.json`, keep the top-level shape (`_doc`, `version`) and **replace the
 illustrative T001–T005 in `.tasks`** with a minimal real backlog. The cold-start floor lives in
-`harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-sonnet-4-6` / `low`), NOT in `TASKS.json`. A
+`config/harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-sonnet-4-6` / `low`), NOT in `TASKS.json`. A
 task carries NO per-task `model`/`effort`/`escalation`; difficulty is auto-tuned from `facets` + the
 outcomes ledger.
 
 **Each task's `do` + `done-when` do NOT live in the JSON** — they go in a per-task Markdown spec at
 `.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`), referenced by the task's `spec` field.
 Every BUILDABLE task also carries `facets: { layer, workType, risk[] }` (values from
-`.harness/facets.json`); gated (gate / needs-human) tasks carry neither facets nor a real spec body.
+`.harness/config/facets.json`); gated (gate / needs-human) tasks carry neither facets nor a real spec body.
 The shipped `.harness/tasks/T00N.md` are examples — when you replace the example tasks, write a
 matching `.harness/tasks/TNNN.md` for each new task and delete the unused example specs.
 
@@ -216,7 +219,7 @@ matching `.harness/tasks/TNNN.md` for each new task and delete the unused exampl
 - If the user described features, offer to **chain into `implementation-harness-add-to-backlog`** now to draft
   the rest of the backlog rather than leaving only T001. If they decline, leave just T001.
 - Never leave the shipped example T002–T005 unless the user explicitly wants them.
-- Keep it valid: end with `jq empty "$T/.harness/TASKS.json"` and fix any error before continuing.
+- Keep it valid: end with `jq empty "$T/.harness/tracking/TASKS.json"` and fix any error before continuing.
 
 ## 7. Validation gate — refuse to report success otherwise
 
@@ -225,17 +228,18 @@ T="<target>"
 grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.yml still has placeholders"
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
-grep -q "CI_WORKFLOW:=${W}" "$T/.harness/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-test -x "$T/.harness/loop.sh" && test -x "$T/.harness/supervise.sh" && test -x "$T/.harness/postflight.sh" || echo "FAIL: scripts not executable"
-for s in loop.sh supervise.sh postflight.sh; do bash -n "$T/.harness/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
-grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
-jq empty "$T/.harness/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
-for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done
-for t in $(jq -r '.tasks[]|select(.gate==null)|select(.facets|not)|.id' "$T/.harness/TASKS.json"); do echo "WARN: buildable task $t has no facets (no auto-tuning)"; done
+grep -q "CI_WORKFLOW:=${W}" "$T/.harness/config/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
+test -x "$T/.harness/scripts/loop.sh" && test -x "$T/.harness/scripts/supervise.sh" && test -x "$T/.harness/scripts/postflight.sh" && test -x "$T/.harness/scripts/repo-lock.sh" || echo "FAIL: scripts not executable"
+for s in loop.sh supervise.sh postflight.sh repo-lock.sh; do bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"; done
+"$T/.harness/scripts/repo-lock.sh" --selftest >/dev/null || echo "FAIL: repo-lock self-test failed"
+grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
+jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
+for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done
+for t in $(jq -r '.tasks[]|select(.gate==null)|select(.facets|not)|.id' "$T/.harness/tracking/TASKS.json"); do echo "WARN: buildable task $t has no facets (no auto-tuning)"; done
 command -v jq >/dev/null || echo "FAIL: jq not installed (the loop needs it to parse TASKS.json)"
-DRY_RUN=1 "$T/.harness/loop.sh" >/dev/null 2>&1 || echo "FAIL: DRY_RUN loop.sh errored (selection/backlog won't parse)"
+DRY_RUN=1 "$T/.harness/scripts/loop.sh" >/dev/null 2>&1 || echo "FAIL: DRY_RUN loop.sh errored (selection/backlog won't parse)"
 # in-place variant only: prove the load-bearing pre-push guard regex is correct
-grep -q -- '--guard-selftest' "$T/.harness/loop.sh" && { "$T/.harness/loop.sh" --guard-selftest >/dev/null || echo "FAIL: pre-push guard self-test failed"; }
+grep -q -- '--guard-selftest' "$T/.harness/scripts/loop.sh" && { "$T/.harness/scripts/loop.sh" --guard-selftest >/dev/null || echo "FAIL: pre-push guard self-test failed"; }
 ```
 
 The `bash -n` + `DRY_RUN` smoke catch a generated/edited script that won't parse or run **at
@@ -252,10 +256,10 @@ Summarize what you wrote, then print the exact next steps:
 
 ```sh
 git add -A && git commit -m "Add implementation harness"
-git push -u origin main          # the CI merge-gate needs a GitHub remote
-chmod +x scripts/*.sh
-DRY_RUN=1 scripts/loop.sh        # preview the next task the loop would build
-scripts/supervise.sh             # leave running; re-runs the loop on a cadence
+git push -u origin main                    # the CI merge-gate needs a GitHub remote
+chmod +x .harness/scripts/*.sh
+DRY_RUN=1 .harness/scripts/loop.sh         # preview the next task the loop would build
+.harness/scripts/supervise.sh              # leave running; re-runs the loop on a cadence
 ```
 
 Remind the user:

@@ -1,6 +1,6 @@
 name: CI
 # ▲ The loop gates on a workflow whose `name:` matches CI_WORKFLOW (default "CI").
-#   If you rename this, set CI_WORKFLOW to match in scripts/harness.env.
+#   If you rename this, set CI_WORKFLOW to match in .harness/config/harness.env.
 
 # Run on every push (so the loop's per-task branches get a run to watch) and on PRs
 # to main. The loop merges a branch into `main` ONLY when this workflow goes green.

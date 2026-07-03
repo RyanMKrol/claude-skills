@@ -9,7 +9,7 @@
 #
 # Output goes to stdout AND to .harness/worklog/STATUS.md (overwritten each run).
 #
-# Usage:  .harness/postflight.sh
+# Usage:  .harness/scripts/postflight.sh
 # Exit:   0 always (a report is informational; it never fails a cycle).
 set -uo pipefail
 
@@ -25,7 +25,7 @@ git fetch origin --quiet 2>/dev/null || true
 # TASKS.json (schema: .harness/HARNESS.md §8.1) is parsed with jq — same as loop.sh.
 command -v jq >/dev/null 2>&1 || { echo "[postflight] jq is required to parse TASKS.json — install it (e.g. brew install jq)" >&2; exit 0; }
 blob()         { git show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
-tj()           { blob TASKS.json | jq "$@" 2>/dev/null; }
+tj()           { blob tracking/TASKS.json | jq "$@" 2>/dev/null; }
 all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 task_title()   { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.title'; }

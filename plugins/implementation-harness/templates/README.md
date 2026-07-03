@@ -51,26 +51,31 @@ deliberately *not* parallel).
 | `scripts/loop.sh` | The single sequential loop: select → build → CI-gate → integrate. |
 | `scripts/supervise.sh` | Foreground heartbeat that re-runs `loop.sh` on a cadence. |
 | `scripts/postflight.sh` | Zero-token, read-only status board (`worklog/STATUS.md`). |
-| `scripts/harness.env` | Optional config: model, effort, caps, CI workflow name. |
+| `scripts/repo-lock.sh` | Shared mkdir-based lock, sourced by the loop and owner CLIs (`mark-*.sh`). |
+| `scripts/policy.jq` | Difficulty auto-tuning policy: tier selection + audit sampling. |
+| `config/harness.env` | Optional config: model, effort, caps, CI workflow name. |
+| `config/facets.json` | Facet vocabulary + global tier ladder + policy knobs. |
 | `docs/HARNESS.md` | Authoritative design of the harness. |
 | `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
 | `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
-| `TASKS.json` | The backlog: schema + example tasks (replace with your own). |
+| `tracking/TASKS.json` | The backlog: schema + example tasks (replace with your own). |
+| `ledgers/outcomes.jsonl` | One terminal row per built task — the sole input to difficulty calibration. |
+| `ledgers/failures.jsonl` | One row per failed attempt — diagnostics only, never read by calibration. |
 | `.github/workflows/ci.yml` | CI template — wire your real Definition of Done here. |
 | `worklog/` | Per-task append-only memory (`TNNN.md`) + generated scratch. |
 
 ## Quick start
 
 1. **Get the files into your repo** — start your project from this one, or copy `scripts/`,
-   `docs/HARNESS.md`, `CLAUDE.md`, `TASKS.json`, `.github/workflows/ci.yml`, `.gitignore`, and
-   `worklog/`.
+   `config/`, `docs/HARNESS.md`, `CLAUDE.md`, `tracking/TASKS.json`, `.github/workflows/ci.yml`,
+   `.gitignore`, and `worklog/`.
 2. **Wire your Definition of Done.** Put your real format/lint/test/build commands into
    `.github/workflows/ci.yml` **and** describe them in [`docs/HARNESS.md`](./docs/HARNESS.md)
    §5 — they must match. CI is the authoritative gate. *(The shipped CI fails on purpose
    until you replace the placeholder steps.)*
-3. **Set the knobs** in `scripts/harness.env` — `MODEL`, `EFFORT`, caps, and `CI_WORKFLOW`
+3. **Set the knobs** in `config/harness.env` — `MODEL`, `EFFORT`, caps, and `CI_WORKFLOW`
    (must equal the `name:` of your CI workflow).
-4. **Write the backlog.** Replace the example tasks in `TASKS.json` with your own atomic,
+4. **Write the backlog.** Replace the example tasks in `tracking/TASKS.json` with your own atomic,
    dependency-ordered tasks (schema in `docs/HARNESS.md` §8.1). Mark gated work 🚦 / 🔒.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run (a remote is required when
    `REQUIRE_CI=1`).

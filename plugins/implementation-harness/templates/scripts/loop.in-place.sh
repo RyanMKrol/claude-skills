@@ -23,23 +23,29 @@
 #   GATE   (shell)  — pre-push guard (refuse if anything sensitive is staged) → push main → watch
 #                     GitHub CI → green: mark the task done (+ optional integrate hook); red: STOP.
 #
-# Usage:  .harness/loop.sh [TNNN]          # optional: force a specific task id this run
-#         DRY_RUN=1 .harness/loop.sh       # print the task it WOULD build, then exit
-#         .harness/loop.sh --guard-selftest  # verify the pre-push guard regex, then exit
-# Config: .harness/harness.env (sourced if present) and/or the environment.
+# Usage:  .harness/scripts/loop.sh [TNNN]          # optional: force a specific task id this run
+#         DRY_RUN=1 .harness/scripts/loop.sh       # print the task it WOULD build, then exit
+#         .harness/scripts/loop.sh --guard-selftest  # verify the pre-push guard regex, then exit
+# Config: .harness/config/harness.env (sourced if present) and/or the environment.
 set -euo pipefail
 
-HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # the .harness/ dir this script lives in
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .harness/scripts — this script's own dir
+HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"                    # the .harness/ dir (config/ docs/ ledgers/ scripts/ tasks/ tracking/ worklog/)
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make absolute
 
-[ -f "$HARNESS_DIR/harness.env" ] && . "$HARNESS_DIR/harness.env"
+[ -f "$HARNESS_DIR/config/harness.env" ] && . "$HARNESS_DIR/config/harness.env"
 
-BACKLOG="$HARNESS_DIR/TASKS.json"
+# Shared mkdir-based repo lock (acquire_lock/release_lock) — sourced so its path derivation can
+# never drift from other scripts (mark-*.sh, consolidate-ideas.sh) that coordinate with this loop.
+. "$SCRIPT_DIR/repo-lock.sh"
+
+BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
 WORKLOG="$HARNESS_DIR/worklog"
-OUTCOMES="$HARNESS_DIR/outcomes.jsonl"             # append-only escalation ledger — the SOLE input to difficulty calibration (forward-only)
-FACETS="$HARNESS_DIR/facets.json"                  # facet vocabulary + global tier ladder + policy knobs
+OUTCOMES="$HARNESS_DIR/ledgers/outcomes.jsonl"      # append-only escalation ledger — the SOLE input to difficulty calibration (forward-only)
+FAILURES="$HARNESS_DIR/ledgers/failures.jsonl"      # append-only per-ATTEMPT diagnostics — never read by calibration
+FACETS="$HARNESS_DIR/config/facets.json"            # facet vocabulary + global tier ladder + policy knobs
 NAME="$(basename "$ROOT")"
 MODEL="${MODEL:-claude-sonnet-4-6}"               # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here as it learns (pin the full id; the bare alias drifts)
 EFFORT="${EFFORT:-low}"                            # low|medium|high|xhigh|max — cheapest by default (bias-cheap; the ladder escalates on failure)
@@ -58,7 +64,7 @@ CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 RL_POLL="${RL_POLL:-900}"                          # poll again every 15 min while limited
 RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervise after ~6h limited
 FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && FORCE_TASK="${1:-}"
-POSTFLIGHT="$HARNESS_DIR/postflight.sh"
+POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
@@ -112,25 +118,7 @@ CASES
 }
 [ "${1:-}" = "--guard-selftest" ] && { guard_selftest; exit $?; }
 
-[ -f "$BACKLOG" ] || { log "no .harness/TASKS.json — nothing to build"; exit 3; }
-
-# --- Concurrency guard: only one loop at a time (exit, don't queue) ----------
-acquire_lock() {
-  LOCK="$GIT_COMMON/${NAME}-loop.lock"
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    local owner; owner="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      log "stale loop lock (dead PID $owner) — reclaiming"; rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true
-    else
-      log "another loop is already running (PID ${owner:-?}) — exiting."; exit 0
-    fi
-  done
-  echo "$$" >"$LOCK/pid"
-}
-release_lock() {
-  [ -n "${LOCK:-}" ] && [ -f "$LOCK/pid" ] && [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] \
-    && { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true; } || true
-}
+[ -f "$BACKLOG" ] || { log "no .harness/tracking/TASKS.json — nothing to build"; exit 3; }
 
 # --- TASKS.json helpers (read from the local backlog file) ------------------
 tj()           { jq "$@" "$BACKLOG" 2>/dev/null; }
@@ -171,12 +159,32 @@ record_outcome() {
   if [ -n "$line" ]; then printf '%s\n' "$line" >>"$OUTCOMES"; else log "WARN: couldn't record outcome for $id"; fi
 }
 
+# record_failure <id> <kind> [detail] — buffer ONE per-attempt diagnostic row locally (never
+# committed directly). Diagnostics only — never read by calibration (policy.jq reads only
+# ledgers/outcomes.jsonl). Flushed into ledgers/failures.jsonl by flush_failures at the task's next
+# terminal outcome (mark_done or block_task), alongside the outcome row, in the SAME commit.
+FAILURES_BUF="$WORKLOG/.failures.buf"   # gitignored; survives cold_reset (git clean -fd doesn't remove ignored files)
+record_failure() {
+  local id="$1" kind="$2" detail="${3:-}" ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq -nc --arg id "$id" --arg ts "$ts" --arg kind "$kind" --argjson rung "${cur_rung:-0}" \
+     --argjson attempt "${cur_attempts:-0}" --arg model "$MODEL" --arg detail "$detail" \
+     '{id:$id, ts:$ts, kind:$kind, rung:$rung, attempt:$attempt, model:$model, detail:$detail}' \
+     >>"$FAILURES_BUF" 2>/dev/null || true
+}
+flush_failures() {
+  [ -s "$FAILURES_BUF" ] || return 0
+  cat "$FAILURES_BUF" >>"$FAILURES" 2>/dev/null || true
+  : >"$FAILURES_BUF"
+}
+
 mark_done() {
   local id="$1" tmp="$BACKLOG.tmp"   # same-dir temp → mv is an atomic rename (no cross-fs partial reads)
   jq --arg id "$id" '(.tasks[]|select(.id==$id)|.status)="done"' "$BACKLOG" >"$tmp" \
     && mv "$tmp" "$BACKLOG" || { rm -f "$tmp"; log "WARN: failed to mark $id done"; return 1; }
   record_outcome "$id" false                        # success → ledger row (succeededRung=cur_rung)
-  git -C "$ROOT" add "$BACKLOG" "$WORKLOG" "$OUTCOMES" 2>/dev/null || true
+  flush_failures
+  git -C "$ROOT" add "$BACKLOG" "$WORKLOG" "$OUTCOMES" "$FAILURES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: mark done [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push status update for $id"
 }
@@ -199,7 +207,7 @@ while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")     # fallback if facets.json absent
 POLICY_FLOOR="$(jq -r '.policy.floor // 0.75' "$FACETS" 2>/dev/null || echo 0.75)"
 POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
-POLICY_JQ="$HARNESS_DIR/policy.jq"               # .harness/policy.jq, alongside this loop
+POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6).
 AUDIT_START_N="$(jq -r '.policy.auditStartN // 3' "$FACETS" 2>/dev/null || echo 3)"
 AUDIT_FLOOR_N="$(jq -r '.policy.auditFloorN // 8' "$FACETS" 2>/dev/null || echo 8)"
@@ -504,7 +512,8 @@ block_task() {
   mkdir -p "$WORKLOG"
   printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$WORKLOG/$id.md"
   record_outcome "$id" true "$reason"               # blocked → ledger row (succeededRung=null, topRung=cur_rung)
-  git -C "$ROOT" add "$WORKLOG/$id.md" "$OUTCOMES" 2>/dev/null || true
+  flush_failures
+  git -C "$ROOT" add "$WORKLOG/$id.md" "$OUTCOMES" "$FAILURES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
@@ -581,22 +590,22 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       log "agent reports $task built + committed"
       if ! guard_clean; then
         log "PRE-PUSH GUARD tripped on $task — sensitive path staged; discarding the commit + blocking."
-        block_task "$task" "pre-push guard tripped (sensitive path staged)"; board; continue
+        record_failure "$task" "guard-tripped"; block_task "$task" "pre-push guard tripped (sensitive path staged)"; board; continue
       fi
       # Cheap structural gate (in-place local DoD) THEN the blocking audit — both BEFORE the push, so
       # a failure never reaches the remote (designs/audit-verification.md §3). Either fail = a failed
       # attempt: discard the commit + soft-retry (cold), escalating per the existing ladder.
       if ! structural_checks "$task"; then
         log "structural checks failed for $task — discarding commit + soft retry."
-        cold_reset; bump "$task"; board; continue
+        cold_reset; record_failure "$task" "structural-fail"; bump "$task"; board; continue
       fi
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
-        cold_reset; bump "$task"; board; continue
+        cold_reset; record_failure "$task" "audit-fail"; bump "$task"; board; continue
       fi
       if ! git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH"; then
         log "push to $MAIN_BRANCH failed (remote moved / network) — soft retry."
-        bump "$task"; board; continue
+        record_failure "$task" "push-race"; bump "$task"; board; continue
       fi
       if [ "$REQUIRE_CI" = "1" ]; then
         if wait_ci_green; then
@@ -610,14 +619,14 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
           else
             log "WARN: auto-revert/push failed — main may need a manual: git revert HEAD && git push"
           fi
-          bump "$task"
+          record_failure "$task" "ci-red-or-indeterminate"; bump "$task"
         fi
       else
         mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       fi
       ;;
-    failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; bump "$task" ;;
-    failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
+    failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;
+    failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; record_failure "$task" "agent-blocked" "${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
     idle)           log "agent reports idle — nothing to do"; board; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
