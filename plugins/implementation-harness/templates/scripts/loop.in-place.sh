@@ -267,10 +267,11 @@ pick_base() {
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
   if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s' "$cold"; return; fi
-  local mf; mf="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
+  local mf risk; mf="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
+  risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
   jq -n -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
      --arg layer "$layer" --arg wt "$wt" --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" \
-     --argjson coldIdx "$cold" --argjson manualFail "$mf" \
+     --argjson coldIdx "$cold" --argjson manualFail "$mf" --argjson risk "$risk" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
      2>/dev/null || printf '%s' "$cold"
 }
@@ -479,12 +480,13 @@ audit_gate() {
   cur_verification="ci-only"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-  local mf; mf="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
+  local mf risk; mf="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
+  risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
   if [ -n "$layer" ] && [ -n "$wt" ] && [ -s "$OUTCOMES" ]; then
     count="$(jq -s --arg l "$layer" --arg w "$wt" --argjson mf "$mf" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited" and ($mf[.id].failed!=true))]|length' "$OUTCOMES" 2>/dev/null || echo 0)"
   else count=0; fi
   count="${count:-0}"
-  pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" \
+  pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
         --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
         --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' 2>/dev/null || echo 1000)"
   pm="${pm:-1000}"

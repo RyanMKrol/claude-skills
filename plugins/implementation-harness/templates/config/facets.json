@@ -84,7 +84,7 @@
     },
     "risk": {
       "cardinality": "zero-or-more",
-      "desc": "Danger modifiers; each pushes difficulty UP. Used by the policy only once a cell is dense. UNIVERSAL.",
+      "desc": "Danger modifiers. A non-empty risk on a task forces the blocking audit (mandatory, bypassing the usual per-cell sampling decay) and clamps the starting tier to at least the ladder's second-cheapest rung, regardless of how reliable the (layer x work-type) cell has looked historically. UNIVERSAL.",
       "values": {
         "touches-schema": {
           "desc": "changes a DB schema / migration / persistent-data shape"

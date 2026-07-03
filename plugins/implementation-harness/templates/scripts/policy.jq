@@ -13,6 +13,7 @@
 # Invoke (tier):  jq -n -f policy.jq --slurpfile rows <outcomes.jsonl> --argjson tiers '<ladder>' \
 #                   --arg layer <L> --arg wt <W> --argjson floor 0.75 --argjson minN 6 \
 #                   --argjson coldIdx <N> --argjson auditCount -1 --argjson manualFail '<tracking/manual-fail.json>' \
+#                   --argjson risk '<this task's facets.risk array>' \
 #                   --argjson auditStartN 3 --argjson auditFloorN 8 --argjson auditFloorPM 100
 # Invoke (audit): same flags, but --argjson auditCount <confirmed-count> (>= 0); the tier-only flags
 #                 may be placeholders (rows '[]', tiers '[]', layer/wt '', etc.) — that branch is not
@@ -24,6 +25,14 @@
 # keeps a corrected false-positive from propagating into either the tier success rate or (upstream,
 # in the shell's confirmed-audited-count query) the audit-sampling decay — WITHOUT mutating the
 # append-only ledger itself (designs/manual-fail-signal.md).
+#
+# $risk is the CURRENT task's `facets.risk` array (danger flags — touches-schema, full-stack, …).
+# A non-empty risk clamps the calibration's usual cost-saving in two ways (designs/difficulty-autotune.md):
+#   - AUDIT mode: mandatory audit (1000 per-mille) regardless of the cell's confirmed-success decay —
+#     a risky task is always independently verified, however reliable the cell has looked so far.
+#   - TIER mode: the eligible starting index is clamped to >= 1 (never the cheapest rung), even if
+#     historical calibration would otherwise let index 0 clear the floor for this cell. Escalation
+#     above that floor on real failure is unaffected — this only raises the FLOOR, not the ceiling.
 
 def tidx($m; $e): ($tiers | map(.model == $m and .effort == $e) | index(true)) // -1;
 
@@ -35,7 +44,7 @@ def audit_permille($count; $startN; $floorN; $floorPM):
   end;
 
 if $auditCount >= 0 then
-  audit_permille($auditCount; $auditStartN; $auditFloorN; $auditFloorPM)
+  if ($risk | length) > 0 then 1000 else audit_permille($auditCount; $auditStartN; $auditFloorN; $auditFloorPM) end
 else
   ( $rows
     | map(select(.facets != null and .facets.layer == $layer and .facets.workType == $wt))
@@ -51,11 +60,13 @@ else
       )
     | add // []
   ) as $ev
-  | [ range(0; ($tiers | length)) as $i
-      | ($ev | map(select(.idx == $i))) as $at
-      | ($at | length) as $n
-      | select($n >= $minN and (($at | map(select(.ok)) | length) / $n) >= $floor)
-      | $i
-    ]
-  | (min // $coldIdx)
+  | ( [ range(0; ($tiers | length)) as $i
+        | ($ev | map(select(.idx == $i))) as $at
+        | ($at | length) as $n
+        | select($n >= $minN and (($at | map(select(.ok)) | length) / $n) >= $floor)
+        | $i
+      ]
+    | (min // $coldIdx)
+  ) as $chosen
+  | if ($risk | length) > 0 then ([$chosen, 1] | max) else $chosen end
 end

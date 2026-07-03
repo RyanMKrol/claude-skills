@@ -3,24 +3,7 @@
 Items we identified but deliberately deferred, captured so they're not lost. (Dev-only file — not
 under `templates/`, so it isn't installed into scaffolded projects and needs no version bump.)
 
-## 1. Wire the `risk` facet into behaviour — or drop it (currently inert)
-
-**Status:** `facets.risk` (the danger-flag axis — `touches-schema`, `full-stack`, `cross-cutting`,
-`touches-executor`) is **assigned** by the add-to-backlog skill and **stored** in every
-`outcomes.jsonl` row (the ledger persists the whole `facets` object), but it is **read by nothing**:
-`policy.jq` has 0 refs; the loop's `pick_base` / `audit_gate` read only `.facets.layer` +
-`.facets.workType`; the dashboard + daemon never touch it. So the calibration cell is
-`(layer × workType)` only — `risk` is **purely descriptive today** (captured but functionally inert).
-
-**To do — decide: wire it, or drop it.** Most natural wiring (composes cleanly with the audit gate):
-- a high-risk flag (e.g. `touches-executor`, `touches-schema`) **forces the audit** — skip the
-  per-cell sampling decay, always audit, never fall to the 10% floor; and/or
-- **raises the cold-start floor** a rung for high-risk cells.
-Implement in `audit_gate` (sampling) / `pick_base` in `templates/scripts/loop.sh` +
-`loop.in-place.sh`, and mirror in local-jobs `.harness/loop.sh`. If we choose NOT to wire it, remove
-`risk` from the add-to-backlog skill + the docs so it stops implying a guarantee that doesn't exist.
-
-## 2. Reconcile the worktree done-protocol with the scope gate (stopgap in place)
+## 1. Reconcile the worktree done-protocol with the scope gate (stopgap in place)
 
 **Status:** the WORKTREE variant's builder done-protocol edits `.harness/TASKS.json` (sets status), the
 `README.md` status row, and `.harness/LIMITATIONS.md` — none ever in a task's `scope`. The scope gate
@@ -41,3 +24,9 @@ code + worklog only; the LOOP's integrate step sets status / flips the README ro
 - **Scope structural gate** — *implemented in v0.9.4.* `structural_checks()` (both loop variants +
   local-jobs) now fails any task whose diff touches a file outside its declared `scope`, with the
   worklog + test files allowlisted and docs requiring explicit declaration.
+- **`risk` facet wired — v1.5.0.** `policy.jq` now takes a `$risk` arg (the task's `facets.risk`
+  array): AUDIT mode returns mandatory 1000 per-mille whenever `risk` is non-empty (bypassing the
+  per-cell decay curve entirely); TIER mode clamps the eligible starting index to `>= 1` (never the
+  cheapest rung) for a risky task, even if historical calibration would otherwise let index 0 clear
+  the floor. Both loop variants' `pick_base`/`audit_gate` now extract and pass the current task's
+  risk flags. See `docs/designs/difficulty-autotune.md`.

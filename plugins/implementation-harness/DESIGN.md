@@ -96,11 +96,13 @@ walks **up** this single ladder. There is **no per-task escalation ladder** any 
   reversed the older "default to the strong model" rule. *Trade-off:* more early escalation churn on
   hard cells before the policy learns — accepted, because it's bounded (per-cell, transient) and the
   exploration is the point.
-- **The calibration cell is `(layer × workType)` only.** `risk` is **not** part of the cell key.
-- **`risk` is currently inert.** It's assigned by the authoring skill and *stored* in every ledger row
-  (the whole `facets` object is persisted), but **read by nothing** — `policy.jq`/`pick_base`/the audit
-  read only `.facets.layer` + `.facets.workType`. It's a latent descriptive axis. (See `TODO.md` #1:
-  wire it — e.g. high-risk flags force-audit / raise the cold-start floor — or drop it.)
+- **The calibration cell is `(layer × workType)` only.** `risk` is **not** part of the cell key —
+  it's a cross-cutting modifier applied on top (below), not a third join dimension.
+- **`risk` (as of v1.5.0) forces mandatory audit + clamps the starting rung.** `policy.jq` takes a
+  `$risk` arg (the task's `facets.risk` array): AUDIT mode returns `1000` unconditionally when
+  non-empty (bypassing the per-cell sampling decay); TIER mode clamps the eligible starting index
+  to `>= 1` (never the cheapest rung), even if the cell's calibration would otherwise clear the
+  floor at index 0. Escalation above that floor on real failure is unaffected.
 - **`minN=6`, `floor=0.75`** — enough samples to trust a rate without being unreachable; a 75% bar to
   call a tier "reliable enough." Both live in `facets.json .policy`, tunable.
 - **`difficultyHint` is advisory ONLY** — a human/LLM-readable taxonomy intuition on each facet value;

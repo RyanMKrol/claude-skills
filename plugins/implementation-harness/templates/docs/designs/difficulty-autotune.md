@@ -23,11 +23,21 @@ A **facet** is one labelled, difficulty-predictive axis describing a buildable t
   the task's scope file paths. Tailored to the repo at create-harness time; self-evolves (§6).
 - **`work-type`** (exactly one) — *what kind* of change (style/docs/bugfix/feature/migration/…).
   **Universal** across projects.
-- **`risk`** (zero or more) — danger modifiers (touches-schema, full-stack, …), each pushes up.
+- **`risk`** (zero or more) — danger modifiers (touches-schema, full-stack, …). **Not** part of the
+  calibration cell key; instead it clamps the policy's usual cost-saving (below).
 
 The calibration keys on **`layer × work-type`**. `facets.json` is the source of truth (vocabulary +
 the global tier ladder + policy knobs). **`needs-human`/gated tasks are carved out** — no facets,
 never calibrated.
+
+**`risk` clamps the policy, on top of the `layer × work-type` cell.** A non-empty `risk` on a task:
+mandatory audit (the per-cell sampling decay is bypassed entirely — `policy.jq`'s audit mode
+returns 1000 per-mille unconditionally), and the eligible starting tier index is clamped to `>= 1`
+(never the cheapest rung), even if the cell's historical calibration would otherwise clear the
+floor at index 0. This directly implements the intuition that a cell can look statistically safe
+while still hiding a kind of failure (a schema migration, a change to the executor) worth always
+double-checking regardless of track record. Escalation above that floor on real failure rides the
+same ladder as any other task.
 
 ## 2. Global difficulty ladder
 
