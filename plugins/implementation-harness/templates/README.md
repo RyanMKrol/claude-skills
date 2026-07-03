@@ -55,6 +55,7 @@ deliberately *not* parallel).
 | `scripts/policy.jq` | Difficulty auto-tuning policy: tier selection + audit sampling. |
 | `scripts/mark-done.sh` / `mark-failed.sh` / `mark-reviewed.sh` | Owner CLIs that write the `tracking/` overlays (also what the dashboard's buttons call). |
 | `scripts/check-task-scope.sh` | Advisory linter: warns when a task's spec mentions a file outside its declared `scope`. |
+| `scripts/consolidate-ideas.sh` / `.mjs` | The locked consolidation pass of the ideas→tasks pipeline — see below. |
 | `dashboard/server.js` | Portable, dependency-free backlog viewer (`node dashboard/server.js`) — see below. |
 | `config/harness.env` | Optional config: model, effort, caps, CI workflow name. |
 | `config/facets.json` | Facet vocabulary + global tier ladder + policy knobs. |
@@ -62,6 +63,7 @@ deliberately *not* parallel).
 | `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
 | `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
 | `tracking/TASKS.json` | The backlog: schema + example tasks (replace with your own). |
+| `tracking/IDEAS.md` | Gitignored ideas inbox — see below. |
 | `tracking/human-done.json` / `manual-fail.json` / `reviews.json` | Owner-overlay files — see `docs/designs/manual-fail-signal.md`. |
 | `ledgers/outcomes.jsonl` | One terminal row per built task — the sole input to difficulty calibration. |
 | `ledgers/failures.jsonl` | One row per failed attempt — diagnostics only, never read by calibration. |
@@ -116,6 +118,17 @@ a human would run by hand. It re-reads everything from disk on every request —
 node dashboard/server.js                 # binds 127.0.0.1:4790
 HARNESS_DASHBOARD_PORT=5000 node dashboard/server.js   # different port
 ```
+
+## Ideas → tasks pipeline (optional)
+
+A two-step flow for turning raw ideas into backlog tasks without interrupting whatever you're
+doing: capture now, convert later, in a batch. `tracking/IDEAS.md` is a gitignored, zero-ceremony
+inbox — append a bullet any time (via the `implementation-harness-capture-idea` skill, or by hand).
+When you're ready, `implementation-harness-convert-ideas` sweeps the whole inbox at once: it dedupes
+related ideas, converts each one (or cluster) in parallel via its own sub-agent, relays any genuine
+open question back to you in one batch, then runs `scripts/consolidate-ideas.sh` — the single
+locked pass that allocates real task ids, writes each task's spec, appends to `TASKS.json`, and
+removes the converted bullets.
 
 ## Gates — what the loop won't do on its own
 

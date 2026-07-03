@@ -17,3 +17,8 @@
 # harness: atomic-write temps (TASKS.json + the owner-overlay files never keep a crashed-mid-write file)
 .harness/tracking/*.tmp
 .harness/tracking/*.tmp.*
+
+# harness: ideas->tasks pipeline — private inbox + ephemeral per-sweep scratch
+.harness/tracking/IDEAS.md
+.harness/.pending-tasks/*.json
+.harness/.pending-questions/*.json
