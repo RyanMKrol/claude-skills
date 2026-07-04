@@ -85,7 +85,7 @@ claude -p "<task prompt>" \
 ```
 
 - **`--model`** — always the FULL id (the bare alias resolves to "latest" and will drift).
-  The cold-start floor is `claude-sonnet-4-6` (`MODEL=` in `harness.env`) — the cheapest tier;
+  The cold-start floor is `claude-sonnet-5` (`MODEL=` in `harness.env`) — the cheapest tier;
   the policy climbs the global ladder from there as a facet cell's history warrants.
 - **`--effort`** (`low|medium|high|xhigh|max`). Cold-start floor **`low`** (`EFFORT=` in
   `harness.env`); the policy raises it via the ladder, whose top rungs reach `xhigh`/`max` only

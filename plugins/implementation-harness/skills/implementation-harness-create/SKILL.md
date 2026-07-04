@@ -97,7 +97,7 @@ Use `AskUserQuestion`, batching related questions. Gather:
 6. **Cold-start difficulty floor** — the model/effort a task STARTS at *before* difficulty
    auto-tuning has data. It lives in `harness.env` (`MODEL`/`EFFORT`) — the SINGLE source; it is
    NOT mirrored into `TASKS.json`.
-   **Default to the CHEAPEST tier — `claude-sonnet-4-6` / `low`** (bias-cheap). Explain why: the
+   **Default to the CHEAPEST tier — `claude-sonnet-5` / `low`** (bias-cheap). Explain why: the
    policy starts every task at this floor and ESCALATES up the global tier ladder
    (`facets.json .tiers.ladder`) on repeated failure, then *learns* the cheapest tier that reliably
    builds each kind of task (faceted calibration). So there is **no per-task model guessing and no
@@ -222,7 +222,7 @@ Build each from the corresponding template, substituting the interview answers. 
 
 From `$TPL/tracking/TASKS.json`, keep the top-level shape (`_doc`, `version`) and **replace the
 illustrative T001–T005 in `.tasks`** with a minimal real backlog. The cold-start floor lives in
-`config/harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-sonnet-4-6` / `low`), NOT in `TASKS.json`. A
+`config/harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-sonnet-5` / `low`), NOT in `TASKS.json`. A
 task carries NO per-task `model`/`effort`/`escalation`; difficulty is auto-tuned from `facets` + the
 outcomes ledger.
 

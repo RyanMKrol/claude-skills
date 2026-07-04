@@ -116,15 +116,15 @@
     "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). Example below uses Sonnet (cheap) → Opus (expensive).",
     "ladder": [
       {
-        "model": "claude-sonnet-4-6",
+        "model": "claude-sonnet-5",
         "effort": "low"
       },
       {
-        "model": "claude-sonnet-4-6",
+        "model": "claude-sonnet-5",
         "effort": "medium"
       },
       {
-        "model": "claude-sonnet-4-6",
+        "model": "claude-sonnet-5",
         "effort": "high"
       },
       {
