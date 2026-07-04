@@ -154,6 +154,7 @@ For each task, in dependency order, produce a JSON object:
   "design": null,                     // or ".harness/docs/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
   "expectsTest": false,               // true → the loop requires a test file in the diff (structural gate); set for test-pinnable tasks
+  "visualVerify": false,              // true → force the VISUAL_VERIFY_HOOK "actually LOOK at it" check (any platform); omit/false to leave it to the workType heuristic
   "spec": ".harness/tasks/TNNN.md"    // the task's do/done-when (## Do / ## Done when) — author this MD file too
   // NO model/effort/escalation, NO inline do/doneWhen — the policy auto-tunes difficulty from facets + the ledger
 }
@@ -197,6 +198,11 @@ more objective and runnable the bar, the harder it is for a cheap builder to fal
 - Set **`expectsTest: true`** when correctness should be pinned by a test, and **say in `## Done when`
   what the test must assert** — the builder writes the test, but to YOUR spec, so it can't validate
   itself with a lenient one.
+- Set **`visualVerify: true`** when the task produces **visual output worth eyeballing** — a web page,
+  a native/desktop screen, a mobile screen in a simulator, a generated image/chart — that could pass
+  every automated check while still looking wrong. It forces the `VISUAL_VERIFY_HOOK` "actually LOOK at
+  the result" instruction into the build + audit prompt, on any platform, independent of `workType`
+  (which only auto-triggers the default `component` type). No-op if the project set no hook.
 - Keep **`scope` accurate** — it's now a structural gate (the diff must touch those files).
 
 ## 4. Append, don't clobber — via jq

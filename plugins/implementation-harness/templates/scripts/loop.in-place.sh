@@ -60,7 +60,8 @@ CI_WORKFLOW="${CI_WORKFLOW:-CI}"                   # MUST match `name:` in the C
 REQUIRE_CI="${REQUIRE_CI:-1}"                      # 1 = never mark done without green CI
 MAIN_BRANCH="${MAIN_BRANCH:-main}"
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"               # optional cmd run after each task integrates (deploy/restart)
-UI_VERIFY_HOOK="${UI_VERIFY_HOOK:-}"               # optional cmd for visual UI verification — injected for facets.workType=="component" tasks only
+VISUAL_VERIFY_HOOK="${VISUAL_VERIFY_HOOK:-${UI_VERIFY_HOOK:-}}"   # optional cmd for VISUAL verification (any platform); UI_VERIFY_HOOK is the back-compat alias
+VISUAL_VERIFY_WORKTYPES="${VISUAL_VERIFY_WORKTYPES:-component}"   # workType values that auto-trigger the hook when a task has no explicit visualVerify flag
 SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"       # optional space-separated extra path prefixes structural_checks always allows, beyond worklog+tests
 PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
 LOOP_AUTORESET="${LOOP_AUTORESET:-0}"              # opt-in: self-heal (stash+reset) a dirty tree at startup instead of refusing — dedicated checkouts only
@@ -283,20 +284,28 @@ run_integrate_hook() {
   ( cd "$ROOT" && eval "$INTEGRATE_HOOK" ) || log "WARN: integrate hook failed (non-fatal)"
 }
 
-# ui_verify_block <id> — print an instruction block telling the reader (builder or auditor) to run
-# UI_VERIFY_HOOK and actually LOOK at the result before declaring done, when set AND this task's
-# facets.workType is "component" (a new/changed UI component or page — see facets.json). No-op
-# (prints nothing) otherwise, so non-UI tasks and non-UI projects pay zero cost. See
-# docs/designs/ui-verification.md for the rationale and a worked screenshot-harness example.
-ui_verify_block() {
-  local tid="$1" wt
-  [ -n "$UI_VERIFY_HOOK" ] || return 0
-  wt="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-  [ "$wt" = "component" ] || return 0
-  printf '\n--- UI VISUAL VERIFICATION (required before reporting done — see docs/designs/ui-verification.md) ---\n'
-  printf 'This is a UI task (facets.workType=="component"). Passing tests/build alone is NOT sufficient.\n'
-  printf 'Run `%s` and actually LOOK at what it produces (e.g. screenshots) to confirm the change\n' "$UI_VERIFY_HOOK"
-  printf 'renders and behaves as intended. Record what you OBSERVED (not just "ran it") in the worklog.\n'
+# visual_verify_block <id> — print an instruction block telling the reader (builder or auditor) to run
+# VISUAL_VERIFY_HOOK and actually LOOK at its output before declaring done. Fires when the hook is set
+# AND the task opts in: a task-level `visualVerify:true` fires it on ANY platform (browser, native/
+# desktop, a mobile simulator, a generated image); `visualVerify:false` suppresses it; with no flag it
+# falls back to a heuristic — the task's workType is in VISUAL_VERIFY_WORKTYPES (default "component").
+# No-op (prints nothing) otherwise, so non-visual tasks and projects pay zero cost. See
+# docs/designs/visual-verification.md for the rationale and worked per-platform examples.
+visual_verify_block() {
+  local tid="$1" vv wt
+  [ -n "$VISUAL_VERIFY_HOOK" ] || return 0
+  # NB: read .visualVerify WITHOUT `// empty` — jq's `//` treats a literal `false` as empty too, which
+  # would drop an explicit opt-OUT. Absent → "null"/"" (falls through to the heuristic); false → "false".
+  vv="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.visualVerify')"
+  [ "$vv" = false ] && return 0
+  if [ "$vv" != true ]; then
+    wt="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
+    case " $VISUAL_VERIFY_WORKTYPES " in *" $wt "*) ;; *) return 0 ;; esac
+  fi
+  printf '\n--- VISUAL VERIFICATION (required before reporting done — see docs/designs/visual-verification.md) ---\n'
+  printf 'This task produces visual output. Passing tests/build alone is NOT sufficient.\n'
+  printf 'Run `%s` and actually LOOK at what it produces (screenshots / rendered output) to confirm the\n' "$VISUAL_VERIFY_HOOK"
+  printf 'change renders and behaves as intended. Record what you OBSERVED (not just "ran it") in the worklog.\n'
 }
 
 # --- Difficulty auto-tuning: global tier ladder + the calibration policy --------------------------
@@ -567,7 +576,7 @@ EOF
   printf 'You may change ONLY these files:\n'
   if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
   printf '%s\n' 'PLUS you may always add/change TEST files and your own .harness/worklog/<TASK>.md. Touching ANY OTHER file — including a doc (README/CLAUDE/LIMITATIONS) not listed above — AUTO-FAILS this task. If you genuinely need a file that is not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
-  ui_verify_block "$tid"
+  visual_verify_block "$tid"
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — the SOLE source of do/done-when.
   local rel="" path
   rel="$(task_spec_rel "$tid")"
@@ -677,7 +686,7 @@ $spec
 --- IMPLEMENTATION DIFF (origin/$MAIN_BRANCH..HEAD) ---
 $diff
 EOF
-  ui_verify_block "$id"
+  visual_verify_block "$id"
 }
 
 # audit_gate <id> — per-cell SAMPLED blocking audit (§4.3/4.6). Sets cur_verification. Spawns a fresh,

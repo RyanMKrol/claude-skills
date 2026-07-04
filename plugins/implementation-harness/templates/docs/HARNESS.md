@@ -425,6 +425,7 @@ the top carries the human note (JSON has no comments). One task object:
   "design": ".harness/docs/designs/T014-replay.md",   // optional; null = build from the spec alone
   "verify": ["run-app"],               // optional empirical checks
   "expectsTest": true,                 // optional; true → the loop requires a test file in the diff (structural gate)
+  "visualVerify": true,                // optional; true → force VISUAL_VERIFY_HOOK on any platform; false → suppress; omit → workType heuristic
   "spec": ".harness/tasks/T014.md",    // REQUIRED — the task's do/done-when (## Do / ## Done when), in its own MD file
   "facets": { "layer": "backend", "workType": "feature", "risk": [] },  // calibration key; OMIT for gated/needs-human tasks
   "tags": ["validation"]               // optional, freeform
@@ -440,6 +441,7 @@ the top carries the human note (JSON has no comments). One task object:
 | `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
 | `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. |
 | `expectsTest` | Optional boolean. `true` → the loop requires a **test file** to change in the diff (a structural check); say what the test must assert in `## Done when`. Set it for tasks whose correctness should be pinned by a test. |
+| `visualVerify` | Optional boolean. `true` → inject the `VISUAL_VERIFY_HOOK` "actually LOOK at the output" instruction into the builder + auditor prompt for this task **regardless of platform or work-type** (a native screen, a mobile simulator, a generated image — not just web). `false` → suppress it even for a matching work-type. **Omit** to fall back to the heuristic (fires when `facets.workType` ∈ `VISUAL_VERIFY_WORKTYPES`, default `component`). No-op if `VISUAL_VERIFY_HOOK` is unset. See `docs/designs/visual-verification.md`. |
 | `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from the `spec` on its own judgement. Never required. |
 | `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §6 Definition of Done. Empty = unit/integration + CI suffice. |
 | `spec` | **Required** repo-relative path to the task's per-task Markdown spec (`.harness/tasks/TNNN.md`) — sections `## Do` (the work, kept short) and `## Done when` (the **task-specific** acceptance bar; the **universal** bar in §6 is not repeated). The loop appends its full text to the build prompt. `do`/`doneWhen` do **not** live in the JSON. |

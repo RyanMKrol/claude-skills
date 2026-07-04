@@ -119,14 +119,18 @@ Use `AskUserQuestion`, batching related questions. Gather:
     command and set it as `INTEGRATE_HOOK` in `harness.env`; the loop runs it after each task
     integrates so what's running always matches `main`. If no (a library/CLI with nothing
     long-lived), leave it empty.
-11. **Visual UI verification (`UI_VERIFY_HOOK`) — optional, only ask if the project has a browser
-    UI.** "Does this project have a browser UI worth visually verifying — a page/component that
-    could pass every automated check while still rendering wrong?" If yes, ask for a command that
-    produces something inspectable (a screenshot script, or similar) and set it as `UI_VERIFY_HOOK`
-    in `harness.env`; it's injected into the builder + auditor prompt ONLY for tasks whose
-    `facets.workType` is `component` (see `.harness/docs/designs/ui-verification.md` for the
-    rationale and an optional `PAGES`/`FLOWS` convention worth adopting for larger UI surfaces). If
-    no, or the project has no UI at all, leave it empty — zero cost either way.
+11. **Visual verification (`VISUAL_VERIFY_HOOK`) — optional, only ask if the project produces visual
+    output.** "Does this project produce visual output worth eyeballing before a change is called
+    done — a web page, a native/desktop app, a mobile screen via a simulator, a generated
+    image/chart — something that could pass every automated check while still looking wrong?" If
+    yes, ask for a command that captures it (a browser screenshot script, `screencapture`, `xcrun
+    simctl io booted screenshot`, a render command, …) and set it as `VISUAL_VERIFY_HOOK` in
+    `harness.env`; it's injected into the builder + auditor prompt for tasks that opt in (a
+    `"visualVerify": true` on any platform, or a `facets.workType` in `VISUAL_VERIFY_WORKTYPES`,
+    default `component`). If their visual work isn't "component"-shaped (e.g. `style` changes, or a
+    non-web taxonomy), set `VISUAL_VERIFY_WORKTYPES` accordingly (e.g. `"component style"`). See
+    `.harness/docs/designs/visual-verification.md` for the rationale + worked per-platform examples.
+    If the project has no visual surface, leave it empty — zero cost either way.
 
 ## 4. Copy the verbatim files
 
@@ -199,8 +203,9 @@ Build each from the corresponding template, substituting the interview answers. 
   "REPLACE the steps below" comment block.
 - **`.harness/config/harness.env`** — from `$TPL/config/harness.env`. Set `MODEL`, `EFFORT`,
   `MAX_ATTEMPTS`, `MAX_ITERS`, `CI_WORKFLOW`, `REQUIRE_CI`, and — if the step-10 deploy/restart
-  command was given — `INTEGRATE_HOOK`, and — if the step-11 UI-verification command was given —
-  `UI_VERIFY_HOOK` (leave both empty if not answered), to the answers (these `MODEL`/`EFFORT` are the cold-start difficulty FLOOR — the cheapest tier; the
+  command was given — `INTEGRATE_HOOK`, and — if the step-11 visual-verification command was given —
+  `VISUAL_VERIFY_HOOK` (and `VISUAL_VERIFY_WORKTYPES` if their visual work isn't `component`-shaped);
+  leave them empty if not answered, to the answers (these `MODEL`/`EFFORT` are the cold-start difficulty FLOOR — the cheapest tier; the
   policy escalates up the global ladder from here and learns per-difficulty). Keep the `: "${VAR:=…}"` form so real-env
   overrides still win.
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen

@@ -134,14 +134,16 @@ open question back to you in one batch, then runs `scripts/consolidate-ideas.sh`
 locked pass that allocates real task ids, writes each task's spec, appends to `TASKS.json`, and
 removes the converted bullets.
 
-## UI visual verification (optional)
+## Visual verification (optional)
 
-Automated checks can pass while a UI change still renders wrong. Set `UI_VERIFY_HOOK` in
-`config/harness.env` to a command that produces something inspectable (a screenshot script, for
-example) and it's injected into the builder + auditor prompt for tasks whose `facets.workType` is
-`component` — zero cost for every other kind of task, and zero cost if left empty. See
-`docs/designs/ui-verification.md` for the rationale and an optional convention (a shared
-`PAGES`/`FLOWS` script) for larger UI surfaces.
+Automated checks can pass while a change still *looks* wrong — a web page, a native/desktop app, a
+mobile screen in a simulator, a generated image/chart. Set `VISUAL_VERIFY_HOOK` in
+`config/harness.env` to a command that captures the output (a browser screenshot script,
+`screencapture`, `xcrun simctl io booted screenshot`, a render command, …) and it's injected into the
+builder + auditor prompt for tasks that opt in — a per-task `"visualVerify": true` (any platform) or a
+`facets.workType` in `VISUAL_VERIFY_WORKTYPES` (default `component`). Zero cost for every other task,
+and zero cost if left empty. See `docs/designs/visual-verification.md` for the rationale and worked
+per-platform examples (the old `UI_VERIFY_HOOK` name still works as an alias).
 
 ## Gates — what the loop won't do on its own
 
