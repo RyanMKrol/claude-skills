@@ -56,8 +56,13 @@ Glob the target for: `.harness/scripts/loop.sh`, `.harness/docs/HARNESS.md`, `CL
 (the loop parses `TASKS.json` with it) — if missing, tell the user to `brew install jq`.
 
 - **Harness already present** (`.harness/scripts/loop.sh` or `.harness/docs/HARNESS.md` exists) →
-  switch to **update mode**: offer (a) refresh the verbatim files from templates, (b) re-personalize
-  specific files, (c) abort. Do only what's chosen. Never blast over personalized files silently.
+  this is **not** a fresh scaffold. For a version-aware upgrade — reconcile the installed harness
+  against the bundled reference, refreshing plugin-owned files and adding new `harness.env` knobs while
+  preserving the user's data and edits — **recommend the `implementation-harness-upgrade` skill**
+  instead (it reports first and asks before every change). Only if the user explicitly wants a one-off
+  re-scaffold of specific files here, offer (a) refresh the verbatim files from templates, (b)
+  re-personalize specific files, (c) abort — doing only what's chosen, never blasting over personalized
+  files silently.
 - **User content present but no harness** (`CLAUDE.md` / `TASKS.json` / `README.md` exist) → these
   belong to the user. For each, ask: back up to `<file>.pre-harness` and replace, **merge** the
   harness content into the existing file, or **skip** it. Default to backup-then-write only with
@@ -174,6 +179,7 @@ cp -p "$TPL/tracking/IDEAS.md" "$H/tracking/IDEAS.md"   # committed ideas inbox 
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 : >"$H/ledgers/outcomes.jsonl"; : >"$H/ledgers/failures.jsonl"   # seed empty, committed ledgers (calibration input; diagnostics)
 chmod +x "$H/scripts/"*.sh
+jq -r .version "$TPL/../.claude-plugin/plugin.json" > "$H/.harness-version"   # committed marker: which plugin version produced this harness — implementation-harness-upgrade reads it to know what to reconcile
 ```
 
 **Then tailor `facets.json` to THIS project (difficulty auto-tuning — see `.harness/docs/designs/difficulty-autotune.md`):**
@@ -299,3 +305,6 @@ Remind the user:
 - A GitHub `origin` remote is required when `REQUIRE_CI=1`; without it the loop can't merge.
 - `docs/HARNESS.md` is the authoritative design; `CLAUDE.md` is the per-project conventions.
 - To grow the backlog later, run `/implementation-harness-add-to-backlog`.
+- `.harness/.harness-version` records the plugin version that produced this harness (commit it). When
+  the plugin gains new features later, run `/implementation-harness-upgrade` to pull them into this
+  install without losing your customizations.

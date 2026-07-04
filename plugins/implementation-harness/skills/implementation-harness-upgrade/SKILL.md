@@ -1,0 +1,176 @@
+---
+name: implementation-harness-upgrade
+description: >-
+  Use when a project already has an installed `.harness/` and the user wants to pull in newer harness
+  changes shipped by this plugin — phrases like "upgrade the harness", "update my harness", "pull in the
+  latest harness changes", "is my harness up to date", "/upgrade-harness". Reconciles the installed
+  `.harness/` against the plugin's bundled reference: refreshes plugin-owned mechanism files and adds new
+  `harness.env` knobs, REPORTING first and asking before every change, and NEVER touching the backlog,
+  worklog, ledgers, or the user's config values. Requires a harness already scaffolded (use
+  implementation-harness-create for a fresh install).
+argument-hint: "[optional: path to the project or its .harness — defaults to cwd]"
+allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
+---
+
+# Upgrade an installed harness to the bundled reference
+
+You are reconciling a project's **existing** `.harness/` against the version of the harness this plugin
+currently ships (`templates/`), so the project picks up new scripts, dashboard changes, docs, and new
+`harness.env` knobs **without losing the user's own data or edits**. Read this whole file, then execute
+the stages in order.
+
+**Two rules govern everything below (the user chose these):**
+1. **Report, then apply on confirm.** Produce a full dry-run report first; mutate only after the user
+   approves.
+2. **Never auto-decide on a file that isn't byte-identical to the reference.** A file that matches the
+   reference exactly is already current — skip it silently. For *any* other difference, surface the
+   delta (with the ledger's "expected change" note) and **ask the user how to handle it** — they have
+   very likely made their own edits, and those must be respected. Do not overwrite on your own judgment.
+
+## 0. Locate the bundled reference, its version, and the ledger
+
+Resolve the plugin's `templates/` exactly as the create skill does (the env var differs by context):
+
+```bash
+TPL="${CLAUDE_PLUGIN_ROOT:-}/templates"
+[ -d "$TPL" ] || TPL="${CLAUDE_SKILL_DIR}/../../templates"
+TPL="$(cd "$TPL" && pwd)"                                   # normalize
+[ -f "$TPL/scripts/loop.sh" ] || { echo "plugin templates not found — install looks broken"; exit 1; }
+REF_VERSION="$(jq -r .version "$TPL/../.claude-plugin/plugin.json")"
+LEDGER="${CLAUDE_SKILL_DIR}/MIGRATIONS.md"                  # the per-version migration notes (sibling of this file)
+```
+
+Read `$LEDGER` now — it is your source of truth for *what changed per version* and *how to apply each
+change safely* (especially the additive `harness.env` instructions and any file renames/removals).
+
+## 1. Locate + validate the target; detect variant and installed version
+
+- **Target** = the skill argument if given, else the current working directory. Let `H="<target>/.harness"`.
+- Require `H/scripts/loop.sh` to exist. If not, this project has no harness — tell the user to run
+  `implementation-harness-create` instead, and stop.
+- **Detect the loop variant** the target installed (both variants install as `H/scripts/loop.sh`, so you
+  must know which reference to diff against):
+
+  ```bash
+  if grep -q 'harness-loop-variant: in-place' "$H/scripts/loop.sh"; then VARIANT=in-place
+  elif grep -q 'harness-loop-variant: worktree' "$H/scripts/loop.sh"; then VARIANT=worktree
+  elif grep -q 'git worktree add' "$H/scripts/loop.sh"; then VARIANT=worktree   # legacy install, pre-marker
+  else VARIANT=in-place; fi                                                     # legacy in-place (no worktree calls)
+  LOOP_SRC="$TPL/scripts/loop.sh"; [ "$VARIANT" = in-place ] && LOOP_SRC="$TPL/scripts/loop.in-place.sh"
+  ```
+
+- **Read the installed version:** `CUR_VERSION="$(cat "$H/.harness-version" 2>/dev/null || echo '')"`.
+  An empty result means a **legacy install** (scaffolded before version stamping) — note that and proceed.
+- If `CUR_VERSION` = `REF_VERSION`, tell the user the harness is already on the current version. Offer an
+  optional **integrity re-scan** anyway (stages 3–5 still detect local drift); if they decline, stop here.
+
+## 2. Select the relevant migration entries
+
+From `$LEDGER`, take the entries whose version transition falls in `(CUR_VERSION, REF_VERSION]`. If the
+install is legacy (no `CUR_VERSION`), take the **whole ledger** and lean on the content diffs in stage 3.
+These entries give you, per file: a plain-language "what changed" note, the exact additive `harness.env`
+knob instructions, and any renames/removals or breaking notes to carry out.
+
+## 3. Reconcile — build the dry-run report (NO writes in this stage)
+
+Compare the target against the reference by class. **Only these files are ever reconciled** — map each to
+its template source and compare bytes (`cmp -s A B` → identical):
+
+**Mechanism files (plugin-owned; a clean one is safe to overwrite on approval):**
+
+| Target (under `$H`) | Reference (under `$TPL`) |
+|---|---|
+| `scripts/loop.sh` | `$LOOP_SRC` (variant-selected above) |
+| `scripts/{supervise,postflight,repo-lock,mark-done,mark-failed,mark-reviewed,mark-done-bulk.test,check-task-scope,consolidate-ideas}.sh` | same name under `scripts/` |
+| `scripts/policy.jq`, `scripts/consolidate-ideas.mjs` | same |
+| `dashboard/{server,lib,lib.test}.js` | same |
+| `docs/HARNESS.md`, `docs/LIMITATIONS.md`, `docs/designs/*.md` | same |
+| `CLAUDE.md` | `harness-CLAUDE.md` |
+| `README.md` | `README.md` |
+
+**Config/schema files (reconcile *additively* only — never overwrite the user's values):**
+`config/harness.env` (new knobs), `config/facets.json` (schema/vocabulary changes the ledger calls out).
+
+For each file, classify:
+- **identical** (`cmp -s` passes) → up to date, skip.
+- **missing in target** → a **new file** the reference adds (a new script/doc). Candidate to add.
+- **differs** → capture the unified diff (`diff -u "$target" "$ref"`) **and** the matching ledger note(s).
+  Do NOT decide anything yet — this goes in the report for the user to adjudicate.
+
+Also from the ledger: list any **renames/removals** (e.g. a doc renamed — the old path present in the
+target should be removed and the new one added) and any **breaking / MAJOR** items needing manual steps.
+
+**Never diff, list, or touch the pure user-data files:** `tracking/*` (TASKS.json, IDEAS.md,
+human-done/manual-fail/reviews.json), `tasks/*.md`, `worklog/*`, `ledgers/*.jsonl`, and the repo-root
+`CLAUDE.md`, `.gitignore`, `.github/workflows/ci.yml`, root `README.md`. These belong to the user.
+
+Emit a grouped report:
+- **Up to date:** N files.
+- **New files to add:** paths (+ one-line ledger reason each).
+- **Changed — needs your call:** each path, its class, the ledger's "expected change" note, and the diff.
+- **Config knobs to add:** each new `harness.env` knob (name + default) absent from the target.
+- **Manual attention:** renames/removals, breaking notes, facets/schema changes.
+- **Version:** `CUR_VERSION` (or "legacy/unknown") → `REF_VERSION`.
+
+Present this report and STOP for confirmation before any writes.
+
+## 4. Confirm + apply (only after the user has seen the report)
+
+Walk the report and get the user's decision **per difference** — do not batch-decide anything that isn't
+byte-identical. Use `AskUserQuestion` (batch related items). For each:
+- **Changed mechanism file** → offer: *overwrite with the reference* / *keep mine* / *show full diff* /
+  *skip*. Recommend overwrite only when the diff shows purely the shipped change with no sign of local
+  edits — but the user chooses.
+- **Changed `harness.env`** → offer: *add the missing knob(s) additively (preserving my values)* / *show
+  diff* / *skip*. **Never** rewrite an existing knob's value; only append knobs the target lacks, using
+  the reference's default line + comment (per the ledger's ACTION note).
+- **`facets.json`** → surface the ledger's schema/vocab note; because this file is tailored + self-evolving
+  per project, default to *leave it and report* unless the ledger flags a required schema migration.
+- **New file** → offer: *add it* / *skip*.
+- **Rename/removal** → confirm, then move/delete per the ledger.
+
+Apply exactly what was approved:
+- Overwrite an approved mechanism file: `cp -p "$ref" "$target"` (re-`chmod +x` any `scripts/*.sh`).
+- Add an approved knob: append the reference's knob line(s) to `config/harness.env` (keep the section
+  comment). Confirm you did not alter any existing value.
+- Add a new file / perform a rename or removal as approved.
+
+Cleanly-unmodified stale files may be grouped into a single "refresh these N files?" confirmation, but the
+user must always be able to see what diverged before approving.
+
+## 5. Re-stamp, validate, and report
+
+- **Re-stamp:** write the new version — `printf '%s\n' "$REF_VERSION" > "$H/.harness-version"` — so the
+  next upgrade starts from here. (Do this even on a legacy install; it also creates the marker for the
+  first time.)
+- **Validate the upgraded harness is healthy:**
+  ```bash
+  for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
+  node "$H/dashboard/lib.test.js"                 # the dashboard bucket tests
+  for j in "$H"/config/facets.json "$H"/tracking/*.json; do jq empty "$j" || echo "BAD JSON: $j"; done
+  ```
+  If anything fails, report it prominently — the upgrade left the harness in a broken state and the user
+  should revert (all changes are uncommitted).
+- **Summarize:** files refreshed, knobs added, files skipped/kept, manual-attention items still open, and
+  the version transition (`CUR_VERSION` → `REF_VERSION`).
+- **Do NOT commit.** Leave every change uncommitted so the user can review the diff and commit themselves
+  (all changes are git-revertible). Remind them to `git add -A && git commit` (and push) when satisfied.
+
+## ⚠️ Guardrails
+
+- **Report before you write.** Stage 3 produces the report; stages 4–5 only run after the user approves.
+- **Byte-identical is the only "leave it alone."** Any other difference is the user's call, never yours.
+- **Additive-only for config.** New `harness.env` knobs get appended with template defaults; existing
+  values are never rewritten. `facets.json` is left alone unless the ledger flags a required migration.
+- **User data is off-limits:** never read-to-modify or write `tracking/`, `tasks/`, `worklog/`,
+  `ledgers/`, or the repo-root `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`.
+- **No auto-commit.** Leave the working tree dirty for the user to review.
+
+## What this is NOT
+
+- Not a fresh install — if there's no `.harness/scripts/loop.sh`, send the user to
+  `implementation-harness-create`.
+- Not a re-personalization — it does not re-run the setup interview or rewrite the user's DoD commands,
+  model tiers, or facet layers. It carries plugin changes forward and preserves personalization.
+- Not a backlog tool — it never touches tasks, worklog, ledgers, or reviews.
+- Not a committer — it reports and leaves the diff for the user.
