@@ -63,6 +63,12 @@ test('gate and needs-human tasks land in needsHuman', () => {
   assert.strictEqual(b.needsHuman.length, 2);
 });
 
+test('a status:"blocked" task lands in needsHuman even with no worklog-grep hit', () => {
+  const tasks = { tasks: [{ id: 'T001', status: 'blocked', gate: null, dependsOn: [] }] };
+  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  assert.strictEqual(b.needsHuman.length, 1);
+});
+
 test('a worklog-blocked task lands in needsHuman', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'pending', gate: null, dependsOn: [] }] };
   const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set(['T001']));
@@ -128,6 +134,31 @@ test('bucket sort order is stable input order within each bucket', () => {
   };
   const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
   assert.deepStrictEqual(b.ready.map((t) => t.id), ['T003', 'T001', 'T002']);
+});
+
+test('done bucket sorts not-reviewed first, then ascending numeric id', () => {
+  const tasks = {
+    tasks: [
+      { id: 'T010', status: 'done', gate: null, dependsOn: [] },
+      { id: 'T002', status: 'done', gate: null, dependsOn: [] },
+      { id: 'T005', status: 'done', gate: null, dependsOn: [] },
+      { id: 'T001', status: 'done', gate: null, dependsOn: [] },
+    ],
+  };
+  const overlays = {
+    ...EMPTY_OVERLAYS,
+    reviews: { T010: { reviewed: true }, T001: { reviewed: true } },
+  };
+  const b = computeBacklog(tasks, overlays, new Set());
+  // not-reviewed (T002, T005) first in ascending id order, then reviewed (T001, T010) in ascending id order.
+  assert.deepStrictEqual(b.done.map((t) => t.id), ['T002', 'T005', 'T001', 'T010']);
+});
+
+test('reviewed flag is attached to tasks in every bucket, not just done', () => {
+  const tasks = { tasks: [{ id: 'T001', status: 'pending', gate: 'needs-human', dependsOn: [] }] };
+  const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
+  const b = computeBacklog(tasks, overlays, new Set());
+  assert.strictEqual(b.needsHuman[0].reviewed, true);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

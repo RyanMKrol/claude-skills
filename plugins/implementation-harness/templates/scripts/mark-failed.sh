@@ -11,6 +11,7 @@
 #
 # Usage: mark-failed.sh TNNN "<reason>"
 #        mark-failed.sh --undo TNNN
+#        NO_PUSH=1 mark-failed.sh TNNN "<reason>"   # write+commit but don't push (offline use)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +19,7 @@ HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
 
 REPO_LOCK_WAIT=1
 . "$SCRIPT_DIR/repo-lock.sh"
@@ -33,8 +35,8 @@ if [ "${1:-}" = "--undo" ]; then
   jq --arg id "$id" 'del(.[$id])' "$OVERLAY" >"$OVERLAY.tmp" && mv "$OVERLAY.tmp" "$OVERLAY"
   git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "mark-failed: undo $id [skip ci]" 2>/dev/null || { echo "nothing to commit"; exit 0; }
-  git -C "$ROOT" push origin HEAD 2>/dev/null || { echo "WARN: push failed — push manually" >&2; exit 1; }
-  echo "undone: $id"; exit 0
+  push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
+  [ -n "${NO_PUSH:-}" ] || echo "undone: $id"; exit 0
 fi
 
 id="${1:-}"; reason="${2:-}"
@@ -52,5 +54,5 @@ jq --arg id "$id" --arg reason "$reason" --arg ts "$ts" '.[$id] = {failed: true,
 
 git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
 git -C "$ROOT" commit -q -m "mark-failed: $id — $reason [skip ci]" 2>/dev/null || { echo "nothing to commit"; exit 0; }
-git -C "$ROOT" push origin HEAD 2>/dev/null || { echo "WARN: commit made locally but push failed — push manually" >&2; exit 1; }
-echo "failed: $id ($reason) → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"
+push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
+[ -n "${NO_PUSH:-}" ] || echo "failed: $id ($reason) → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"

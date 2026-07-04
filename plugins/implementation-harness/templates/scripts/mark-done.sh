@@ -8,6 +8,7 @@
 #
 # Usage: mark-done.sh T017 [T042 ...]        # mark one or more needs-human tasks done
 #        mark-done.sh --undo T017            # remove the overlay entry (does not touch TASKS.json)
+#        NO_PUSH=1 mark-done.sh T017         # write+commit but don't push (offline use)
 #
 # Multiple ids in one invocation are ATOMIC: every id is validated before any write, and the whole
 # batch lands in exactly ONE commit (see mark-done-bulk.test.sh).
@@ -18,6 +19,7 @@ HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
 
 REPO_LOCK_WAIT=1   # an owner action should wait for the loop's lock, not silently no-op
 . "$SCRIPT_DIR/repo-lock.sh"
@@ -61,5 +63,5 @@ mv "$tmp" "$OVERLAY"
 git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
 if [ "$UNDO" = 1 ]; then msg="mark-done: undo $* [skip ci]"; else msg="mark-done: $* [skip ci]"; fi
 git -C "$ROOT" commit -q -m "$msg" 2>/dev/null || { echo "nothing to commit"; exit 0; }
-git -C "$ROOT" push origin HEAD 2>/dev/null || { echo "WARN: commit made locally but push failed — push manually" >&2; exit 1; }
-echo "done: $* → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"
+push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
+[ -n "${NO_PUSH:-}" ] || echo "done: $* → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"

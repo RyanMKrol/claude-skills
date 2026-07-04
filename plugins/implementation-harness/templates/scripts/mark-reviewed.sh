@@ -6,6 +6,7 @@
 #
 # Usage: mark-reviewed.sh TNNN [TNNN ...]        # mark reviewed
 #        mark-reviewed.sh --undo TNNN [TNNN ...] # clear the reviewed flag
+#        NO_PUSH=1 mark-reviewed.sh TNNN         # write+commit but don't push (offline use)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +14,7 @@ HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
 
 REPO_LOCK_WAIT=1
 . "$SCRIPT_DIR/repo-lock.sh"
@@ -48,5 +50,5 @@ mv "$tmp" "$OVERLAY"
 
 git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
 git -C "$ROOT" commit -q -m "mark-reviewed: $* [skip ci]" 2>/dev/null || { echo "nothing to commit"; exit 0; }
-git -C "$ROOT" push origin HEAD 2>/dev/null || { echo "WARN: commit made locally but push failed — push manually" >&2; exit 1; }
-echo "reviewed: $*"
+push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
+[ -n "${NO_PUSH:-}" ] || echo "reviewed: $*"

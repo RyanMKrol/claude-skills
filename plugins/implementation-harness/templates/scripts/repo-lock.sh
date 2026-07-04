@@ -45,6 +45,21 @@ release_lock() {
     && { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true; } || true
 }
 
+# push_with_retry <dir> <branch> — push HEAD to origin/<branch>, retrying up to 3x with a
+# fetch+rebase between attempts (handles the remote moving under us — e.g. the loop or another
+# owner action pushed first). Honors NO_PUSH=1 (commit-only, offline use) by skipping the push
+# entirely and returning success. Used by the mark-*.sh owner CLIs.
+push_with_retry() {
+  local dir="$1" branch="$2" ok=0 i
+  if [ -n "${NO_PUSH:-}" ]; then echo "committed (NO_PUSH set — not pushed)"; return 0; fi
+  for i in 1 2 3; do
+    git -C "$dir" fetch origin >/dev/null 2>&1 || true
+    git -C "$dir" rebase "origin/$branch" >/dev/null 2>&1 || git -C "$dir" rebase --abort >/dev/null 2>&1 || true
+    if git -C "$dir" push origin "HEAD:$branch" >/dev/null 2>&1; then ok=1; break; fi
+  done
+  [ "$ok" = 1 ]
+}
+
 _repo_lock_selftest() {
   local tmp rc=0; tmp="$(mktemp -d)"
   git init -q "$tmp"

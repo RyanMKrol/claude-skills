@@ -22,7 +22,22 @@ function isFailed(task, overlays) {
 
 function isNeedsHuman(task, blockedIds) {
   if (task.gate === 'needs-human' || task.gate === 'gate') return true;
+  // status:"blocked" is a first-class TASKS.json value (set by block_task() when a task exhausts
+  // the top ladder rung) — check it directly, not just via the worklog-grep blockedIds fallback
+  // (kept for tasks blocked before status:"blocked" existed).
+  if (task.status === 'blocked') return true;
   return blockedIds.has(task.id);
+}
+
+function isReviewed(task, overlays) {
+  const r = overlays.reviews[task.id];
+  return !!(r && r.reviewed === true);
+}
+
+// Parse the numeric part of a "T123"-style id, for numeric (not lexicographic) sort.
+function numericId(id) {
+  const m = /(\d+)/.exec(id || '');
+  return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
 }
 
 // computeBacklog(tasksJson, overlays, blockedIds) -> { ready, waiting, needsHuman, done }
@@ -65,12 +80,13 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
   const buckets = { ready: [], waiting: [], needsHuman: [], done: [] };
 
   for (const task of tasks) {
+    const reviewed = isReviewed(task, overlays);
     if (isTerminalDone(task, overlays) || isFailed(task, overlays)) {
-      buckets.done.push({ ...task, failed: isFailed(task, overlays) });
+      buckets.done.push({ ...task, failed: isFailed(task, overlays), reviewed });
       continue;
     }
     if (isNeedsHuman(task, blockedIds)) {
-      buckets.needsHuman.push({ ...task });
+      buckets.needsHuman.push({ ...task, reviewed });
       continue;
     }
     const deps = task.dependsOn || [];
@@ -80,15 +96,23 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
     });
     const stuck = unmetDeps.some((d) => isStuck(d));
     if (stuck) {
-      buckets.waiting.push({ ...task, unmetDeps });
+      buckets.waiting.push({ ...task, unmetDeps, reviewed });
     } else {
       // Buildable now, even if it has unmet-but-not-stuck deps — don't hide real work, just
       // annotate it, mirroring a deliberate fix upstream (a task waiting only on other buildable
       // work should still show as ready, not disappear into "waiting").
-      buckets.ready.push({ ...task, unmetDeps });
+      buckets.ready.push({ ...task, unmetDeps, reviewed });
     }
   }
+
+  // done-bucket sort: not-reviewed items first, then ascending numeric task id within each group —
+  // keeps the done list from burying unreviewed work under a long history of already-checked tasks.
+  buckets.done.sort((a, b) => {
+    if (a.reviewed !== b.reviewed) return a.reviewed ? 1 : -1;
+    return numericId(a.id) - numericId(b.id);
+  });
+
   return buckets;
 }
 
-module.exports = { computeBacklog, isTerminalDone, isFailed, isNeedsHuman };
+module.exports = { computeBacklog, isTerminalDone, isFailed, isNeedsHuman, isReviewed, numericId };

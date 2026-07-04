@@ -133,7 +133,21 @@ all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
 task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
-task_blocked() { [ -f "$WORKLOG/$1.md" ] && grep -qiE 'failed:blocked|needs-human' "$WORKLOG/$1.md"; }
+# A loop-exhausted task: status="blocked" is set directly by block_task() — a first-class TASKS.json
+# status value, so the dashboard can see it the same way it sees a manual-fail. The worklog-marker
+# check is a fallback for tasks blocked before this existed; a task blocked going forward gets both.
+task_blocked() {
+  tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="blocked"' >/dev/null 2>&1 \
+    || { [ -f "$WORKLOG/$1.md" ] && grep -qiE 'failed:blocked|needs-human' "$WORKLOG/$1.md"; }
+}
+# set_task_status <id> <status> — atomic, field-scoped edit of TASKS.json (temp-file + rename),
+# leaving every other field/task verbatim. Returns non-zero (and leaves TASKS.json untouched) on
+# jq failure.
+set_task_status() {
+  local id="$1" s="$2" tmp="$BACKLOG.tmp"
+  jq --arg id "$id" --arg s "$s" '(.tasks[]|select(.id==$id)|.status)=$s' "$BACKLOG" >"$tmp" \
+    && mv "$tmp" "$BACKLOG" || { rm -f "$tmp"; return 1; }
+}
 # A task's do/done-when live in a per-task Markdown spec, referenced by the JSON `spec` field
 # (a repo-relative path, e.g. .harness/tasks/T001.md, with sections '## Do' / '## Done when').
 task_spec_rel() { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.spec // empty'; }
@@ -364,6 +378,11 @@ wait_ci_green() {   # 0=green 1=red 2=indeterminate
 
 # --- Claude invocation with rate-limit detection ----------------------------
 RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|resets? (at|in)|try again later|overloaded|quota|insufficient.*credit|exceeded your'
+# Unambiguous "you have hit a usage/session limit" wording. Kept SEPARATE from (and tighter than) the
+# broad RL_RE so it can classify a limit EVEN when the CLI exits 0 — which it frequently does, because
+# the limit notice is a normal assistant message, not a process error. The tightness ensures ordinary
+# task output is never misread as a limit on a genuinely successful run.
+RL_HARD_RE='hit your (session|usage|account|weekly|5.?hour) limit|(session|usage|weekly|account) limit reached|reached your (usage|session|weekly) limit'
 RL_BUFFER="${RL_BUFFER:-60}"   # seconds of slack added on top of a parsed reset time
 
 # rl_reset_wait <output-file> — best-effort: parse a reset time out of Claude's own rate-limit
@@ -419,6 +438,10 @@ run_claude() {
   ( cd "$ROOT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" "${FLAGS[@]}" ) 2>&1 | tee "$out"
   rc=${PIPESTATUS[0]}
   set -e
+  # Limit detection: RL_HARD_RE signals a limit regardless of exit code (the CLI often prints the
+  # notice yet still exits 0); RL_RE (broader) only counts when the command ALSO failed. Either way
+  # return 10 so the caller runs the reset-aware backoff — the loop never exits on a usage limit.
+  if grep -qiE "$RL_HARD_RE" "$out"; then return 10; fi
   if [ "$rc" -ne 0 ] && grep -qiE "$RL_RE" "$out"; then return 10; fi
   return "$rc"
 }
@@ -532,6 +555,10 @@ structural_checks() {
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     case "$f" in .harness/worklog/*) continue ;; esac
+    # Lockfiles are always allowed regardless of scope: a task scoped to package.json (etc.) but not
+    # its lockfile would otherwise trip scope-creep the moment `npm install` (etc.) rewrites it as a
+    # side effect of the manifest change — a real incident this exemption exists to prevent.
+    case "$f" in */package-lock.json|package-lock.json|*/yarn.lock|yarn.lock|*/pnpm-lock.yaml|pnpm-lock.yaml) continue ;; esac
     if printf '%s\n' "$f" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then continue; fi
     if in_scope_exempt "$f"; then continue; fi
     inscope=0
@@ -608,7 +635,11 @@ audit_gate() {
   rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$ROOT/$rel" ] && spec="$(cat "$ROOT/$rel")"
   out="$WORKLOG/$id.audit.md"
   while :; do
-    set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")"; arc=$?; set -e
+    # `… || arc=$?` (NOT `; arc=$?`) — run_claude flips `set -e` back ON internally before it
+    # `return`s, so a bare `; arc=$?` would let a nonzero return KILL loop.sh right here (before arc
+    # is ever captured) instead of triggering the auditor rate-limit backoff below. The `||` keeps
+    # the call in an AND-OR list, which `set -e` never aborts on.
+    arc=0; set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")" || arc=$?; set -e
     if [ "$arc" = 10 ]; then
       rlpoll="$(rl_reset_wait "$WORKLOG/.claude-out")"
       log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue
@@ -664,9 +695,10 @@ block_task() {
   git -C "$ROOT" reset --hard "origin/$MAIN_BRANCH" 2>/dev/null || true   # drop any local unpushed commit/changes
   mkdir -p "$WORKLOG"
   printf '\n---\nfailed:blocked %s — %s\n' "$id" "$reason" >>"$WORKLOG/$id.md"
+  set_task_status "$id" blocked || log "WARN: failed to set status=blocked for $id"
   record_outcome "$id" true "$reason"               # blocked → ledger row (succeededRung=null, topRung=cur_rung)
   flush_failures
-  git -C "$ROOT" add "$WORKLOG/$id.md" "$OUTCOMES" "$FAILURES" 2>/dev/null || true
+  git -C "$ROOT" add "$BACKLOG" "$WORKLOG/$id.md" "$OUTCOMES" "$FAILURES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
@@ -698,6 +730,12 @@ mkdir -p "$WORKLOG"
 # calibration. needs-human/gated tasks are correctly excluded (carved out).
 _missing_facets="$(tj -r '[.tasks[]|select(.status!="done" and (.gate==null) and ((.facets|not) or (.facets.layer|not)))|.id]|join(", ")' 2>/dev/null || true)"
 if [ -n "$_missing_facets" ]; then log "WARN: buildable tasks MISSING facets (no auto-tuning until tagged — see facets.json): $_missing_facets"; fi
+# Pre-flight: warn about BUILDABLE tasks that touch .harness/** — self-modifying edits to the
+# harness's own machinery are uniquely dangerous unsupervised (can corrupt TASKS.json or defeat the
+# loop's own safety rails) and MUST be authored gate:"needs-human", never buildable. Non-fatal —
+# matches this loop's established idiom for backlog-hygiene issues (see the missing-facets WARN).
+_harness_scope_tasks="$(tj -r '[.tasks[]|select(.status!="done" and (.gate==null) and (((.scope // [])|any(startswith(".harness/"))) or (.facets.layer=="harness")))|.id]|join(", ")' 2>/dev/null || true)"
+if [ -n "$_harness_scope_tasks" ]; then log "WARN: buildable tasks touch .harness/ (scope or facets.layer==harness) — these MUST be gate:needs-human, never buildable: $_harness_scope_tasks"; fi
 for ((i = 1; i <= MAX_ITERS; i++)); do
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
   reconcile_overlays
@@ -722,7 +760,11 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   rl_waited=0
   while :; do
     cold_reset
-    set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task")"; rc=$?; set -e
+    # `… || rc=$?` (NOT `; rc=$?`) — run_claude flips `set -e` back ON internally before it
+    # `return`s, so a bare `; rc=$?` would let a nonzero return KILL loop.sh right here (before rc is
+    # ever captured) instead of triggering the reset-aware backoff below. The `||` keeps the call in
+    # an AND-OR list, which `set -e` never aborts on.
+    rc=0; set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task")" || rc=$?; set -e
     if [ "$rc" = 10 ]; then
       if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."

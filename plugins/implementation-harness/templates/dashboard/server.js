@@ -70,10 +70,9 @@ function loadState() {
     manualFail: readJson(OVERLAY_PATHS.manualFail, {}),
     reviews: readJson(OVERLAY_PATHS.reviews, {}),
   };
-  const buckets = computeBacklog(tasksJson, overlays, blockedIds());
+  const buckets = computeBacklog(tasksJson, overlays, blockedIds());   // already attaches `reviewed`
   for (const bucket of Object.values(buckets)) {
     for (const task of bucket) {
-      task.reviewed = !!(overlays.reviews[task.id] && overlays.reviews[task.id].reviewed);
       task.spec = task.spec ? readText(path.join(ROOT, task.spec)) : null;
       task.worklog = readText(path.join(WORKLOG_DIR, `${task.id}.md`));
       task.audit = readText(path.join(WORKLOG_DIR, `${task.id}.audit.md`));
@@ -204,6 +203,11 @@ function renderPage() {
   button { cursor: pointer; }
   .actions { margin-left: auto; display: flex; gap: 0.4rem; }
   .hidden { display: none; }
+  .dep-link { font-family: monospace; text-decoration: underline; cursor: pointer; }
+  .filt { cursor: pointer; text-decoration: underline; margin-left: 0.5rem; }
+  .filt.on { font-weight: bold; text-decoration: none; }
+  .task.flash { animation: flash 1.5s ease-out; }
+  @keyframes flash { from { background: #fff3cd; } to { background: transparent; } }
 </style>
 </head>
 <body>
@@ -211,7 +215,7 @@ function renderPage() {
 <div class="counts" id="counts"></div>
 <div id="sections"></div>
 <script>
-const state = { open: new Set(), selected: new Set() };
+const state = { open: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null };
 
 async function refresh() {
   const res = await fetch('/api/backlog');
@@ -221,11 +225,15 @@ async function refresh() {
 
 function esc(s) { return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
+function depLinks(ids) {
+  return (ids || []).map(id => \`<span class="dep-link" onclick="event.stopPropagation(); openTask('\${id}')">\${esc(id)}</span>\`).join(', ') || '(none)';
+}
+
 function pillsFor(task, bucketName) {
   let pills = '';
   if (bucketName === 'done' && task.failed) pills += '<span class="pill failed">failed</span>';
   if (task.gate) pills += \`<span class="pill gate">\${esc(task.gate)}</span>\`;
-  if (task.unmetDeps && task.unmetDeps.length) pills += \`<span class="badge">waiting on \${task.unmetDeps.join(', ')}</span>\`;
+  if (task.unmetDeps && task.unmetDeps.length) pills += \`<span class="badge">waiting on \${depLinks(task.unmetDeps)}</span>\`;
   return pills;
 }
 
@@ -235,20 +243,27 @@ function renderTask(task, bucketName) {
   let detail = '';
   if (open) {
     detail = '<div class="detail">';
-    detail += \`<div><b>dependsOn:</b> \${(task.dependsOn||[]).join(', ') || '(none)'} · <b>scope:</b> \${(task.scope||[]).join(', ') || '(none)'}</div>\`;
+    detail += \`<div><b>dependsOn:</b> \${depLinks(task.dependsOn)} · <b>scope:</b> \${(task.scope||[]).join(', ') || '(none)'}</div>\`;
     if (task.facets) detail += \`<div><b>facets:</b> \${esc(JSON.stringify(task.facets))}</div>\`;
     if (task.spec) detail += \`<details open><summary>spec</summary><pre>\${esc(task.spec)}</pre></details>\`;
     if (task.worklog) detail += \`<details><summary>worklog</summary><pre>\${esc(task.worklog)}</pre></details>\`;
     if (task.audit) detail += \`<details><summary>audit</summary><pre>\${esc(task.audit)}</pre></details>\`;
     detail += '<div class="actions" style="margin-top:0.5rem;">';
-    if (bucketName === 'needsHuman') detail += \`<button onclick="markDone('\${task.id}')">Mark done</button>\`;
-    if (bucketName === 'done' && !task.failed) detail += \`<button onclick="markFailed('\${task.id}')">Mark failed</button>\`;
-    detail += \`<button onclick="markReviewed('\${task.id}')">\${task.reviewed ? 'Reviewed ✓' : 'Mark reviewed'}</button>\`;
+    if (bucketName === 'needsHuman') detail += \`<button onclick="event.stopPropagation(); markDone('\${task.id}')">Mark done</button>\`;
+    if (bucketName === 'done' && !task.failed) detail += \`<button onclick="event.stopPropagation(); markFailed('\${task.id}')">Mark failed</button>\`;
+    detail += \`<button onclick="event.stopPropagation(); markReviewed('\${task.id}')">\${task.reviewed ? 'Reviewed ✓' : 'Mark reviewed'}</button>\`;
     detail += '</div></div>';
   }
-  return \`<div class="task">
+  // Only offer a bulk-select checkbox where bulk actions exist: needsHuman (mark-done) and
+  // not-yet-reviewed done tasks (mark-reviewed) — mirrors the two bulk-action groups.
+  const showCheckbox = bucketName === 'needsHuman' || (bucketName === 'done' && !task.reviewed);
+  const checkbox = showCheckbox
+    ? \`<input type="checkbox" \${checked} data-id="\${task.id}" data-bucket="\${bucketName}" onclick="event.stopPropagation(); rangeSelect(event, this)" onchange="toggleSelect(this)">\`
+    : '';
+  const hidden = (bucketName === 'done' && state.doneFilter !== 'all' && ((state.doneFilter === 'reviewed') !== !!task.reviewed)) ? ' style="display:none"' : '';
+  return \`<div class="task" id="task-\${task.id}"\${hidden}>
     <div class="task-head">
-      <input type="checkbox" \${checked} onclick="event.stopPropagation(); toggleSelect('\${task.id}')">
+      \${checkbox}
       <span class="task-id" onclick="toggleOpen('\${task.id}')">\${esc(task.id)}</span>
       <span onclick="toggleOpen('\${task.id}')">\${esc(task.title || '')}</span>
       \${pillsFor(task, bucketName)}
@@ -259,10 +274,17 @@ function renderTask(task, bucketName) {
 
 function renderSection(name, label, tasks) {
   if (!tasks.length) return '';
-  const bulk = (name === 'needsHuman' || name === 'done')
-    ? \`<button onclick="bulkAction('\${name}')">Apply to selected</button>\`
-    : '';
-  return \`<section><h2>\${label} (\${tasks.length}) \${bulk}</h2>\${tasks.map(t => renderTask(t, name)).join('')}</section>\`;
+  let bulk = '';
+  if (name === 'needsHuman' || name === 'done') {
+    const n = tasks.filter(t => state.selected.has(t.id)).length;
+    bulk = \`<button onclick="bulkAction('\${name}')" \${n ? '' : 'disabled'}>Apply to selected (\${n})</button>\`;
+  }
+  let filterBar = '';
+  if (name === 'done') {
+    const mk = (mode, text) => \`<a class="filt\${state.doneFilter===mode?' on':''}" onclick="setDoneFilter('\${mode}')">\${text}</a>\`;
+    filterBar = \`<span style="margin-left:0.5rem">Show: \${mk('all','All')} \${mk('reviewed','Reviewed')} \${mk('unreviewed','Not reviewed')}</span>\`;
+  }
+  return \`<section><h2>\${label} (\${tasks.length}) \${bulk}\${filterBar}</h2>\${tasks.map(t => renderTask(t, name)).join('')}</section>\`;
 }
 
 function render(data) {
@@ -276,16 +298,60 @@ function render(data) {
 }
 
 function toggleOpen(id) { state.open.has(id) ? state.open.delete(id) : state.open.add(id); refresh(); }
-function toggleSelect(id) { state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id); }
+function toggleSelect(cb) { cb.checked ? state.selected.add(cb.dataset.id) : state.selected.delete(cb.dataset.id); refresh(); }
 
-async function markDone(id) { await fetch('/api/mark-done', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids: [id] }) }); refresh(); }
-async function markFailed(id) { const reason = prompt('Reason for marking ' + id + ' failed:'); if (!reason) return; await fetch('/api/mark-failed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id, reason }) }); refresh(); }
+// Dependency navigation: expand + scroll to + briefly highlight a task wherever it currently lives.
+function openTask(id) {
+  const el = document.getElementById('task-' + id);
+  if (!el) return;
+  state.open.add(id);
+  refresh().then(() => {
+    const el2 = document.getElementById('task-' + id);
+    if (!el2) return;
+    el2.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el2.classList.add('flash');
+    setTimeout(() => el2.classList.remove('flash'), 1500);
+  });
+}
+
+function setDoneFilter(mode) { state.doneFilter = mode; refresh(); }
+
+// Shift-click range-select: tracks the last checkbox clicked (by id + bucket). Shift-clicking a
+// second checkbox in the SAME bucket selects every checkbox in between to match the just-clicked
+// box's new state.
+function rangeSelect(e, cb) {
+  const bucket = cb.dataset.bucket;
+  if (e.shiftKey && state.lastClicked && state.lastClicked.bucket === bucket) {
+    const boxes = [...document.querySelectorAll('input[data-bucket="' + bucket + '"]')];
+    const i1 = boxes.findIndex(b => b.dataset.id === state.lastClicked.id);
+    const i2 = boxes.indexOf(cb);
+    if (i1 !== -1 && i2 !== -1) {
+      const [lo, hi] = i1 < i2 ? [i1, i2] : [i2, i1];
+      const on = cb.checked;
+      for (let i = lo; i <= hi; i++) { on ? state.selected.add(boxes[i].dataset.id) : state.selected.delete(boxes[i].dataset.id); }
+    }
+  }
+  state.lastClicked = { bucket, id: cb.dataset.id };
+}
+
+async function markDone(id) {
+  if (!confirm('Mark ' + id + ' done? Writes human-done.json, commits + pushes.')) return;
+  await fetch('/api/mark-done', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids: [id] }) }); refresh();
+}
+async function markFailed(id) {
+  const reason = prompt('Mark ' + id + ' as a false success — what was actually wrong?');
+  if (!reason) return;
+  await fetch('/api/mark-failed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id, reason }) }); refresh();
+}
 async function markReviewed(id) { await fetch('/api/mark-reviewed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids: [id] }) }); refresh(); }
 
 async function bulkAction(bucket) {
   const ids = [...state.selected];
   if (!ids.length) return;
-  if (bucket === 'needsHuman') await fetch('/api/mark-done', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+  if (bucket === 'needsHuman') {
+    if (!confirm('Mark ' + ids.length + ' task(s) done? Writes human-done.json, commits + pushes.')) return;
+    await fetch('/api/mark-done', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+  }
   if (bucket === 'done') await fetch('/api/mark-reviewed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
   state.selected.clear();
   refresh();

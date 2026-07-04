@@ -404,7 +404,7 @@ the top carries the human note (JSON has no comments). One task object:
 {
   "id": "T014",
   "title": "Replay harness (offline feed through the core module)",
-  "status": "pending",                 // "pending" | "done"  — the ONLY status source
+  "status": "pending",                 // "pending" | "done" | "blocked" | "failed" — the ONLY status source
   "dependsOn": ["T009", "T013"],
   "gate": null,                         // null | "gate" | "needs-human"
   "scope": ["src/replay.*", "tests/fixtures/replay_*"],
@@ -421,7 +421,7 @@ the top carries the human note (JSON has no comments). One task object:
 |---|---|
 | `id` | Task identifier, zero-padded, ≥ three digits (`T001`…`T999`). The branch is `tNNN`. |
 | `title` | One-line human summary (shown on the status board). |
-| `status` | `"pending"` or `"done"` — the **only** status source. Runtime failure/retry state lives in `worklog/` + `.result`, not here. The LOOP (not the builder) sets `"done"`, in a follow-up commit, once the build clears the structural checks + the audit gate — both isolation variants now work this way (§6). |
+| `status` | `"pending"`, `"done"`, `"blocked"`, or `"failed"` — the **only** status source. Per-attempt retry state lives in `worklog/` + `.result`, not here. The LOOP (not the builder) sets `"done"`, in a follow-up commit, once the build clears the structural checks + the audit gate (§6). `"blocked"` is set by `block_task()` when a task exhausts the top ladder rung — a first-class value (not just a worklog marker), so `task_blocked()`/the dashboard see it directly; `task_blocked()` also falls back to a worklog `failed:blocked` grep for tasks blocked before this existed. `"failed"` is set only via the owner's `manual-fail.json` overlay overturning a false "done" (§8.2) — both are terminal; neither is ever auto-reopened by the loop. |
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
 | `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
 | `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. |

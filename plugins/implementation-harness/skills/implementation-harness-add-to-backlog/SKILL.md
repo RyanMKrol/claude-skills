@@ -113,6 +113,10 @@ Use `AskUserQuestion`. Establish:
    - otherwise `"gate": null`.
    Tip: if a task *feels* subjective but has a checkable proxy (e.g. "looks good on mobile" → an
    emulated-viewport check for overflow/truncation), prefer making it buildable with that `verify`.
+   **Non-negotiable: any task whose `scope` touches `.harness/**`, or whose `facets.layer` is
+   `"harness"`, MUST be `"gate": "needs-human"`** — never `null` or `"gate"`. An unsupervised edit
+   to the harness's own machinery is uniquely dangerous (it can corrupt `TASKS.json` or defeat the
+   loop's own safety rails, edited by the very process it constrains). See `.harness/CLAUDE.md`.
 
    **Pair every "options to choose between" task with a review + a hardcode follow-up.** When a
    task builds MULTIPLE options for the owner to pick among (toggleable styles, strategy variants,
