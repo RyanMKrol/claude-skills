@@ -21,7 +21,7 @@ function isFailed(task, overlays) {
 }
 
 function isNeedsHuman(task, blockedIds) {
-  if (task.gate === 'needs-human' || task.gate === 'gate') return true;
+  if (task.gate === 'needs-human') return true;
   // status:"blocked" is a first-class TASKS.json value (set by block_task() when a task exhausts
   // the top ladder rung) — check it directly, not just via the worklog-grep blockedIds fallback
   // (kept for tasks blocked before status:"blocked" existed).

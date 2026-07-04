@@ -139,3 +139,7 @@ idea they came from), any `dependsOn` that had to be dropped (a real authoring p
 silently ignore), and any ideas still sitting in the inbox (skipped by a filter, or still blocked on
 an unanswered question). Do NOT claim an idea is "done" — converting it to tasks means the loop can
 now build it, not that it has been built.
+
+If the sweep produced ≥1 new task, close by suggesting the user run
+`/implementation-harness-pre-loop-checkin` before the next unattended loop run — it vets the new tasks'
+facets/spec/scope quality and needs-human blockers, and gives a GO/NO-GO verdict.

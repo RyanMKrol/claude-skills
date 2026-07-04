@@ -18,7 +18,7 @@
 .harness/tracking/*.tmp
 .harness/tracking/*.tmp.*
 
-# harness: ideas->tasks pipeline — private inbox + ephemeral per-sweep scratch
-.harness/tracking/IDEAS.md
+# harness: ideas->tasks pipeline — ephemeral per-sweep scratch (the IDEAS.md inbox itself IS
+# committed, so the inbox travels with the repo; only the transient per-agent scratch is ignored).
 .harness/.pending-tasks/*.json
 .harness/.pending-questions/*.json

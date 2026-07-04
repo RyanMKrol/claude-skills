@@ -33,7 +33,7 @@ to (re)start and interruption is survivable.
 
 **It is *not*** your product designer (that's `PLAN.md` / design docs), your
 coding-conventions rulebook (`CLAUDE.md` — every task still obeys it), or a controller for
-anything irreversible (those live behind the 🔒/🚦 gates in §9; the harness never crosses
+anything irreversible (those live behind the 🔒 needs-human gate in §9; the harness never crosses
 them on its own).
 
 ---
@@ -61,7 +61,7 @@ them on its own).
    implements, fixes, reconciles, and *judges* behaviour.
 7. **The human stays in the loop without babysitting it.** Runs are unattended
    (`--dangerously-skip-permissions`, §3), but the heartbeat cadence, the status board, and
-   the review **gates** (🚦 / 🔒) keep a person in control of everything that matters.
+   the review **gate** (🔒 needs-human) keeps a person in control of everything that matters.
 
 ---
 
@@ -186,7 +186,7 @@ supervise.sh (heartbeat)
        worktree (../<repo>-loop) — never the primary checkout anything else may be using.
        repeat until done / blocked / capped:
          1. SELECT (shell):  from origin/main, next eligible = first not-done task whose
-                             Depends-on are all done; skip 🚦 gate / 🔒 needs-human / blocked.
+                             Depends-on are all done; skip 🔒 needs-human / blocked.
                              none → stop cleanly.
          2. PREP   (shell):  tear down any prior state + create a FRESH worktree on branch `tNNN`
                              off origin/main — every attempt is COLD (no resume of partial work).
@@ -383,7 +383,7 @@ deploy/restart command run after each task integrates, so the running product ma
   **polling every `RL_POLL` (default 15 min)**. Either way it picks back up shortly after the quota
   resets rather than idling for hours. Only after `RL_MAX_WAIT` (~6h) still-limited does it exit (code
   5); `supervise.sh` then relaunches after a short `RETRY_INTERVAL` instead of waiting out the full window.
-- **Stops cleanly for review** at every 🚦 gate and 🔒 needs-human task — the loop surfaces it
+- **Stops cleanly for review** at every 🔒 needs-human task — the loop surfaces it
   on the status board and halts/moves on rather than spinning.
 
 ---
@@ -420,7 +420,7 @@ the top carries the human note (JSON has no comments). One task object:
   "title": "Replay harness (offline feed through the core module)",
   "status": "pending",                 // "pending" | "done" | "blocked" | "failed" — the ONLY status source
   "dependsOn": ["T009", "T013"],
-  "gate": null,                         // null | "gate" | "needs-human"
+  "gate": null,                         // null | "needs-human"
   "scope": ["src/replay.*", "tests/fixtures/replay_*"],
   "design": ".harness/docs/designs/T014-replay.md",   // optional; null = build from the spec alone
   "verify": ["run-app"],               // optional empirical checks
@@ -438,7 +438,7 @@ the top carries the human note (JSON has no comments). One task object:
 | `title` | One-line human summary (shown on the status board). |
 | `status` | `"pending"`, `"done"`, `"blocked"`, or `"failed"` — the **only** status source. Per-attempt retry state lives in `worklog/` + `.result`, not here. The LOOP (not the builder) sets `"done"`, in a follow-up commit, once the build clears the structural checks + the audit gate (§6). `"blocked"` is set by `block_task()` when a task exhausts the top ladder rung — a first-class value (not just a worklog marker), so `task_blocked()`/the dashboard see it directly; `task_blocked()` also falls back to a worklog `failed:blocked` grep for tasks blocked before this existed. `"failed"` is set only via the owner's `manual-fail.json` overlay overturning a false "done" (§8.2) — both are terminal; neither is ever auto-reopened by the loop. |
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
-| `gate` | `null`, `"gate"` (🚦 human reviews the deliverable before dependents proceed), or `"needs-human"` (🔒 one-time human step; recorded `failed:blocked`, never auto-done). The loop skips both during selection (§9). |
+| `gate` | `null` (buildable) or `"needs-human"` (🔒 a one-time human step; recorded `failed:blocked`, never auto-done). The loop skips `needs-human` during selection (§9). To require a human to **review a deliverable before dependents proceed**, don't gate the work itself — author a separate `needs-human` review task that `dependsOn` it and point the dependents at the review task. |
 | `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. |
 | `expectsTest` | Optional boolean. `true` → the loop requires a **test file** to change in the diff (a structural check); say what the test must assert in `## Done when`. Set it for tasks whose correctness should be pinned by a test. |
 | `visualVerify` | Optional boolean. `true` → inject the `VISUAL_VERIFY_HOOK` "actually LOOK at the output" instruction into the builder + auditor prompt for this task **regardless of platform or work-type** (a native screen, a mobile simulator, a generated image — not just web). `false` → suppress it even for a matching work-type. **Omit** to fall back to the heuristic (fires when `facets.workType` ∈ `VISUAL_VERIFY_WORKTYPES`, default `component`). No-op if `VISUAL_VERIFY_HOOK` is unset. See `docs/designs/visual-verification.md`. |
@@ -475,15 +475,19 @@ append-only ledger — see `docs/designs/manual-fail-signal.md` for the full mec
 Some work must not happen autonomously. Two values of a task's `gate` field in `TASKS.json`
 stop the loop:
 
-- **🚦 Gate** (`gate: "gate"`) — the task's deliverable must be **reviewed by a human** before
-  any dependent task proceeds. Use it where a downstream commitment rides on this result being
-  right (an approach is validated, an interface is frozen, an experiment's data is trusted).
 - **🔒 needs-human** (`gate: "needs-human"`) — the task needs a one-time human step the agent can't or shouldn't do
   (credentials, provisioning, anything spending real money or touching production). The agent
   prepares everything *around* it, then records `failed:blocked` and hands off.
 
-The loop **skips** both kinds during selection and surfaces them on the status board under
-"Needs you". It never marks either done on its own.
+`gate` has exactly two values — `null` (buildable) and `"needs-human"`. There is deliberately **no
+separate "review this before dependents proceed" gate**: a value the loop would never build and could
+never mark done is a dead end. Express that need instead with a **paired review task** — keep the work
+buildable, add a `needs-human` review task that `dependsOn` it (its `## Do` = "review X; if good, mark
+done"), and make the downstream tasks `dependsOn` the *review* task. The human marking the review done
+is exactly the "approve before dependents proceed" gate, and it fits the one mechanism the loop has.
+
+The loop **skips** `needs-human` during selection and surfaces it on the status board under
+"Needs you". It never marks it done on its own.
 
 ---
 
@@ -497,7 +501,7 @@ The loop **skips** both kinds during selection and surfaces them on the status b
 4. Never mark `done` with any §5 gate red (including a red or unobserved CI run).
 5. Touch only the task's scope; update docs in the **same** commit.
 6. **Every attempt is cold** — never read prior worklogs or resume partial work (§2.4).
-7. Never cross a 🚦 gate or 🔒 needs-human boundary autonomously.
+7. Never cross a 🔒 needs-human boundary autonomously.
 8. At most **one** task branch exists at a time (single-flight).
 9. The loop works **only** in its own isolation worktree and reads decisions from
    `origin/main`; it never touches the primary checkout, and only one `loop.sh` runs at a
@@ -517,7 +521,7 @@ The loop **skips** both kinds during selection and surfaces them on the status b
    `.github/workflows/ci.yml` **and** describe them in §5 above. They must match.
 3. **Set the knobs.** Edit `.harness/config/harness.env` (`MODEL`, `EFFORT`, caps, `CI_WORKFLOW`).
 4. **Write the backlog.** Replace the example tasks in `TASKS.json` with your own atomic,
-   dependency-ordered tasks (schema in §8.1). Mark gated work 🚦 / 🔒.
+   dependency-ordered tasks (schema in §8.1). Mark gated work 🔒 needs-human.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run. The loop integrates by
    pushing to `origin/main`, so a remote is required when `REQUIRE_CI=1`.
 6. **Run it:** `chmod +x .harness/scripts/*.sh && .harness/scripts/supervise.sh` (or a single pass with

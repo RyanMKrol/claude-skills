@@ -52,10 +52,10 @@ test('manual-fail overlay overturns a done task into done+failed (not needs-huma
   assert.strictEqual(b.done[0].failed, true);
 });
 
-test('gate and needs-human tasks land in needsHuman', () => {
+test('needs-human tasks land in needsHuman (gate is only null | needs-human)', () => {
   const tasks = {
     tasks: [
-      { id: 'T001', status: 'pending', gate: 'gate', dependsOn: [] },
+      { id: 'T001', status: 'pending', gate: 'needs-human', dependsOn: [] },
       { id: 'T002', status: 'pending', gate: 'needs-human', dependsOn: [] },
     ],
   };

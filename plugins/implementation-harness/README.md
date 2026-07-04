@@ -20,10 +20,13 @@ reliably works. All durable state lives in the repo, so an interrupted run waste
 |---|---|---|
 | `implementation-harness-create` | `/implementation-harness-create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, cold-start difficulty floor, optional run/backtest check), then copy the verbatim harness files and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/scripts/supervise.sh`. |
 | `implementation-harness-add-to-backlog` | `/implementation-harness-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `.harness/docs/HARNESS.md` §8.1) with auto-tuned difficulty (`facets`) and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
-| `implementation-harness-capture-idea` | `/implementation-harness-capture-idea <idea>` | Zero-ceremony: appends one bullet to the gitignored `tracking/IDEAS.md` inbox. No interview, no `TASKS.json` write. |
+| `implementation-harness-capture-idea` | `/implementation-harness-capture-idea <idea>` | Zero-ceremony: appends one bullet to the committed `tracking/IDEAS.md` inbox. No interview, no `TASKS.json` write. |
 | `implementation-harness-convert-ideas` | `/implementation-harness-convert-ideas` | Sweeps the whole ideas inbox at once — dedupes, converts each idea/cluster in parallel via its own sub-agent, relays any open questions in one batch, then runs the locked `consolidate-ideas.sh` pass into `TASKS.json`. |
+| `implementation-harness-review-failed` | `/implementation-harness-review-failed [id]` | Sweeps every `failed`/`blocked` task, investigates the root cause (one sub-agent each, in parallel), and authors a demonstrably-better follow-up task via the same `consolidate-ideas.sh` pipeline. Never a blind retry; never touches the terminal task's status. |
+| `implementation-harness-loop-recover` | `/implementation-harness-loop-recover [id]` | Recovers the loop after a manual interrupt: stops-check, surgical dirty-tree / leftover-worktree cleanup, stale-lock clearing, orphaned-task detection + fix (verified against the DoD), ledger-noise cleanup, then a readiness check. Mutates + pushes — the correcting the stopped loop can't do. |
+| `implementation-harness-pre-loop-checkin` | `/implementation-harness-pre-loop-checkin [id]` | Read-only GO/NO-GO before an unattended run: needs-human blockers, session hygiene, dependency short-circuits, and per-task facets/spec/scope quality. Changes nothing. |
 
-All four are also model-invocable (Claude triggers them from the descriptions when you ask in plain
+All seven are also model-invocable (Claude triggers them from the descriptions when you ask in plain
 language).
 
 ## Layout

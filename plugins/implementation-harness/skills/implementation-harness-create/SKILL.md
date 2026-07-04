@@ -169,7 +169,7 @@ cp -p "$TPL/tasks/"*.md "$H/tasks/"                    # per-task Markdown specs
 cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/
 cp -p "$TPL/README.md" "$H/README.md"                  # .harness/README.md — the harness's own quick-start explainer (distinct from the repo-root README.md written in §5)
 cp -p "$TPL/tracking/human-done.json" "$TPL/tracking/manual-fail.json" "$TPL/tracking/reviews.json" "$H/tracking/"   # owner-overlay files (loop reads, owner tooling writes) — seed empty
-cp -p "$TPL/tracking/IDEAS.md" "$H/tracking/IDEAS.md"   # gitignored ideas inbox — see implementation-harness-capture-idea / -convert-ideas
+cp -p "$TPL/tracking/IDEAS.md" "$H/tracking/IDEAS.md"   # committed ideas inbox — see implementation-harness-capture-idea / -convert-ideas
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 : >"$H/ledgers/outcomes.jsonl"; : >"$H/ledgers/failures.jsonl"   # seed empty, committed ledgers (calibration input; diagnostics)
 chmod +x "$H/scripts/"*.sh
@@ -261,7 +261,8 @@ node --check "$T/.harness/dashboard/server.js" 2>/dev/null || echo "FAIL: dashbo
 node --check "$T/.harness/dashboard/lib.js" 2>/dev/null || echo "FAIL: dashboard/lib.js has a syntax error"
 node "$T/.harness/dashboard/lib.test.js" >/dev/null 2>&1 || echo "FAIL: dashboard/lib.test.js failed"
 node --check "$T/.harness/scripts/consolidate-ideas.mjs" 2>/dev/null || echo "FAIL: consolidate-ideas.mjs has a syntax error"
-grep -q '.harness/tracking/IDEAS.md' "$T/.gitignore" && grep -q '.harness/.pending-tasks' "$T/.gitignore" || echo "WARN: ideas-pipeline scratch not git-ignored"
+grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-questions' "$T/.gitignore" || echo "WARN: ideas-pipeline scratch not git-ignored"
+[ -f "$T/.harness/tracking/IDEAS.md" ] || echo "WARN: tracking/IDEAS.md inbox missing (should be a committed starter)"
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done

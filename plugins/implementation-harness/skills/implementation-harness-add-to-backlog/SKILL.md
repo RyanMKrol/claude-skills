@@ -102,14 +102,16 @@ Use `AskUserQuestion`. Establish:
    `work-type`) fits, pick the CLOSEST existing value, tag the task with it, AND append a
    context-carrying line to `config/facet-misfits.jsonl` (under .harness/config/):
    `{ "taskId": "...", "axis": "layer"|"work-type", "closest": "...", "note": "<one line: what was missing>", "ts": "<iso8601>" }`.
-5. **Gates.** The loop's selection **skips any task with a non-null `gate` entirely** — it never
-   builds it, and a gated task still blocks its dependents until a human clears it. So mark as
-   gated anything that isn't a clean autonomous build. Ask which tasks:
-   - freeze an interface, validate an approach, or rely on experimental data others will trust →
-     `"gate": "gate"` (human reviews the deliverable before dependents proceed);
+5. **Gates.** The loop's selection **skips any `gate: "needs-human"` task entirely** — it never
+   builds it, and it blocks its dependents until a human clears it. `gate` is only ever `null`
+   (buildable) or `"needs-human"`. Ask which tasks:
    - need credentials, provisioning, real money, or production access, hinge on a human **decision**
      first, or aren't **machine-verifiable** (subjective "make it nicer" UI work, taste calls) →
      `"gate": "needs-human"`. Use it liberally — a needs-human task is parked safely, not lost.
+   - must have a deliverable **reviewed before dependents proceed** (an interface frozen, an approach
+     validated, experimental data trusted) → keep the work `"gate": null` (buildable) and add a
+     **separate `needs-human` review task** that `dependsOn` it, with the dependents depending on the
+     review task. (A gate the loop would never build AND never mark done is a dead end — don't create one.)
    - otherwise `"gate": null`.
    Tip: if a task *feels* subjective but has a checkable proxy (e.g. "looks good on mobile" → an
    emulated-viewport check for overflow/truncation), prefer making it buildable with that `verify`.

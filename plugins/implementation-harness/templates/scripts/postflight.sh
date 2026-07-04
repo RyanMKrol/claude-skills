@@ -30,7 +30,6 @@ all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 task_title()   { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.title'; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
-is_gate()      { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="gate"' >/dev/null; }
 needs_human()  { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="needs-human"' >/dev/null; }
 # status="blocked"/"failed" are first-class TASKS.json values the LOOP sets (block_task / manual-fail
 # reconcile) — check them directly, not just the legacy worklog grep, so the board matches the loop.
@@ -46,9 +45,6 @@ for t in $(all_tasks); do
   if task_failed "$t"; then
     board+=("  ❌ failed        $t  $title")
     needs+=("$t — ❌ failed (owner overturned a false success): $title — the re-do is a separate follow-up task")
-  elif is_gate "$t"; then
-    board+=("  🚦 gate         $t  $title")
-    needs+=("$t — 🚦 gate: review the deliverable before dependents proceed ($title)")
   elif needs_human "$t" || task_blocked "$t"; then
     board+=("  🔒 needs you     $t  $title")
     needs+=("$t — 🔒 needs-human: $title")

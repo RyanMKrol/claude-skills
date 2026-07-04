@@ -21,7 +21,7 @@
 #
 # Each iteration:
 #   SELECT (shell)  — from origin/main: the next not-done task whose Depends-on are all done
-#                     and which is NOT a 🚦 gate / 🔒 needs-human / blocked task. None → stop.
+#                     and which is NOT a 🔒 needs-human / blocked task. None → stop.
 #   WORK   (claude) — one `claude -p` at the policy-chosen tier (facets + the outcomes ledger pick
 #                     the cheapest model that reliably builds this kind of task; cold-start floor =
 #                     harness.env) builds that task in a FRESH isolated worktree on branch `tNNN`
@@ -87,7 +87,7 @@ tj()           { blob tracking/TASKS.json | jq "$@" 2>/dev/null; }        # quer
 all_tasks()    { tj -r '.tasks[].id'; }                                   # in array (=dependency) order
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
-task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
+task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="needs-human"' >/dev/null; }   # 🔒 needs-human — the loop never selects it
 # A task the owner marked FAILED, reconciled into TASKS.json status="failed" by reconcile_overlays().
 # TERMINAL: never (re)select it — else reconcile flips the false-success done→failed each iteration
 # while select_task keeps rebuilding it, an infinite loop that also reverts the owner's verdict.
@@ -300,7 +300,7 @@ select_task() {
   for t in $(all_tasks); do
     task_done "$t" && continue
     task_failed "$t" && continue      # owner overturned a false success — terminal, never rebuild
-    task_gated "$t" && continue       # 🚦 gate / 🔒 needs-human — a human must act
+    task_gated "$t" && continue       # 🔒 needs-human — a human must act
     task_blocked "$t" && continue     # a prior attempt recorded failed:blocked
     ok=1; for d in $(deps_for "$t"); do task_done "$d" || { ok=0; break; }; done
     [ "$ok" = 1 ] && { echo "$t $(task_branch "$t") fresh"; return 0; }

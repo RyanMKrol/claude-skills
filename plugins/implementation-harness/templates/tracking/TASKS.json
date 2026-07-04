@@ -1,5 +1,5 @@
 {
-  "_doc": "Implementation backlog for the single sequential Ralph loop. SOURCE OF TRUTH for done/not-done + dependency order; docs/HARNESS.md §8.1 = schema. Each task's `do` + `done-when` live in a per-task Markdown spec at the `spec` path (.harness/tasks/TNNN.md, sections '## Do' / '## Done when'); every BUILDABLE task carries `facets` (difficulty auto-tuning) — gated (gate / needs-human) tasks are carved out and carry neither. These are ILLUSTRATIVE EXAMPLES showing the schema, the gate markers, the spec-file convention, and facets — REPLACE them (and their tasks/*.md specs) with your own atomic, dependency-ordered tasks before running the loop.",
+  "_doc": "Implementation backlog for the single sequential Ralph loop. SOURCE OF TRUTH for done/not-done + dependency order; docs/HARNESS.md §8.1 = schema. Each task's `do` + `done-when` live in a per-task Markdown spec at the `spec` path (.harness/tasks/TNNN.md, sections '## Do' / '## Done when'); every BUILDABLE task carries `facets` (difficulty auto-tuning) — a needs-human gated task is carved out and carries none. `gate` is `null` (buildable) or `needs-human` (a one-time human step). To require a human to review a deliverable BEFORE dependents proceed, author the work as a normal buildable task plus a separate `needs-human` review task that dependsOn it, and point the dependents at the review task. These are ILLUSTRATIVE EXAMPLES showing the schema, the needs-human gate, the spec-file convention, and facets — REPLACE them (and their tasks/*.md specs) with your own atomic, dependency-ordered tasks before running the loop.",
   "version": 1,
   "tasks": [
     {
@@ -46,12 +46,13 @@
       "title": "Integration test harness",
       "status": "pending",
       "dependsOn": ["T003"],
-      "gate": "gate",
+      "gate": null,
       "tags": ["testing"],
       "scope": ["tests/integration/*"],
       "design": null,
       "verify": ["run-app"],
-      "spec": ".harness/tasks/T004.md"
+      "spec": ".harness/tasks/T004.md",
+      "facets": { "layer": "backend", "workType": "feature", "risk": [] }
     },
     {
       "id": "T005",

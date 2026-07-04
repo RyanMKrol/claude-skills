@@ -40,7 +40,7 @@ touches it, the structural gate rejects the diff, and the attempt is wasted. Run
 `scripts/check-task-scope.sh [TNNN]` after authoring (an advisory linter) — it flags files a spec
 mentions that no scope entry covers, before the loop ever tries to build the task.
 
-## Completing a 🚦gate / 🔒needs-human task — do it interactively, never route it back through the loop
+## Completing a 🔒 needs-human task — do it interactively, never route it back through the loop
 
 A `needs-human` task's completion mechanism **is** the interactive session: do the human step, then
 mark it done with `scripts/mark-done.sh TNNN` (which writes the owner overlay the loop reconciles).
@@ -51,19 +51,31 @@ loop is for buildable tasks; gates are for you.
 
 ## Capturing & converting ideas
 
-Rough ideas go in `tracking/IDEAS.md` (a private, gitignored inbox) via the capture-idea skill — zero
+Rough ideas go in `tracking/IDEAS.md` (a committed inbox) via the capture-idea skill — zero
 ceremony, no interview. The convert-ideas skill later turns a batch of them into real backlog tasks
 (one agent per idea → a single locked `scripts/consolidate-ideas.sh` pass that allocates ids, writes
 specs, and removes the converted bullets). Both are documented here so the flow surfaces at the
 authoring surface, not just in the README.
 
+## Operating the loop — the three operational skills
+
+Beyond authoring, three skills help RUN the loop safely:
+
+- **`/implementation-harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run
+  (needs-human blockers, dirty tree / running loop / lock, per-task facets/spec/scope quality). Changes nothing.
+- **`/implementation-harness-loop-recover`** — after a manual Ctrl-C interrupt, diagnose AND fix the
+  state it left (orphaned tasks, stale lock, dirty tree / leftover worktree, ledger noise), then leave
+  the loop restartable. This is the ONLY safe way to hand-correct loop state — do the recovery through
+  it, not ad-hoc, and only ever while the loop is stopped.
+- **`/implementation-harness-review-failed`** — sweep `failed`/`blocked` tasks and author
+  better-specified follow-ups (never a blind retry; never reopens the terminal task).
+
 ## A task touching `.harness/**` MUST be `gate: "needs-human"` — never buildable
 
 Any backlog task whose `scope` array includes a path prefixed `.harness/`, OR whose
-`facets.layer == "harness"`, **MUST** be authored `gate: "needs-human"`. Never `gate: null`
-(buildable) or `gate: "gate"` (still built unsupervised, only reviewed after the fact). This
-applies regardless of how the task is authored — the add-to-backlog skill, the ideas-conversion
-pipeline, or a direct hand-edit of `TASKS.json`.
+`facets.layer == "harness"`, **MUST** be authored `gate: "needs-human"` — never `gate: null`
+(buildable). (`gate` is only ever `null` or `"needs-human"`.) This applies regardless of how the task
+is authored — the add-to-backlog skill, the ideas-conversion pipeline, or a direct hand-edit of `TASKS.json`.
 
 **Why:** the harness's own build/task-selection/calibration machinery is what constrains every
 OTHER task the loop builds. A bad *unsupervised* edit here is uniquely dangerous compared to an

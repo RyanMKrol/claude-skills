@@ -132,9 +132,9 @@ mandate is restated in **`.harness/CLAUDE.md`**, which loads whenever you work i
   merged into `main`**. Don't trust a status box — confirm the functions/types/modules you
   need actually exist and build. If a prereq is half-done, stop and finish/flag it rather
   than working around it.
-- **Respect the gates.** Tasks marked **🚦 Gate** must have their deliverable reviewed by a
-  human before downstream work proceeds; tasks marked **🔒 needs-human** need a one-time human
-  step — prepare everything around it and record `failed:blocked`, never auto-complete it.
+- **Respect the gate.** Tasks marked **🔒 needs-human** need a one-time human step — prepare
+  everything around it and record `failed:blocked`, never auto-complete it. (To require review of a
+  deliverable before dependents proceed, that's a paired `needs-human` review task — see HARNESS.md §9.)
 - **Record outcomes in the worklog.** On finishing or failing, append a dated entry: what you
   did, checks run, and (on failure) `failed:soft` (transient/retryable) or `failed:blocked`
   (needs-human / unmet prereq — do not retry).

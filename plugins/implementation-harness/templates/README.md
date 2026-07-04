@@ -41,7 +41,7 @@ window, so every invocation is cheap to (re)start and an interruption is surviva
 6. **Determinism where it's cheap; the model only where judgement is needed.** Sync, CI-watch,
    merge, cleanup are plain shell; the model implements, fixes, and judges.
 7. **The human stays in control without babysitting** — a heartbeat cadence, a status board,
-   and 🚦/🔒 review gates.
+   and the 🔒 needs-human review gate.
 
 See [`docs/HARNESS.md`](./docs/HARNESS.md) for the full rationale (including why it's
 deliberately *not* parallel).
@@ -65,7 +65,7 @@ deliberately *not* parallel).
 | `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
 | `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
 | `tracking/TASKS.json` | The backlog: schema + example tasks (replace with your own). |
-| `tracking/IDEAS.md` | Gitignored ideas inbox — see below. |
+| `tracking/IDEAS.md` | Committed ideas inbox — see below. |
 | `tracking/human-done.json` / `manual-fail.json` / `reviews.json` | Owner-overlay files — see `docs/designs/manual-fail-signal.md`. |
 | `ledgers/outcomes.jsonl` | One terminal row per built task — the sole input to difficulty calibration. |
 | `ledgers/failures.jsonl` | One row per failed attempt — diagnostics only, never read by calibration. |
@@ -84,7 +84,7 @@ deliberately *not* parallel).
 3. **Set the knobs** in `config/harness.env` — `MODEL`, `EFFORT`, caps, and `CI_WORKFLOW`
    (must equal the `name:` of your CI workflow).
 4. **Write the backlog.** Replace the example tasks in `tracking/TASKS.json` with your own atomic,
-   dependency-ordered tasks (schema in `docs/HARNESS.md` §8.1). Mark gated work 🚦 / 🔒.
+   dependency-ordered tasks (schema in `docs/HARNESS.md` §8.1). Mark gated work 🔒 needs-human.
 5. **Push `main` to GitHub** so the CI gate has somewhere to run (a remote is required when
    `REQUIRE_CI=1`).
 6. **Run it:**
@@ -126,7 +126,7 @@ HARNESS_DASHBOARD_PORT=5000 node dashboard/server.js   # different port
 ## Ideas → tasks pipeline (optional)
 
 A two-step flow for turning raw ideas into backlog tasks without interrupting whatever you're
-doing: capture now, convert later, in a batch. `tracking/IDEAS.md` is a gitignored, zero-ceremony
+doing: capture now, convert later, in a batch. `tracking/IDEAS.md` is a committed, zero-ceremony
 inbox — append a bullet any time (via the `implementation-harness-capture-idea` skill, or by hand).
 When you're ready, `implementation-harness-convert-ideas` sweeps the whole inbox at once: it dedupes
 related ideas, converts each one (or cluster) in parallel via its own sub-agent, relays any genuine
@@ -147,12 +147,13 @@ per-platform examples (the old `UI_VERIFY_HOOK` name still works as an alias).
 
 ## Gates — what the loop won't do on its own
 
-Set a task's `gate` field in `TASKS.json` to stop autonomous execution:
+Set a task's `gate` field in `TASKS.json` to `"needs-human"` to stop autonomous execution:
 
-- **🚦 Gate** — the deliverable must be **reviewed by a human** before dependents proceed.
 - **🔒 needs-human** — needs a one-time human step (credentials, provisioning, anything that
   spends real money or touches production). The agent prepares everything around it, records
   `failed:blocked`, and hands off.
+- To require a human to **review a deliverable before dependents proceed**, keep the work buildable and
+  add a separate `needs-human` review task that `dependsOn` it (dependents then depend on the review).
 
 The loop skips both during selection and surfaces them on the status board under "Needs you".
 

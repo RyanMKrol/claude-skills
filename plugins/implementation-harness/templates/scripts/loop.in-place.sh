@@ -16,7 +16,7 @@
 #
 # Each iteration:
 #   SELECT (shell)  — from TASKS.json: the next not-done task whose dependsOn are all done and
-#                     which is NOT a 🚦 gate / 🔒 needs-human / blocked task. None → stop.
+#                     which is NOT a 🔒 needs-human / blocked task. None → stop.
 #   WORK   (claude) — one `claude -p` at the policy-chosen tier (facets + outcomes ledger; cold-start
 #                     floor = harness.env) builds the task IN THIS CHECKOUT on main, runs the
 #                     Definition of Done, and COMMITS (does NOT push).
@@ -133,7 +133,7 @@ tj()           { jq "$@" "$BACKLOG" 2>/dev/null; }
 all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
-task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate!=null' >/dev/null; }   # "gate"/"needs-human"
+task_gated()   { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="needs-human"' >/dev/null; }   # 🔒 needs-human — the loop never selects it
 # A loop-exhausted task: status="blocked" is set directly by block_task() — a first-class TASKS.json
 # status value, so the dashboard can see it the same way it sees a manual-fail. The worklog-marker
 # check is a fallback for tasks blocked before this existed; a task blocked going forward gets both.
@@ -389,7 +389,7 @@ select_task() {
   for t in $(all_tasks); do
     task_done "$t" && continue
     task_failed "$t" && continue      # owner overturned a false success — terminal, never rebuild
-    task_gated "$t" && continue       # 🚦 gate / 🔒 needs-human — a human must act
+    task_gated "$t" && continue       # 🔒 needs-human — a human must act
     task_blocked "$t" && continue     # a prior attempt recorded failed:blocked
     ok=1; for d in $(deps_for "$t"); do task_done "$d" || { ok=0; break; }; done
     [ "$ok" = 1 ] && { echo "$t"; return 0; }
