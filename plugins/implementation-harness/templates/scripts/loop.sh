@@ -12,8 +12,13 @@
 #   the primary checkout. So the loop NEVER works in the primary checkout. It:
 #     • reads its task decisions from `origin/main` (the integrated truth, branch-agnostic),
 #     • does every task's build in its OWN dedicated sibling worktree (../<repo>-loop),
-#     • integrates by fast-forwarding `main` via push — it never checks `main` out anywhere.
+#     • integrates by fast-forwarding `main` via push — WHILE BUILDING it never checks `main` out anywhere.
 #   The only shared state it writes is the git ref db (fetch/worktree/branch) and its lock.
+#   ONCE THE BACKLOG IS DRAINED and the loop exits cleanly, it optionally leaves your PRIMARY checkout on
+#   the latest `main` — a convenience so your local copy reflects everything that just landed. This is the
+#   one time it touches the primary checkout, and it's SAFE + best-effort: it skips a dirty tree (never
+#   clobbers uncommitted work), fast-forwards only, and is non-fatal. See sync_primary_checkout(); disable
+#   with SYNC_PRIMARY_ON_DONE=0.
 #
 # CONCURRENCY GUARD:
 #   A lock in the shared .git ensures two `loop.sh` instances can't run at once (the
@@ -67,6 +72,7 @@ SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"     # optional space-separated extr
 PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
 TASKS_REF="${TASKS_REF:-origin/main}"            # decisions are read from here, never a worktree
 LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolation worktree
+SYNC_PRIMARY_ON_DONE="${SYNC_PRIMARY_ON_DONE:-1}"   # when the loop finishes (backlog drained), leave the PRIMARY checkout on the latest main (safe/ff-only, skips a dirty tree); 0=never touch the primary checkout
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 # Rate-limit handling: poll + resume the SAME task on a usage/session limit (don't exit), so we
@@ -278,6 +284,31 @@ reconcile_overlays() {
     remove_wt
   fi
   log "reconcile: applied owner overlays to TASKS.json"
+}
+
+# sync_primary_checkout — leave the owner's PRIMARY checkout ($ROOT) on the latest main once the loop
+# has finished. The loop builds in an isolated worktree and integrates by pushing to origin/main, so the
+# primary checkout stays on whatever it was — stale relative to the work that just landed. Called ONLY at
+# the clean "backlog drained / idle" exits (never mid-run, never on a rate-limit pause), this fetches and
+# fast-forwards the primary checkout onto main. SAFE + best-effort by design: it refuses on a dirty tree
+# (never stashes or clobbers uncommitted work), fast-forwards only (never rewrites local commits), and is
+# fully non-fatal (every failure just logs and returns). Set SYNC_PRIMARY_ON_DONE=0 to keep the worktree
+# variant's strict "never touch the primary checkout" behavior.
+sync_primary_checkout() {
+  [ "${SYNC_PRIMARY_ON_DONE:-1}" = 1 ] || return 0
+  git -C "$ROOT" fetch origin --quiet 2>/dev/null || { log "sync: couldn't fetch origin — leaving primary checkout as-is"; return 0; }
+  if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
+    log "sync: primary checkout has uncommitted changes — leaving it as-is (not switching to main)"; return 0
+  fi
+  local cur; cur="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || echo '(detached)')"
+  if [ "$cur" != main ]; then
+    git -C "$ROOT" checkout --quiet main 2>/dev/null || { log "sync: couldn't check out main in primary checkout — leaving on '$cur'"; return 0; }
+  fi
+  if git -C "$ROOT" merge --ff-only --quiet origin/main 2>/dev/null; then
+    log "sync: primary checkout is on the latest main."
+  else
+    log "sync: primary checkout on main but not fast-forwardable to origin/main (unpushed local commits?) — leaving as-is."
+  fi
 }
 
 # Rung machinery, now on the global ladder offset by cur_base (the policy's per-task start tier).
@@ -856,7 +887,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   sel="$(select_task || true)"
   if [ -z "$sel" ]; then
     log "no eligible task — backlog complete or everything left is gate/human-blocked."
-    board; exit 0
+    board; sync_primary_checkout; exit 0
   fi
   read -r task branch mode <<<"$sel"
   if [ "$task" != "$cur_task" ]; then
@@ -946,7 +977,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     failed:soft)    log "agent soft-failed $rtask: ${extra:-} — tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;
     failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; record_failure "$task" "agent-blocked" "${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
-    idle)           log "agent reports idle — nothing to do"; board; exit 0 ;;
+    idle)           log "agent reports idle — nothing to do"; board; sync_primary_checkout; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
   esac
   board

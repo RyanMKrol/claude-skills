@@ -32,6 +32,17 @@ Entry format:
 
 ---
 
+## 1.16.1 → 1.17.0 — worktree loop leaves the primary checkout on main when done
+- mechanism: `scripts/loop.sh` (worktree variant only) — new `sync_primary_checkout()`, called at the
+  clean "backlog drained / idle" exits: fast-forwards the owner's primary checkout onto the latest main so
+  the local copy reflects the completed work. Safe/best-effort — skips a dirty tree, ff-only, non-fatal.
+  Header ISOLATION note + `docs/HARNESS.md` §Isolation updated. `loop.in-place.sh` unchanged (it already
+  works directly on main).
+- config: `config/harness.env` — ACTION: add knob `SYNC_PRIMARY_ON_DONE` (default `1`) if absent; do not
+  touch existing values. `0` keeps the strict never-touch-the-primary-checkout behavior. (No effect on the
+  in-place variant.)
+- breaking: none (default-on but safe + opt-out).
+
 ## 1.16.0 → 1.16.1 — dashboard fixes: spec-scroll reset + failed-implies-reviewed
 - mechanism: `dashboard/server.js` — the 5s auto-refresh now skips the re-render when the backlog is
   unchanged since the last poll (it was rebuilding `#sections` every tick, recreating each open `<pre>`
