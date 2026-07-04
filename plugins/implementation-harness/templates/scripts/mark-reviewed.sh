@@ -40,7 +40,9 @@ tmp="$OVERLAY.tmp"; cp "$OVERLAY" "$tmp"
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 for id in "$@"; do
   if [ "$UNDO" = 1 ]; then
-    jq --arg id "$id" --arg ts "$ts" '.[$id] = {reviewed: false, at: $ts}' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
+    # Undo REMOVES the entry entirely (not {reviewed:false}) so reviews.json doesn't grow unbounded
+    # with cleared flags — key-absent and reviewed:false are equivalent to every reader.
+    jq --arg id "$id" 'del(.[$id])' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
   else
     jq --arg id "$id" --arg ts "$ts" '.[$id] = {reviewed: true, at: $ts}' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
   fi
@@ -49,6 +51,7 @@ jq empty "$tmp" || { echo "ABORT: overlay write produced invalid JSON — no cha
 mv "$tmp" "$OVERLAY"
 
 git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
-git -C "$ROOT" commit -q -m "mark-reviewed: $* [skip ci]" 2>/dev/null || { echo "nothing to commit"; exit 0; }
+if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (already in that state)"; exit 0; fi
+git -C "$ROOT" commit -q --no-gpg-sign -m "mark-reviewed: $* [skip ci]" || { echo "ERROR: commit failed" >&2; exit 1; }
 push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
 [ -n "${NO_PUSH:-}" ] || echo "reviewed: $*"

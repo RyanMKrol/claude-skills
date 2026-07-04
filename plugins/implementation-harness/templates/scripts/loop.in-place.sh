@@ -140,6 +140,12 @@ task_blocked() {
   tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="blocked"' >/dev/null 2>&1 \
     || { [ -f "$WORKLOG/$1.md" ] && grep -qiE 'failed:blocked|needs-human' "$WORKLOG/$1.md"; }
 }
+# A task the owner marked FAILED, reconciled into TASKS.json status="failed" by reconcile_overlays().
+# TERMINAL: the loop must NEVER (re)select it — the re-do is a separate follow-up task, not an
+# auto-reopen. Without this skip, reconcile flips the false-success done→failed every iteration while
+# select_task keeps rebuilding it (not done, not gated, not blocked) → an infinite rebuild that also
+# silently reverts the owner's "this success was wrong" verdict.
+task_failed()  { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="failed"' >/dev/null; }
 # set_task_status <id> <status> — atomic, field-scoped edit of TASKS.json (temp-file + rename),
 # leaving every other field/task verbatim. Returns non-zero (and leaves TASKS.json untouched) on
 # jq failure.
@@ -186,11 +192,13 @@ record_outcome() {
 # terminal outcome (mark_done or block_task), alongside the outcome row, in the SAME commit.
 FAILURES_BUF="$WORKLOG/.failures.buf"   # gitignored; survives cold_reset (git clean -fd doesn't remove ignored files)
 record_failure() {
-  local id="$1" kind="$2" detail="${3:-}" ts
+  local id="$1" kind="$2" detail="${3:-}" ts m e facets
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  read -r m e <<<"$(rung_at "$id" "${cur_rung:-0}")"   # the ACTUAL rung this attempt ran at, not the cold-start floor
+  facets="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets // null' 2>/dev/null || echo null)"; facets="${facets:-null}"
   jq -nc --arg id "$id" --arg ts "$ts" --arg kind "$kind" --argjson rung "${cur_rung:-0}" \
-     --argjson attempt "${cur_attempts:-0}" --arg model "$MODEL" --arg detail "$detail" \
-     '{id:$id, ts:$ts, kind:$kind, rung:$rung, attempt:$attempt, model:$model, detail:$detail}' \
+     --argjson attempt "${cur_attempts:-0}" --arg m "$m" --arg e "$e" --argjson facets "$facets" --arg detail "$detail" \
+     '{id:$id, ts:$ts, kind:$kind, rung:$rung, attempt:$attempt, model:$m, effort:$e, facets:$facets, detail:$detail}' \
      >>"$FAILURES_BUF" 2>/dev/null || true
 }
 flush_failures() {
@@ -226,7 +234,13 @@ mark_done() {
     && mv "$tmp" "$BACKLOG" || { rm -f "$tmp"; log "WARN: failed to mark $id done"; return 1; }
   record_outcome "$id" false                        # success → ledger row (succeededRung=cur_rung)
   flush_failures
-  git -C "$ROOT" add "$BACKLOG" "$WORKLOG" "$OUTCOMES" "$FAILURES" 2>/dev/null || true
+  # Stage always-present files first, then failures.jsonl ONLY if it exists. A single combined
+  # `git add … "$FAILURES"` fails ATOMICALLY when failures.jsonl is absent (the common first-try
+  # success case — flush_failures only creates it after a soft failure), staging NOTHING, so the
+  # commit silently no-ops and status=done never persists → next cold_reset wipes it → orphaned task.
+  # Do NOT recombine these adds.
+  git -C "$ROOT" add "$BACKLOG" "$WORKLOG" "$OUTCOMES" 2>/dev/null || true
+  [ -f "$FAILURES" ] && git -C "$ROOT" add "$FAILURES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: mark done [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push status update for $id"
 }
@@ -243,10 +257,14 @@ reconcile_overlays() {
   [ -f "$MANUAL_FAIL" ] || echo '{}' >"$MANUAL_FAIL"
   hd="$(cat "$HUMAN_DONE" 2>/dev/null || echo '{}')"
   md="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
+  # human-done promotes ONLY a needs-human task (the overlay is authored only for those; the gate
+  # guard stops a stray entry marking an ordinary task done without ever building it). manual-fail
+  # overturns ANY not-yet-failed task (usually a "done" false success, but an owner may pre-fail a
+  # task they know is wrong) — task_failed() then keeps it terminal in select_task.
   new="$(jq -c --argjson hd "$hd" --argjson md "$md" '
     .tasks |= map(
-      if (.status != "done") and ($hd[.id].done == true) then .status = "done"
-      elif (.status == "done") and ($md[.id].failed == true) then .status = "failed"
+      if (.status != "failed") and ($md[.id].failed == true) then .status = "failed"
+      elif (.gate == "needs-human") and (.status != "done") and ($hd[.id].done == true) then .status = "done"
       else . end
     )' "$BACKLOG" 2>/dev/null)"
   [ -n "$new" ] || return 0
@@ -310,6 +328,17 @@ gtier() {
   printf '%s' "${TIER_TUPLES[$idx]}"
 }
 
+# tier_strength <model> <effort> — a total strength order over ANY (model, effort) pair, INDEPENDENT
+# of the ladder (model dominates, then effort). Lets audit_gate compare the configured auditor tier
+# (e.g. opus/medium) against the builder tier even when the auditor tuple isn't a ladder rung — the
+# ladder-index approach would otherwise fall back to an arbitrary index and audit at the wrong tier.
+tier_strength() {
+  local m="$1" e="$2" mr er
+  case "$m" in *opus*) mr=1 ;; *) mr=0 ;; esac
+  case "$e" in low) er=0 ;; medium) er=1 ;; high) er=2 ;; xhigh) er=3 ;; max) er=4 ;; *) er=0 ;; esac
+  echo $(( mr * 10 + er ))
+}
+
 # pick_base <id> — the policy's chosen START tier INDEX: the cheapest ladder tier whose
 # (layer × work-type) cell historically clears the floor with >= minN samples; else the authored
 # difficulty (cold-start prior). Robust: missing facets / empty ledger / any error → the prior.
@@ -350,6 +379,7 @@ select_task() {
   fi
   for t in $(all_tasks); do
     task_done "$t" && continue
+    task_failed "$t" && continue      # owner overturned a false success — terminal, never rebuild
     task_gated "$t" && continue       # 🚦 gate / 🔒 needs-human — a human must act
     task_blocked "$t" && continue     # a prior attempt recorded failed:blocked
     ok=1; for d in $(deps_for "$t"); do task_done "$d" || { ok=0; break; }; done
@@ -372,8 +402,26 @@ wait_ci_green() {   # 0=green 1=red 2=indeterminate
     sleep "$WAIT_SECONDS"; waited=$((waited + WAIT_SECONDS))
   done
   [ -n "$runid" ] || { log "no '$CI_WORKFLOW' run appeared for $sha within ${CI_TIMEOUT}s"; return 2; }
-  if gh run watch "$runid" --exit-status >/dev/null 2>&1; then log "CI GREEN (run $runid)"; return 0; fi
-  log "CI RED (run $runid) — gh run view $runid --log-failed"; return 1
+  # `gh run watch --exit-status`'s bare exit CONFLATES a genuine CI failure with a watch hiccup and a
+  # run that got CANCELLED by a newer push (concurrency cancel-in-progress). So watch to settle, then
+  # read the run's ACTUAL conclusion and classify on THAT — only a real failure is RED. A
+  # cancelled/skipped/stale/neutral result returns 2 (NOT red) so the caller never reverts good work
+  # over a concurrency-cancel.
+  gh run watch "$runid" --exit-status >/dev/null 2>&1 || true
+  local latest concl
+  latest="$(gh run list --limit 20 --json databaseId,headSha,workflowName \
+              --jq ".[] | select(.headSha==\"$sha\" and .workflowName==\"$CI_WORKFLOW\") | .databaseId" \
+              2>/dev/null | head -1 || true)"
+  [ -n "$latest" ] && runid="$latest"
+  concl="$(gh run view "$runid" --json status,conclusion --jq '.status + "/" + (.conclusion // "")' 2>/dev/null || true)"
+  case "$concl" in
+    completed/success)
+      log "CI GREEN (run $runid)"; return 0 ;;
+    completed/failure|completed/timed_out|completed/startup_failure|completed/action_required)
+      log "CI RED (run $runid, $concl) — gh run view $runid --log-failed"; return 1 ;;
+    *)
+      log "CI INDETERMINATE (run $runid, conclusion='${concl:-unknown}') — NOT treating as red (likely concurrency-cancelled/skipped, not a real failure)"; return 2 ;;
+  esac
 }
 
 # --- Claude invocation with rate-limit detection ----------------------------
@@ -416,11 +464,26 @@ rl_reset_wait() {
   fi
 
   if [ -z "${target:-}" ]; then
-    clock="$(printf '%s' "$line" | grep -oiE '[0-9]{1,2}:[0-9]{2} *[ap]m' | head -1)"
-    if [ -n "$clock" ]; then
-      target="$(LC_ALL=C date -j -f '%I:%M %p' "$(printf '%s' "$clock" | tr '[:lower:]' '[:upper:]')" +%s 2>/dev/null \
-             || date -d "$clock" +%s 2>/dev/null || true)"
-      [ -n "${target:-}" ] && [ "$target" -lt "$now" ] && target=$((target + 86400))
+    # Clock time — with OPTIONAL minutes and an OPTIONAL timezone, matching the real CLI wording:
+    # "resets 3am (Europe/London)", "resets 2:30pm (Europe/London)", "resets 9:25 pm". Anchored on
+    # am/pm. If a (TZ) is stated, compute the next occurrence of that time IN that zone; otherwise
+    # local time. (The old regex required a colon+minutes and ignored the zone, so "3am (Europe/London)"
+    # fell through to the coarse poll and a zoned clock was read in the runner's local tz.)
+    if [[ "$line" =~ ([0-9]{1,2})(:([0-9]{2}))?[[:space:]]*([AaPp][Mm])([[:space:]]*\(([A-Za-z_/]+)\))? ]]; then
+      local h mm ap tz hh24 today
+      h="${BASH_REMATCH[1]}"; mm="${BASH_REMATCH[3]:-00}"
+      ap="$(printf '%s' "${BASH_REMATCH[4]}" | tr 'APM' 'apm')"; tz="${BASH_REMATCH[6]:-}"
+      hh24="$h"
+      [ "$ap" = pm ] && [ "$h" -lt 12 ] && hh24=$((h + 12))
+      [ "$ap" = am ] && [ "$h" -eq 12 ] && hh24=0
+      if [ -n "$tz" ]; then
+        today="$(TZ="$tz" date +%Y-%m-%d 2>/dev/null || true)"
+        [ -n "$today" ] && target="$(TZ="$tz" date -j -f '%Y-%m-%d %H:%M' "$today $(printf '%02d' "$hh24"):$mm" +%s 2>/dev/null || TZ="$tz" date -d "$today $hh24:$mm" +%s 2>/dev/null || true)"
+      else
+        today="$(date +%Y-%m-%d 2>/dev/null || true)"
+        [ -n "$today" ] && target="$(date -j -f '%Y-%m-%d %H:%M' "$today $(printf '%02d' "$hh24"):$mm" +%s 2>/dev/null || date -d "$today $hh24:$mm" +%s 2>/dev/null || true)"
+      fi
+      [ -n "${target:-}" ] && [ "$target" -le "$now" ] && target=$((target + 86400))
     fi
   fi
 
@@ -544,8 +607,9 @@ in_scope_exempt() {
 # fail = a failed attempt. 0 = pass, 1 = fail.
 structural_checks() {
   local id="$1" changed want_test scope creep f s inscope
+  STRUCT_FAIL_KIND=""; STRUCT_FAIL_DETAIL=""   # set on each fail path so the ledger records WHICH check failed
   changed="$(git -C "$ROOT" diff --name-only "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
-  if [ -z "$changed" ]; then log "structural: $id produced an EMPTY diff — fail"; return 1; fi
+  if [ -z "$changed" ]; then STRUCT_FAIL_KIND="empty-diff"; log "structural: $id produced an EMPTY diff — fail"; return 1; fi
   # Scope-creep gate: every changed file must be WITHIN the task's declared `scope` (exact path or
   # under a scope directory) — except the always-allowed worklog + test files (and any
   # SCOPE_EXEMPT_GLOBS). The strong planner's `scope` is a binding contract; any other file the
@@ -564,6 +628,10 @@ structural_checks() {
     inscope=0
     while IFS= read -r s; do
       [ -z "$s" ] && continue
+      # Normalize glob-style scope entries to a bare directory prefix: `src/foo/**`, `src/foo/*`, and
+      # `src/foo/` all mean "everything under src/foo". Without this, a scope authored with a trailing
+      # /** or /* never directory-prefix-matches its own files, so every file under it counts as creep.
+      s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
       if [ "$f" = "$s" ] || [ "${f#"$s"/}" != "$f" ]; then inscope=1; break; fi
     done <<SCOPE
 $scope
@@ -572,14 +640,21 @@ SCOPE
   done <<CHANGED
 $changed
 CHANGED
-  if [ -n "$creep" ]; then log "structural: $id changed files OUTSIDE scope (scope creep):$creep — fail"; return 1; fi
+  if [ -n "$creep" ]; then STRUCT_FAIL_KIND="scope-creep"; STRUCT_FAIL_DETAIL="${creep# }"; log "structural: $id changed files OUTSIDE scope (scope creep):$creep — fail"; return 1; fi
   want_test="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.expectsTest // false')"
   if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then
-    log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
+    STRUCT_FAIL_KIND="test-missing"; log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
   fi
   if [ -n "$LOCAL_DOD" ]; then
     log "structural: running LOCAL_DOD → $LOCAL_DOD"
-    if ! ( cd "$ROOT" && eval "$LOCAL_DOD" ) >/dev/null 2>&1; then log "structural: LOCAL_DOD failed for $id — fail"; return 1; fi
+    # Capture output so a LOCAL_DOD failure gives a "why" (the last lines go into the failure ledger
+    # detail + the log), instead of the silent >/dev/null that left no diagnostic trail.
+    local dodlog="$WORKLOG/.local-dod.log"
+    if ! ( cd "$ROOT" && eval "$LOCAL_DOD" ) >"$dodlog" 2>&1; then
+      STRUCT_FAIL_KIND="local-dod"; STRUCT_FAIL_DETAIL="$(tail -n 20 "$dodlog" 2>/dev/null | tr '\n' '⏎')"
+      log "structural: LOCAL_DOD failed for $id — fail (last lines:)"; tail -n 20 "$dodlog" 2>/dev/null | sed 's/^/    /' >&2
+      return 1
+    fi
   fi
   return 0
 }
@@ -626,11 +701,16 @@ audit_gate() {
   if [ "$(( RANDOM % 1000 ))" -ge "$pm" ]; then
     log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
   fi
-  bi=$(( cur_base + cur_rung ))
-  ai="$(jq -n --argjson t "$(jq -c '.tiers.ladder' "$FACETS" 2>/dev/null)" --arg m "$AUDITOR_MODEL" --arg e "$AUDITOR_EFFORT" '($t|map(.model==$m and .effort==$e)|index(true)) // 3' 2>/dev/null || echo 3)"
-  (( ai > bi )) && bi=$ai
-  read -r am ae <<<"$(gtier "$bi")"
-  log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → AUDITING at $am/$ae (max of opus-medium + builder rung)"
+  # The auditor runs at its CONFIGURED tier (AUDITOR_MODEL/EFFORT — e.g. opus/medium, which need NOT
+  # be a ladder rung), bumped UP to the builder's tier ONLY when the builder was stronger. Compared via
+  # tier_strength so an off-ladder auditor tier is honoured exactly, not snapped to an arbitrary index.
+  read -r bm be <<<"$(gtier $(( cur_base + cur_rung )))"   # the builder's tier
+  if [ "$(tier_strength "$bm" "$be")" -gt "$(tier_strength "$AUDITOR_MODEL" "$AUDITOR_EFFORT")" ]; then
+    am="$bm"; ae="$be"
+  else
+    am="$AUDITOR_MODEL"; ae="$AUDITOR_EFFORT"
+  fi
+  log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → AUDITING at $am/$ae (auditor $AUDITOR_MODEL/$AUDITOR_EFFORT, bumped to builder tier if stronger)"
   diff="$(git -C "$ROOT" diff "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
   rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$ROOT/$rel" ] && spec="$(cat "$ROOT/$rel")"
   out="$WORKLOG/$id.audit.md"
@@ -698,7 +778,10 @@ block_task() {
   set_task_status "$id" blocked || log "WARN: failed to set status=blocked for $id"
   record_outcome "$id" true "$reason"               # blocked → ledger row (succeededRung=null, topRung=cur_rung)
   flush_failures
-  git -C "$ROOT" add "$BACKLOG" "$WORKLOG/$id.md" "$OUTCOMES" "$FAILURES" 2>/dev/null || true
+  # Split add (see mark_done): a combined add with an absent failures.jsonl aborts atomically and the
+  # status=blocked marker would silently never persist. Stage always-present files, then FAILURES iff present.
+  git -C "$ROOT" add "$BACKLOG" "$WORKLOG/$id.md" "$OUTCOMES" 2>/dev/null || true
+  [ -f "$FAILURES" ] && git -C "$ROOT" add "$FAILURES" 2>/dev/null || true
   git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
@@ -794,7 +877,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # attempt: discard the commit + soft-retry (cold), escalating per the existing ladder.
       if ! structural_checks "$task"; then
         log "structural checks failed for $task — discarding commit + soft retry."
-        cold_reset; record_failure "$task" "structural-fail"; bump "$task"; board; continue
+        cold_reset; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
       fi
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
@@ -804,30 +887,32 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "push to $MAIN_BRANCH failed (remote moved / network) — soft retry."
         record_failure "$task" "push-race"; bump "$task"; board; continue
       fi
-      if [ "$REQUIRE_CI" = "1" ]; then
+      # A [skip ci]-tagged build commit never creates a workflow run, so wait_ci_green would sit out
+      # the whole CI_TIMEOUT, return indeterminate, and soft-retry forever. Short-circuit to done —
+      # there is deliberately no CI to wait for (e.g. an operational / scope:[] task).
+      if [ "$REQUIRE_CI" = "1" ] && git -C "$ROOT" log -1 --format=%s 2>/dev/null | grep -qF '[skip ci]'; then
+        mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+      elif [ "$REQUIRE_CI" = "1" ]; then
         ci_rc=0; wait_ci_green || ci_rc=$?
-        if [ "$ci_rc" = 2 ]; then
-          # INDETERMINATE (no run appeared / cancelled / skipped / stale / neutral) is NOT the same
-          # as red — a concurrency-cancelled run, or a run that hasn't reported yet, says nothing
-          # about whether the code is actually broken. Give it ONE re-check before falling back to
-          # the red path, so a merely-slow or superseded run doesn't wrongly revert good work.
-          log "CI INDETERMINATE for $task — no conclusive run; re-checking once after ${WAIT_SECONDS}s before deciding."
-          sleep "$WAIT_SECONDS"
-          ci_rc=0; wait_ci_green || ci_rc=$?
-        fi
         if [ "$ci_rc" = 0 ]; then
           mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
-        else
-          # NEVER halt the whole loop on one red (or still-indeterminate) CI: revert the pushed
-          # commit to restore main, then soft-retry the task. If it keeps failing, bump eventually
-          # BLOCKS it and the loop moves on.
-          log "CI $([ "$ci_rc" = 2 ] && echo "still indeterminate" || echo "RED") for $task — reverting the pushed commit to restore $MAIN_BRANCH, then retrying."
+        elif [ "$ci_rc" = 1 ]; then
+          # CI genuinely RED. NEVER halt the whole loop on one red: revert the pushed commit to restore
+          # main, then soft-retry. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
+          log "CI RED for $task — reverting the pushed commit to restore $MAIN_BRANCH, then retrying."
           if git -C "$ROOT" revert --no-edit HEAD 2>/dev/null && git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null; then
             log "reverted $task; $MAIN_BRANCH is clean again."
           else
             log "WARN: auto-revert/push failed — main may need a manual: git revert HEAD && git push"
           fi
-          record_failure "$task" "ci-red-or-indeterminate"; bump "$task"
+          record_failure "$task" "ci-red" "CI checks failed on the pushed commit"; bump "$task"
+        else
+          # INDETERMINATE (cancelled / skipped / stale / neutral / no-run / timeout) — CI did NOT fail.
+          # Do NOT revert good work: a concurrency-cancel by a newer push says nothing about whether
+          # the code is broken. Leave the commit on $MAIN_BRANCH, do NOT mark done (unverified), and
+          # soft-retry; a later cycle re-checks CI and reconciles.
+          log "CI INDETERMINATE for $task — leaving commit on $MAIN_BRANCH (NOT reverting, NOT marking done); will reconcile on a later cycle."
+          record_failure "$task" "ci-indeterminate" "CI produced no definitive result (cancelled/skipped/no-run)"; bump "$task"
         fi
       else
         mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0

@@ -19,6 +19,9 @@
 #                     while rate/usage-limited (exit 5), so we retry soon after the quota resets
 #                     instead of idling out the full window. (The loop also polls + resumes
 #                     limits itself; this is the backstop for when it exits anyway.)
+#   SUPERVISE_ERROR_BACKOFF env, default 300 (5m) — used INSTEAD of interval when the loop exits
+#                     non-zero for a NON-rate-limit reason (a crash, a dirty-tree refusal, a git
+#                     error). Retrying in 5 min beats idling the full ~5h window after an early crash.
 # Tip: the loop streams its own progress; this just paces and re-launches it.
 set -uo pipefail
 
@@ -27,6 +30,7 @@ LOOP="${LOOP:-$SCRIPT_DIR/loop.sh}"
 INTERVAL="${1:-18900}"
 MAX_CYCLES="${2:-0}"
 RETRY_INTERVAL="${RETRY_INTERVAL:-900}"
+SUPERVISE_ERROR_BACKOFF="${SUPERVISE_ERROR_BACKOFF:-300}"
 
 stamp() { date '+%Y-%m-%d %H:%M:%S'; }
 cycle=0
@@ -47,10 +51,17 @@ while :; do
     exit 0
   fi
 
-  # The loop self-handles usage limits (polls + resumes). If it nonetheless GAVE UP while still
-  # rate-limited (exit 5), relaunch after the short RETRY_INTERVAL instead of the full window.
+  # The loop self-handles usage limits (polls + resumes). Pick the next cadence:
+  #   exit 5  → gave up rate-limited: relaunch after RETRY_INTERVAL (retry soon after quota resets)
+  #   other ≠0 → a crash / dirty-tree refusal / git error: relaunch after the short error backoff
+  #             instead of idling the full window (which wastes hours after an early exit)
+  #   exit 0  → normal cadence (full INTERVAL from cycle start, aligned to the quota window)
   base="$INTERVAL"
-  [ "$rc" = 5 ] && { base="$RETRY_INTERVAL"; echo "[supervise $(stamp)] loop gave up rate-limited — short retry (${RETRY_INTERVAL}s)"; }
+  if [ "$rc" = 5 ]; then
+    base="$RETRY_INTERVAL"; echo "[supervise $(stamp)] loop gave up rate-limited — short retry (${RETRY_INTERVAL}s)"
+  elif [ "$rc" -ne 0 ]; then
+    base="$SUPERVISE_ERROR_BACKOFF"; echo "[supervise $(stamp)] loop exited non-zero ($rc, non-rate-limit) — short retry (${SUPERVISE_ERROR_BACKOFF}s)"
+  fi
   elapsed=$(( $(date +%s) - start ))
   remain=$(( base - elapsed ))
   printf '\a'   # terminal bell: cycle finished, loop idle

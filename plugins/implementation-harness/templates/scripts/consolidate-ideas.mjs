@@ -59,24 +59,65 @@ function nextIdSequence(existingIds, count) {
 }
 
 function normalizeForMatch(text) {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  // Strip a leading bullet marker + backticks, so the stored bullet (no marker, no backticks) matches
+  // a wrapped file bullet reconstructed from its lines.
+  return text
+    .replace(/^\s*([-*]|\d+\.)\s+/, '')
+    .replace(/`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
-// Fuzzy-remove a bullet from IDEAS.md: exact line match → 200-char-prefix match → substring match.
-// Warns (doesn't throw) if nothing matches, since the bullet may have already been hand-edited.
+const isBulletStart = (l) => /^\s*([-*]|\d+\.)\s+/.test(l);
+const isHeading = (l) => /^\s*#{1,6}\s+/.test(l);
+
+// Bounds [lo, hi) of the "## Inbox" section, so bullet removal only ever touches the inbox and can't
+// splice a matching line out of a heading or a done/archive section. No explicit Inbox → whole file.
+function inboxBounds(lines) {
+  const start = lines.findIndex((l) => /^\s*##\s+Inbox\b/i.test(l));
+  if (start === -1) return [0, lines.length];
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*##\s+/.test(lines[i])) { end = i; break; }
+  }
+  return [start + 1, end];
+}
+
+// Reconstruct the inbox's LOGICAL bullets: each is a bullet-start line plus its wrapped continuation
+// lines (not a new bullet / heading / blank), joined and normalized. So a bullet that wraps across
+// lines matches its single-line stored form.
+function inboxBullets(lines) {
+  const [lo, hi] = inboxBounds(lines);
+  const bullets = [];
+  for (let i = lo; i < hi; i++) {
+    if (!isBulletStart(lines[i])) continue;
+    let end = i + 1;
+    while (end < hi && !isBulletStart(lines[end]) && !isHeading(lines[end]) && lines[end].trim() !== '') end++;
+    bullets.push({ start: i, end, text: normalizeForMatch(lines.slice(i, end).join(' ')) });
+    i = end - 1;
+  }
+  return bullets;
+}
+
+// Fuzzy-remove a bullet from IDEAS.md's Inbox: exact → prefix → substring (either direction), matched
+// against reconstructed logical bullets; removes the WHOLE span (bullet line + wrapped continuations).
+// Warns (doesn't throw) if nothing matches — the bullet may already be hand-edited/removed.
 function removeIdeaBullet(ideasText, bullet) {
   const lines = ideasText.split('\n');
+  const bullets = inboxBullets(lines);
   const target = normalizeForMatch(bullet);
   const targetPrefix = target.slice(0, 200);
 
-  let idx = lines.findIndex((l) => normalizeForMatch(l) === target);
-  if (idx === -1) idx = lines.findIndex((l) => normalizeForMatch(l).startsWith(targetPrefix) && targetPrefix.length > 20);
-  if (idx === -1) idx = lines.findIndex((l) => target.length > 20 && normalizeForMatch(l).includes(target.slice(0, 80)));
-  if (idx === -1) {
+  let b = bullets.find((x) => x.text === target);
+  if (!b) b = bullets.find((x) => targetPrefix.length > 20 && x.text.startsWith(targetPrefix));
+  if (!b) b = bullets.find((x) => target.length > 20 && x.text.includes(target.slice(0, 80)));
+  if (!b) b = bullets.find((x) => x.text.length > 20 && target.includes(x.text.slice(0, 80)));
+  if (!b) {
     console.warn(`WARN: could not find idea bullet to remove (already edited?): ${bullet.slice(0, 60)}...`);
     return ideasText;
   }
-  lines.splice(idx, 1);
+  lines.splice(b.start, b.end - b.start);
   return lines.join('\n');
 }
 
@@ -135,13 +176,18 @@ function main() {
       `## Do\n${specDo}\n\n## Done when\n${specDoneWhen}\n`
     );
 
+    // A needs-human task carries a "needs-human" tag so any tag-based consumer (dashboards, filters)
+    // sees it, not just readers of the `gate` field.
+    const tags = Array.isArray(unit.tags) ? [...unit.tags] : [];
+    if (unit.gate === 'needs-human' && !tags.includes('needs-human')) tags.push('needs-human');
+
     const task = {
       id,
       title: unit.title || id,
       status: 'pending',
       dependsOn: resolvedDeps,
       gate: unit.gate ?? null,
-      tags: unit.tags || [],
+      tags,
       scope: unit.scope || [],
       design: unit.design ?? null,
       verify: unit.verify || [],

@@ -32,7 +32,10 @@ task_title()   { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.title'; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
 is_gate()      { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="gate"' >/dev/null; }
 needs_human()  { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.gate=="needs-human"' >/dev/null; }
-task_blocked() { blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; }
+# status="blocked"/"failed" are first-class TASKS.json values the LOOP sets (block_task / manual-fail
+# reconcile) — check them directly, not just the legacy worklog grep, so the board matches the loop.
+task_blocked() { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="blocked"' >/dev/null 2>&1 || blob "worklog/$1.md" | grep -qiE 'failed:blocked|needs-human'; }
+task_failed()  { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="failed"' >/dev/null; }
 inprogress()   { git branch --format='%(refname:short)' | grep -E '^t[0-9]{3,}$' | head -1 || true; }
 
 board=(); needs=(); ready=0; done_all=1
@@ -40,7 +43,10 @@ for t in $(all_tasks); do
   task_done "$t" && continue
   done_all=0
   title="$(task_title "$t")"
-  if is_gate "$t"; then
+  if task_failed "$t"; then
+    board+=("  ❌ failed        $t  $title")
+    needs+=("$t — ❌ failed (owner overturned a false success): $title — the re-do is a separate follow-up task")
+  elif is_gate "$t"; then
     board+=("  🚦 gate         $t  $title")
     needs+=("$t — 🚦 gate: review the deliverable before dependents proceed ($title)")
   elif needs_human "$t" || task_blocked "$t"; then

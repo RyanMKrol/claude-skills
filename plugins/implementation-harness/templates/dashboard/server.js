@@ -194,9 +194,12 @@ function renderPage() {
   .task { border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; }
   .task-head { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .task-id { font-family: monospace; font-weight: bold; }
-  .pill { font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: #ddd; }
+  .pill { font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: #ddd; margin-left: 0.25rem; }
   .pill.failed { background: #f8d7da; color: #842029; }
   .pill.gate { background: #fff3cd; color: #664d03; }
+  .pill.ok { background: #d1e7dd; color: #0f5132; }
+  .pill.blocked { background: #fde2c8; color: #7a3d00; }
+  .pill.review { background: #cfe2ff; color: #084298; }
   .badge { font-size: 0.7rem; color: #666; }
   .detail { margin-top: 0.5rem; font-size: 0.85rem; }
   .detail pre { white-space: pre-wrap; background: #f6f6f6; padding: 0.5rem; border-radius: 4px; max-height: 300px; overflow: auto; }
@@ -215,7 +218,7 @@ function renderPage() {
 <div class="counts" id="counts"></div>
 <div id="sections"></div>
 <script>
-const state = { open: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null };
+const state = { open: new Set(), openLogs: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null };
 
 async function refresh() {
   const res = await fetch('/api/backlog');
@@ -231,8 +234,20 @@ function depLinks(ids) {
 
 function pillsFor(task, bucketName) {
   let pills = '';
-  if (bucketName === 'done' && task.failed) pills += '<span class="pill failed">failed</span>';
-  if (task.gate) pills += \`<span class="pill gate">\${esc(task.gate)}</span>\`;
+  if (bucketName === 'ready') {
+    pills += (task.unmetDeps && task.unmetDeps.length)
+      ? '<span class="pill">🤖 queued</span>' : '<span class="pill ok">🤖 buildable</span>';
+  } else if (bucketName === 'waiting') {
+    pills += '<span class="pill">⏳ waiting</span>';
+  } else if (bucketName === 'needsHuman') {
+    // Distinguish a task the loop gave up on (status:"blocked") from one authored as a human gate.
+    pills += task.status === 'blocked'
+      ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
+      : (task.gate ? \`<span class="pill gate">🔒 \${esc(task.gate)}</span>\` : '<span class="pill gate">🔒 needs human</span>');
+  } else if (bucketName === 'done') {
+    pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill ok">✓ done</span>';
+    pills += task.reviewed ? '<span class="pill review">reviewed</span>' : '<span class="pill">not reviewed</span>';
+  }
   if (task.unmetDeps && task.unmetDeps.length) pills += \`<span class="badge">waiting on \${depLinks(task.unmetDeps)}</span>\`;
   return pills;
 }
@@ -245,9 +260,16 @@ function renderTask(task, bucketName) {
     detail = '<div class="detail">';
     detail += \`<div><b>dependsOn:</b> \${depLinks(task.dependsOn)} · <b>scope:</b> \${(task.scope||[]).join(', ') || '(none)'}</div>\`;
     if (task.facets) detail += \`<div><b>facets:</b> \${esc(JSON.stringify(task.facets))}</div>\`;
-    if (task.spec) detail += \`<details open><summary>spec</summary><pre>\${esc(task.spec)}</pre></details>\`;
-    if (task.worklog) detail += \`<details><summary>worklog</summary><pre>\${esc(task.worklog)}</pre></details>\`;
-    if (task.audit) detail += \`<details><summary>audit</summary><pre>\${esc(task.audit)}</pre></details>\`;
+    // Give each log <details> a stable id + ontoggle so its open/closed state survives a re-render
+    // (the 5s auto-refresh rebuilds innerHTML, which would otherwise snap every open section shut).
+    const lg = (kind, body) => {
+      const lid = 'log-' + task.id + '-' + kind;
+      const isOpen = state.openLogs.has(lid) || kind === 'spec';
+      return \`<details id="\${lid}" ontoggle="onLogToggle(this)"\${isOpen ? ' open' : ''}><summary>\${kind}</summary><pre>\${esc(body)}</pre></details>\`;
+    };
+    if (task.spec) detail += lg('spec', task.spec);
+    if (task.worklog) detail += lg('worklog', task.worklog);
+    if (task.audit) detail += lg('audit', task.audit);
     detail += '<div class="actions" style="margin-top:0.5rem;">';
     if (bucketName === 'needsHuman') detail += \`<button onclick="event.stopPropagation(); markDone('\${task.id}')">Mark done</button>\`;
     if (bucketName === 'done' && !task.failed) detail += \`<button onclick="event.stopPropagation(); markFailed('\${task.id}')">Mark failed</button>\`;
@@ -276,8 +298,11 @@ function renderSection(name, label, tasks) {
   if (!tasks.length) return '';
   let bulk = '';
   if (name === 'needsHuman' || name === 'done') {
-    const n = tasks.filter(t => state.selected.has(t.id)).length;
-    bulk = \`<button onclick="bulkAction('\${name}')" \${n ? '' : 'disabled'}>Apply to selected (\${n})</button>\`;
+    const selectable = tasks.filter(t => name === 'needsHuman' || !t.reviewed).map(t => t.id);
+    const n = selectable.filter(id => state.selected.has(id)).length;
+    const allSel = selectable.length > 0 && n === selectable.length;
+    bulk = \`<label style="margin-right:0.5rem"><input type="checkbox" \${allSel ? 'checked' : ''} onclick="toggleAll('\${name}', this.checked)"> all (\${selectable.length})</label>\`
+         + \`<button onclick="bulkAction('\${name}')" \${n ? '' : 'disabled'}>Apply to selected (\${n})</button>\`;
   }
   let filterBar = '';
   if (name === 'done') {
@@ -288,6 +313,7 @@ function renderSection(name, label, tasks) {
 }
 
 function render(data) {
+  state.lastData = data;   // cache so pure-UI actions (expand, filter, select) re-render without a refetch
   document.getElementById('counts').innerHTML = Object.entries(data.counts)
     .map(([k, v]) => \`<span class="chip">\${k}: \${v}</span>\`).join('');
   document.getElementById('sections').innerHTML =
@@ -297,24 +323,36 @@ function render(data) {
     renderSection('done', '✅ Done', data.buckets.done);
 }
 
-function toggleOpen(id) { state.open.has(id) ? state.open.delete(id) : state.open.add(id); refresh(); }
-function toggleSelect(cb) { cb.checked ? state.selected.add(cb.dataset.id) : state.selected.delete(cb.dataset.id); refresh(); }
+// Re-render from cached data (no network) — for expand/collapse, filter, and selection changes.
+function rerender() { if (state.lastData) render(state.lastData); }
+
+function onLogToggle(el) { el.open ? state.openLogs.add(el.id) : state.openLogs.delete(el.id); }
+
+function toggleAll(name, checked) {
+  const tasks = (state.lastData && state.lastData.buckets && state.lastData.buckets[name]) || [];
+  for (const t of tasks) {
+    if (!(name === 'needsHuman' || !t.reviewed)) continue;   // only the selectable ones
+    checked ? state.selected.add(t.id) : state.selected.delete(t.id);
+  }
+  rerender();
+}
+
+function toggleOpen(id) { state.open.has(id) ? state.open.delete(id) : state.open.add(id); rerender(); }
+function toggleSelect(cb) { cb.checked ? state.selected.add(cb.dataset.id) : state.selected.delete(cb.dataset.id); rerender(); }
 
 // Dependency navigation: expand + scroll to + briefly highlight a task wherever it currently lives.
 function openTask(id) {
+  if (!document.getElementById('task-' + id)) return;
+  state.open.add(id);
+  rerender();
   const el = document.getElementById('task-' + id);
   if (!el) return;
-  state.open.add(id);
-  refresh().then(() => {
-    const el2 = document.getElementById('task-' + id);
-    if (!el2) return;
-    el2.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el2.classList.add('flash');
-    setTimeout(() => el2.classList.remove('flash'), 1500);
-  });
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1500);
 }
 
-function setDoneFilter(mode) { state.doneFilter = mode; refresh(); }
+function setDoneFilter(mode) { state.doneFilter = mode; rerender(); }
 
 // Shift-click range-select: tracks the last checkbox clicked (by id + bucket). Shift-clicking a
 // second checkbox in the SAME bucket selects every checkbox in between to match the just-clicked
@@ -334,27 +372,39 @@ function rangeSelect(e, cb) {
   state.lastClicked = { bucket, id: cb.dataset.id };
 }
 
+// POST + surface failures: a mark-*.sh that errors (e.g. push rejected, gpg-sign failure) comes back
+// as res.ok=false or {ok:false}; alert the reason instead of silently re-rendering unchanged (the old
+// fire-and-forget looked like a successful no-op when the action had actually failed).
+async function post(path, body) {
+  try {
+    const res = await fetch(path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) { alert('Action failed:\\n' + (data.error || res.statusText || 'unknown error')); return false; }
+    return true;
+  } catch (e) { alert('Action error: ' + e); return false; }
+}
+
 async function markDone(id) {
   if (!confirm('Mark ' + id + ' done? Writes human-done.json, commits + pushes.')) return;
-  await fetch('/api/mark-done', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids: [id] }) }); refresh();
+  if (await post('/api/mark-done', { ids: [id] })) refresh();
 }
 async function markFailed(id) {
   const reason = prompt('Mark ' + id + ' as a false success — what was actually wrong?');
   if (!reason) return;
-  await fetch('/api/mark-failed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id, reason }) }); refresh();
+  if (await post('/api/mark-failed', { id, reason })) refresh();
 }
-async function markReviewed(id) { await fetch('/api/mark-reviewed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids: [id] }) }); refresh(); }
+async function markReviewed(id) { if (await post('/api/mark-reviewed', { ids: [id] })) refresh(); }
 
 async function bulkAction(bucket) {
   const ids = [...state.selected];
   if (!ids.length) return;
+  let ok = true;
   if (bucket === 'needsHuman') {
     if (!confirm('Mark ' + ids.length + ' task(s) done? Writes human-done.json, commits + pushes.')) return;
-    await fetch('/api/mark-done', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+    ok = await post('/api/mark-done', { ids });
   }
-  if (bucket === 'done') await fetch('/api/mark-reviewed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
-  state.selected.clear();
-  refresh();
+  if (bucket === 'done') ok = await post('/api/mark-reviewed', { ids });
+  if (ok) { state.selected.clear(); refresh(); }
 }
 
 refresh();

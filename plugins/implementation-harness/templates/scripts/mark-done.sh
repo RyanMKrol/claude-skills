@@ -61,7 +61,12 @@ jq empty "$tmp" || { echo "ABORT: overlay write produced invalid JSON — no cha
 mv "$tmp" "$OVERLAY"
 
 git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
+# Distinguish "no change" from "commit errored": check the staged diff FIRST, then commit hard-failing
+# on error. --no-gpg-sign avoids a signing prompt/failure (commit.gpgsign=true) silently aborting the
+# commit — the old `commit … 2>/dev/null || echo "nothing to commit"; exit 0` reported success and
+# never committed if signing failed (silent loss of the owner's verdict).
+if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (overlay already in that state)"; exit 0; fi
 if [ "$UNDO" = 1 ]; then msg="mark-done: undo $* [skip ci]"; else msg="mark-done: $* [skip ci]"; fi
-git -C "$ROOT" commit -q -m "$msg" 2>/dev/null || { echo "nothing to commit"; exit 0; }
+git -C "$ROOT" commit -q --no-gpg-sign -m "$msg" || { echo "ERROR: commit failed — the overlay is written but not committed." >&2; exit 1; }
 push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
 [ -n "${NO_PUSH:-}" ] || echo "done: $* → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"

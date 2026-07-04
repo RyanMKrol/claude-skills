@@ -14,11 +14,13 @@ HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
 case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
 
 REPO_LOCK_WAIT=1
 . "$SCRIPT_DIR/repo-lock.sh"
 
 command -v node >/dev/null 2>&1 || { echo "node is required for the ideas pipeline" >&2; exit 3; }
+command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 3; }
 
 PENDING_DIR="$HARNESS_DIR/.pending-tasks"
 if [ ! -d "$PENDING_DIR" ] || [ -z "$(ls -A "$PENDING_DIR" 2>/dev/null)" ]; then
@@ -35,9 +37,15 @@ files_before="$(ls "$PENDING_DIR"/*.json 2>/dev/null || true)"
 
 node "$SCRIPT_DIR/consolidate-ideas.mjs"
 
+# Refuse to commit a corrupt backlog: if the .mjs produced invalid JSON, stop here (the pending files
+# are preserved for a retry) rather than committing+pushing a broken TASKS.json that would break the loop.
+jq empty "$HARNESS_DIR/tracking/TASKS.json" 2>/dev/null || { echo "ABORT: consolidate produced invalid TASKS.json — not committing (pending files kept)." >&2; exit 1; }
+
 git -C "$ROOT" add "$HARNESS_DIR/tracking/TASKS.json" "$HARNESS_DIR/tracking/IDEAS.md" "$HARNESS_DIR/tasks" 2>/dev/null || true
-if git -C "$ROOT" commit -q -m "consolidate-ideas: apply pending task conversions [skip ci]" 2>/dev/null; then
-  git -C "$ROOT" push origin HEAD 2>/dev/null || { echo "WARN: commit made locally but push failed — push manually" >&2; exit 1; }
+if git -C "$ROOT" commit -q --no-gpg-sign -m "consolidate-ideas: apply pending task conversions [skip ci]" 2>/dev/null; then
+  # Reuse the shared push-with-retry (fetch+rebase between attempts) so a moved origin/main doesn't
+  # lose the conversion to a single failed push, matching the mark-*.sh resilience.
+  push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: commit made locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
   echo "consolidate-ideas: committed + pushed"
 else
   echo "consolidate-ideas: nothing to commit"

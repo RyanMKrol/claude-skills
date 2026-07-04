@@ -111,6 +111,14 @@ human. The policy sets the START rung per task (from its facets); escalation wal
 there — so a backlog *tries cheap first* and automatically climbs to a stronger model only for the
 tasks that actually need it.
 
+> **Keep the ladder short on purpose.** A doomed task BLOCKS to a human after at most
+> `ladder_length × MAX_ATTEMPTS` attempts. A deliberately short ladder (e.g. the 4-tier
+> `sonnet/low→high, opus/high` some deployments use) makes that a *cheap* backstop: if `opus/high`
+> can't do it twice, a human glance is far cheaper than burning `opus/xhigh`/`max`. The template
+> ships a longer ladder that reaches `max`; if you extend it further, remember every extra rung is
+> extra spend a *stuck* task will grind through before it ever asks for help. Match the top rung to
+> the hardest task you'd want built unsupervised — not to the strongest model available.
+
 **Difficulty is auto-tuned (see `.harness/docs/designs/difficulty-autotune.md`).** Rather than per-task
 `escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
 policy (`.harness/scripts/policy.jq`) picks each task's START tier from its `(layer × work-type)` facet cell's
@@ -153,8 +161,12 @@ instead of silently cold-starting:
    `(layer, work-type)` cells you know have history, before and after the migration, and confirm
    the chosen index is unchanged (same cheapest-tier-clearing-floor result) — a mismatch means a
    rung got mapped to the wrong new-model index in step 2.
-4. **Update the cold-start floor** in `config/harness.env` (`MODEL`/`EFFORT`) if the cheapest rung
-   itself changed.
+4. **Update the cold-start floor** if the cheapest rung itself changed — in **both** places it is
+   pinned: `config/harness.env` (`MODEL`/`EFFORT`) *and* the built-in fallback in the loop scripts
+   (`MODEL="${MODEL:-…}"` near the top of `scripts/loop.sh` and `scripts/loop.in-place.sh`), so a run
+   that doesn't source `harness.env` still floors to the new model. (The transient
+   `worklog/.failures.buf` flush buffer needs no migration — it's gitignored and drained every
+   terminal event.)
 5. **Commit the ladder + both ledgers together**, so `git log` shows the migration as one atomic
    change rather than a period where the ladder and ledger disagree.
 
@@ -364,11 +376,13 @@ deploy/restart command run after each task integrates, so the running product ma
   blocking-and-moving-on only once the ladder is exhausted. The only hard stops are an empty/all-gated
   backlog (exit 0), `MAX_ITERS` (exit 4), or a prolonged usage limit (exit 5 → `supervise.sh`
   relaunches). So leaving the loop unattended for hours can't lose progress to a single failure.
-- **Usage / session limits are not failures.** When `claude` reports a usage/session limit, the
-  loop **polls every `RL_POLL` (default 15 min) and RE-ATTEMPTS the same task COLD** — so it picks
-  back up shortly after the quota resets rather than idling for hours on a coarse backoff. Only after
-  `RL_MAX_WAIT` (~6h) still-limited does it exit (code 5); `supervise.sh` then relaunches after a
-  short `RETRY_INTERVAL` instead of waiting out the full window.
+- **Usage / session limits are not failures.** When `claude` reports a usage/session limit, the loop
+  first **parses the reset time out of Claude's own message** — a clock time with zone (`resets 2:30pm
+  (Europe/London)`), a relative duration (`in 42 minutes`), or an ISO timestamp — and **sleeps until
+  then + `RL_BUFFER`**, then RE-ATTEMPTS the same task COLD. If nothing parses it falls back to
+  **polling every `RL_POLL` (default 15 min)**. Either way it picks back up shortly after the quota
+  resets rather than idling for hours. Only after `RL_MAX_WAIT` (~6h) still-limited does it exit (code
+  5); `supervise.sh` then relaunches after a short `RETRY_INTERVAL` instead of waiting out the full window.
 - **Stops cleanly for review** at every 🚦 gate and 🔒 needs-human task — the loop surfaces it
   on the status board and halts/moves on rather than spinning.
 

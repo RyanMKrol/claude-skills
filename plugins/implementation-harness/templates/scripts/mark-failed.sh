@@ -34,12 +34,15 @@ if [ "${1:-}" = "--undo" ]; then
   [ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
   jq --arg id "$id" 'del(.[$id])' "$OVERLAY" >"$OVERLAY.tmp" && mv "$OVERLAY.tmp" "$OVERLAY"
   git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
-  git -C "$ROOT" commit -q -m "mark-failed: undo $id [skip ci]" 2>/dev/null || { echo "nothing to commit"; exit 0; }
+  if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (nothing to undo)"; exit 0; fi
+  git -C "$ROOT" commit -q --no-gpg-sign -m "mark-failed: undo $id [skip ci]" || { echo "ERROR: commit failed" >&2; exit 1; }
   push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
   [ -n "${NO_PUSH:-}" ] || echo "undone: $id"; exit 0
 fi
 
-id="${1:-}"; reason="${2:-}"
+# Reason = ALL trailing args, so an unquoted multi-word reason works (mark-failed.sh T1 padlock never
+# renders) instead of silently keeping only the first word.
+id="${1:-}"; shift 2>/dev/null || true; reason="$*"
 [ -n "$id" ] && [ -n "$reason" ] || { echo "usage: mark-failed.sh TNNN \"<reason>\"" >&2; exit 2; }
 jq -e --arg id "$id" '.tasks[]|select(.id==$id)|.status=="done"' "$BACKLOG" >/dev/null 2>&1 \
   || { echo "ABORT: $id is not currently status:\"done\" — no changes made." >&2; exit 1; }
@@ -53,6 +56,7 @@ jq --arg id "$id" --arg reason "$reason" --arg ts "$ts" '.[$id] = {failed: true,
   && jq empty "$OVERLAY.tmp" && mv "$OVERLAY.tmp" "$OVERLAY" || { rm -f "$OVERLAY.tmp"; echo "ABORT: overlay write failed" >&2; exit 1; }
 
 git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
-git -C "$ROOT" commit -q -m "mark-failed: $id — $reason [skip ci]" 2>/dev/null || { echo "nothing to commit"; exit 0; }
+if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (overlay already in that state)"; exit 0; fi
+git -C "$ROOT" commit -q --no-gpg-sign -m "mark-failed: $id — $reason [skip ci]" || { echo "ERROR: commit failed — the overlay is written but not committed." >&2; exit 1; }
 push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
 [ -n "${NO_PUSH:-}" ] || echo "failed: $id ($reason) → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"

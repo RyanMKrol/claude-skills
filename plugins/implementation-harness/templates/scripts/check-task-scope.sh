@@ -22,6 +22,10 @@ in_scope() {
   local f="$1" scope="$2" s
   while IFS= read -r s; do
     [ -z "$s" ] && continue
+    # Normalize glob-style scope entries to a bare directory prefix (`src/foo/**`, `src/foo/*`,
+    # `src/foo/` all mean "under src/foo"), matching the real structural gate — else a glob-suffixed
+    # scope entry produces false-positive WARNs for files it actually covers.
+    s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
     [ "$f" = "$s" ] && return 0
     [ "${f#"$s"/}" != "$f" ] && return 0
   done <<SCOPE
