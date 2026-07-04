@@ -89,6 +89,15 @@ idea/cluster used in its scratch filenames):
 >    (style/docs/config/component/endpoint/bugfix/feature/migration/refactor/…), plus any `risk`
 >    flags. If nothing fits, pick the CLOSEST value and note the mismatch in your output's
 >    `factMisfits` array — do NOT invent a new vocabulary value.
+> 2b. **Decide visual verification, driven by the facets you just set.** A task that produces visual
+>    output should be built + audited with the project's VISUAL_VERIFY_HOOK ("actually LOOK at it").
+>    - `layer=="frontend"` (unless workType is docs/config/logging), or workType `style`/`component`:
+>      **auto-covered** by the loop — leave `visualVerify` UNSET.
+>    - workType `bugfix`/`feature`/`migration` on a **non-frontend** layer: **judge** whether the change
+>      plausibly alters a visual surface a human would eyeball (a backend migration changing an API the
+>      UI reads, a bugfix that fixes a rendering issue, a feature that adds UI). If yes → set
+>      `"visualVerify": true`. If you genuinely can't tell, relay it as a question (step 5).
+>    - anything clearly non-visual: leave it unset.
 > 3. **Pair every "options to choose between" idea with a review + hardcode follow-up** — never a
 >    chooser task alone. If the idea implies building multiple variants for a human to pick among,
 >    emit THREE linked units: (a) a buildable chooser that builds the options behind a switch, (b) a
@@ -122,6 +131,7 @@ idea/cluster used in its scratch filenames):
 >          "gate": null, "tags": [...], "scope": ["files this unit should touch"],
 >          "design": null, "verify": [], "expectsTest": false,
 >          "facets": { "layer": "...", "workType": "...", "risk": [] },
+>          "visualVerify": true,   // OPTIONAL — include ONLY per step 2b (a maybe-visual task you judged visual). Omit for auto-covered / non-visual tasks.
 >          "specOverview": "ONE or TWO plain-language sentences — the 'what are we actually doing here, and why, at a glance' line. It's read FIRST and fastest, before the denser Do / Done-when detail.",
 >          "specDo": "1-3 sentences: the work.",
 >          "specDoneWhen": "The task-specific, concrete, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green) — that's already covered once, globally."

@@ -156,7 +156,7 @@ For each task, in dependency order, produce a JSON object:
   "design": null,                     // or ".harness/docs/designs/TNNN-slug.md"
   "verify": [],                       // or ["run-app"]
   "expectsTest": false,               // true → the loop requires a test file in the diff (structural gate); set for test-pinnable tasks
-  "visualVerify": false,              // true → force the VISUAL_VERIFY_HOOK "actually LOOK at it" check (any platform); omit/false to leave it to the workType heuristic
+  "visualVerify": false,              // OPTIONAL — true forces the VISUAL_VERIFY_HOOK "actually LOOK at it" check; false suppresses; OMIT to use the facets heuristic (see §3). Usually omitted.
   "spec": ".harness/tasks/TNNN.md"    // the task's do/done-when (## Do / ## Done when) — author this MD file too
   // NO model/effort/escalation, NO inline do/doneWhen — the policy auto-tunes difficulty from facets + the ledger
 }
@@ -202,11 +202,15 @@ more objective and runnable the bar, the harder it is for a cheap builder to fal
 - Set **`expectsTest: true`** when correctness should be pinned by a test, and **say in `## Done when`
   what the test must assert** — the builder writes the test, but to YOUR spec, so it can't validate
   itself with a lenient one.
-- Set **`visualVerify: true`** when the task produces **visual output worth eyeballing** — a web page,
-  a native/desktop screen, a mobile screen in a simulator, a generated image/chart — that could pass
-  every automated check while still looking wrong. It forces the `VISUAL_VERIFY_HOOK` "actually LOOK at
-  the result" instruction into the build + audit prompt, on any platform, independent of `workType`
-  (which only auto-triggers the default `component` type). No-op if the project set no hook.
+- **Visual verification (`visualVerify`) — decide it from the task's facets:**
+  - `layer: frontend` (unless `workType` is docs/config/logging), or `workType: style`/`component` →
+    **auto-covered** by the loop; leave `visualVerify` unset (setting it is harmless but redundant).
+  - `workType: bugfix`/`feature`/`migration` on a **non-frontend** layer → this is the "might touch the
+    UI" tier: **ask the owner** whether the change alters something visual a human should eyeball (a
+    backend migration changing an API the UI reads, a bugfix that fixes a rendering issue, a feature
+    that adds UI). If yes, set **`"visualVerify": true`**.
+  - clearly non-visual work → leave it unset. `"visualVerify": false` hard-suppresses even an
+    auto-covered task. (All of this is a no-op if the project set no `VISUAL_VERIFY_HOOK`.)
 - Keep **`scope` accurate** — it's now a structural gate (the diff must touch those files).
 
 ## 4. Append, don't clobber — via jq

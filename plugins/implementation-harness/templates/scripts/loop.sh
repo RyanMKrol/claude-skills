@@ -59,7 +59,9 @@ CI_WORKFLOW="${CI_WORKFLOW:-CI}"                 # MUST match `name:` in your CI
 REQUIRE_CI="${REQUIRE_CI:-1}"                     # 1 = never merge without green CI
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"             # optional cmd run after each task integrates (deploy/restart)
 VISUAL_VERIFY_HOOK="${VISUAL_VERIFY_HOOK:-${UI_VERIFY_HOOK:-}}"   # optional cmd for VISUAL verification (any platform); UI_VERIFY_HOOK is the back-compat alias
-VISUAL_VERIFY_WORKTYPES="${VISUAL_VERIFY_WORKTYPES:-component}"   # workType values that auto-trigger the hook when a task has no explicit visualVerify flag
+VISUAL_VERIFY_WORKTYPES="${VISUAL_VERIFY_WORKTYPES:-component style}"      # inherently-visual workTypes that auto-trigger on ANY layer
+VISUAL_VERIFY_LAYERS="${VISUAL_VERIFY_LAYERS:-frontend}"                   # facet layers that auto-trigger (unless the workType is in SKIP below)
+VISUAL_VERIFY_SKIP_WORKTYPES="${VISUAL_VERIFY_SKIP_WORKTYPES:-docs config logging}"   # workTypes with no visual surface — never auto-trigger on a VISUAL_VERIFY_LAYERS layer
 SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"     # optional space-separated extra path prefixes structural_checks always allows, beyond worklog+tests
 PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
 TASKS_REF="${TASKS_REF:-origin/main}"            # decisions are read from here, never a worktree
@@ -436,15 +438,28 @@ run_integrate_hook() {
 # frames it for the independent auditor (a PASS/FAIL decision) instead of the builder (record + declare
 # done). See docs/designs/visual-verification.md for the rationale and worked per-platform examples.
 visual_verify_block() {
-  local tid="$1" mode="${2:-build}" vv wt
+  local tid="$1" mode="${2:-build}" vv wt ly fire
   [ -n "$VISUAL_VERIFY_HOOK" ] || return 0
   # NB: read .visualVerify WITHOUT `// empty` — jq's `//` treats a literal `false` as empty too, which
-  # would drop an explicit opt-OUT. Absent → "null"/"" (falls through to the heuristic); false → "false".
+  # would drop an explicit opt-OUT. Absent → "null"/"" (falls through to the facets heuristic); false → "false".
   vv="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.visualVerify')"
   [ "$vv" = false ] && return 0
   if [ "$vv" != true ]; then
+    # Facets heuristic (two ways to auto-fire): (a) an INHERENTLY-visual work-type (VISUAL_VERIFY_WORKTYPES,
+    # default "component style") fires on any layer; (b) else a VISUAL_VERIFY_LAYERS layer (default
+    # "frontend") fires UNLESS the work-type is clearly non-visual (VISUAL_VERIFY_SKIP_WORKTYPES, default
+    # "docs config logging"). Maybe-visual work-types (bugfix/feature/migration on a non-frontend layer)
+    # are NOT auto-fired here — the authoring skills ask/judge and set visualVerify:true when warranted.
     wt="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-    case " $VISUAL_VERIFY_WORKTYPES " in *" $wt "*) ;; *) return 0 ;; esac
+    ly="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
+    fire=0
+    case " $VISUAL_VERIFY_WORKTYPES " in *" $wt "*) fire=1 ;; esac
+    if [ "$fire" = 0 ] && [ -n "$ly" ]; then
+      case " $VISUAL_VERIFY_LAYERS " in *" $ly "*)
+        case " $VISUAL_VERIFY_SKIP_WORKTYPES " in *" $wt "*) ;; *) fire=1 ;; esac ;;
+      esac
+    fi
+    [ "$fire" = 1 ] || return 0
   fi
   if [ "$mode" = audit ]; then
     printf '\n--- VISUAL EVIDENCE (this is a visual task — a text-diff review is NOT sufficient) ---\n'

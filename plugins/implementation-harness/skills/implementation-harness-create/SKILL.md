@@ -125,10 +125,11 @@ Use `AskUserQuestion`, batching related questions. Gather:
     image/chart — something that could pass every automated check while still looking wrong?" If
     yes, ask for a command that captures it (a browser screenshot script, `screencapture`, `xcrun
     simctl io booted screenshot`, a render command, …) and set it as `VISUAL_VERIFY_HOOK` in
-    `harness.env`; it's injected into the builder + auditor prompt for tasks that opt in (a
-    `"visualVerify": true` on any platform, or a `facets.workType` in `VISUAL_VERIFY_WORKTYPES`,
-    default `component`). If their visual work isn't "component"-shaped (e.g. `style` changes, or a
-    non-web taxonomy), set `VISUAL_VERIFY_WORKTYPES` accordingly (e.g. `"component style"`). See
+    `harness.env`. By default it auto-fires for `facets.layer==frontend` tasks (minus docs/config/logging)
+    and for `workType==style`/`component` on any layer; a per-task `"visualVerify": true` forces it on any
+    platform; the authoring skills also set it for maybe-visual `bugfix`/`feature`/`migration` work. If
+    the project's visual work maps to different facet layers/work-types, tune `VISUAL_VERIFY_LAYERS` /
+    `VISUAL_VERIFY_WORKTYPES` / `VISUAL_VERIFY_SKIP_WORKTYPES` in `harness.env`. See
     `.harness/docs/designs/visual-verification.md` for the rationale + worked per-platform examples.
     If the project has no visual surface, leave it empty — zero cost either way.
 

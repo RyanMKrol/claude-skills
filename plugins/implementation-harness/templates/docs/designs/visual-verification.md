@@ -17,17 +17,25 @@ is platform-agnostic — you supply the capture command, the harness supplies th
   another Claude agent can visually inspect (a screenshot, a rendered dump, whatever fits your stack).
   Empty by default — zero cost for projects with no visual surface. (The old name `UI_VERIFY_HOOK` is
   still honoured as a back-compat alias.)
-- **A task opts in, two ways:**
-  - **Explicit, any platform** — a task-level `"visualVerify": true` fires the check regardless of
-    platform or work-type. `"visualVerify": false` suppresses it. This is the platform-agnostic path:
-    an iOS-screen task, a desktop-window task, or an image-generation task just sets the flag.
-  - **Heuristic fallback** — a task with no flag fires the check when its `facets.workType` is in
-    **`VISUAL_VERIFY_WORKTYPES`** (`config/harness.env`, default `"component"`). Broaden it to match
-    your project's visual work-types (e.g. `"component style"`), or rely on the explicit flag.
+- **A task fires the check via a two-tier, facets-driven model:**
+  - **Explicit flag (wins, any platform)** — a task-level `"visualVerify": true` fires it regardless of
+    facets/platform (an iOS-screen task, a desktop window, an image-generation task); `"visualVerify":
+    false` hard-suppresses it. Omit the flag to use the facets heuristic ↓.
+  - **Facets heuristic (auto-fire, no flag needed)** — for a task with no flag it auto-fires when:
+    (a) its `facets.workType` is **inherently visual** — in `VISUAL_VERIFY_WORKTYPES` (default
+    `"component style"`) — on ANY layer; OR (b) its `facets.layer` is in `VISUAL_VERIFY_LAYERS` (default
+    `"frontend"`) **unless** its work-type is clearly non-visual (`VISUAL_VERIFY_SKIP_WORKTYPES`, default
+    `"docs config logging"`). So a frontend task is verified by default; a pure-CSS `style` or a new
+    `component` on any layer is verified; a frontend `docs` change is not.
+  - **The "maybe visual" tier is authored, not auto** — `bugfix`/`feature`/`migration` on a *non*-frontend
+    layer can still touch the UI (a backend migration changing an API the UI reads, a bugfix fixing a
+    render). These are NOT auto-fired; instead the **`add-to-backlog` / `convert-ideas` / `review-failed`
+    skills** ask/judge at authoring time and set `"visualVerify": true` when warranted. That's how the
+    judgment gets encoded — the authors are usually AI agents, so the convention lives in the skills.
   When it fires, `loop.sh`/`loop.in-place.sh` inject a fixed instruction block into BOTH the builder's
-  prompt and — if that task is sampled — the independent auditor's prompt, telling them to run the
-  hook and record what they OBSERVED before declaring done. Every other task (and every project that
-  leaves `VISUAL_VERIFY_HOOK` empty) pays nothing.
+  prompt and — if that task is sampled — the independent auditor's prompt (a stricter PASS/FAIL-framed
+  variant), telling them to run the hook and record/judge what they OBSERVED. Every other task (and
+  every project that leaves `VISUAL_VERIFY_HOOK` empty) pays nothing.
 - **`SCOPE_EXEMPT_GLOBS`** (`config/harness.env`) — if your `VISUAL_VERIFY_HOOK` target is itself a
   project-owned script that needs updating alongside the change it verifies (see the "living artifact"
   pattern below), list its path here so `structural_checks` doesn't flag it as scope creep. Empty by
@@ -82,8 +90,8 @@ pointing straight at a one-off capture command is plenty.
 
 - It does not replace the audit gate's text-diff review — it supplements it for visual work, since a
   diff review alone cannot see what the output actually looks like.
-- It does not run for a task that hasn't opted in (no `visualVerify` flag and a work-type outside
-  `VISUAL_VERIFY_WORKTYPES`), even if `VISUAL_VERIFY_HOOK` is set — a backend task with no visual
-  surface gets no instruction, no added tokens.
+- It does not run for a task that hasn't opted in (no `visualVerify` flag, and neither the layer nor
+  the work-type matches the facets heuristic), even if `VISUAL_VERIFY_HOOK` is set — a backend
+  feature/logging/config task with no visual surface gets no instruction, no added tokens.
 - It is not mandatory to adopt. A project can set `VISUAL_VERIFY_HOOK` to a single ad-hoc command and
   set `visualVerify` per task, skipping the `PAGES`/`FLOWS` convention entirely if its surface is small.

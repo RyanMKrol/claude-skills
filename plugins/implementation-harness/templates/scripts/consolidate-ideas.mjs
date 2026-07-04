@@ -201,6 +201,10 @@ function main() {
       expectsTest: !!unit.expectsTest,
       spec: specRel,
     };
+    // Carry the optional visualVerify opt-in/out THROUGH to the task (only when the unit set it —
+    // omitting the field means "fall back to the facets heuristic at runtime"). A boolean check keeps
+    // a stray string/null from becoming a truthy field.
+    if (typeof unit.visualVerify === 'boolean') task.visualVerify = unit.visualVerify;
     if (unit.gate !== 'needs-human' && unit.facets) task.facets = unit.facets;
     newTasks.push(task);
   });

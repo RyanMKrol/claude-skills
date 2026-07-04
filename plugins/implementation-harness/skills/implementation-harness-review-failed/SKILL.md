@@ -119,6 +119,7 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >       "gate": null, "tags": [...], "scope": ["files this unit should touch"],
 >       "design": null, "verify": [], "expectsTest": false,
 >       "facets": { "layer": "...", "workType": "...", "risk": [] },
+>       "visualVerify": true,   // OPTIONAL — set only if the follow-up should be visually verified (see below); omit for auto-covered / non-visual.
 >       "specOverview": "Name what this re-attempts and WHY the first attempt didn't land — e.g. 'Re-attempt of <TNNN>, blocked because its scope excluded the client helper the Done-when required.' One or two sentences; this is the task's traceability back to the failure.",
 >       "specDo": "The corrected work — incorporate the actual lesson (see below), not a restatement of the original spec.",
 >       "specDoneWhen": "The task-specific, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green)."
@@ -132,8 +133,12 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > - **`specDo` must incorporate the actual lesson**, not restate the original. If the cause was
 >   scope-too-narrow, the new `scope` must genuinely cover what `## Done when` needs — verify that
 >   yourself by reading the requirements against the scope, don't assume. If the cause was ambiguity,
->   resolve it explicitly in the text. If it was genuine difficulty, consider a smaller, further-atomised
->   task, or set `visualVerify: true` if the miss was visual.
+>   resolve it explicitly in the text. If it was genuine difficulty, consider a smaller, further-atomised task.
+> - **Visual verification (facets-driven, same rule as convert-ideas):** a `frontend`-layer (non
+>   docs/config/logging) or `style`/`component` follow-up is auto-covered — leave `visualVerify` unset.
+>   For a `bugfix`/`feature`/`migration` follow-up on a non-frontend layer, set `"visualVerify": true` if
+>   the fix plausibly changes a visual surface (especially if the ORIGINAL miss was visual — an audit
+>   that passed on a broken render is exactly the case this catches).
 > - **Do NOT set `dependsOn` to the original failed/blocked task** — it's terminal, nothing should wait
 >   on it. Traceability lives in the `specOverview` (which names the re-attempt). Atomise into multiple
 >   units if the review surfaces more than one separable follow-up.
