@@ -1,6 +1,6 @@
 {
   "name": "implementation-harness",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "Scaffold a Ralph-style single-loop, CI-gated TASKS.json implementation harness into a project's self-contained `.harness/` folder, author its backlog, and operate it — via skills. Worktree or in-place isolation (for projects whose build needs untracked local state), data-driven difficulty auto-tuning that starts every task at the cheapest tier and escalates up a global ladder, a portable zero-dependency backlog dashboard, an ideas-to-tasks pipeline, and operational skills for pre-run vetting, interrupt recovery, and reviewing failed tasks into follow-ups. Distinct from the official ralph-loop plugin.",
   "author": {
     "name": "Ryan Krol",

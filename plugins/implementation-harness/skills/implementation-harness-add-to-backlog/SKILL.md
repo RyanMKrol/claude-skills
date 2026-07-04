@@ -116,7 +116,7 @@ Use `AskUserQuestion`. Establish:
    Tip: if a task *feels* subjective but has a checkable proxy (e.g. "looks good on mobile" → an
    emulated-viewport check for overflow/truncation), prefer making it buildable with that `verify`.
    **Non-negotiable: any task whose `scope` touches `.harness/**`, or whose `facets.layer` is
-   `"harness"`, MUST be `"gate": "needs-human"`** — never `null` or `"gate"`. An unsupervised edit
+   `"harness"`, MUST be `"gate": "needs-human"`** — never `null` (buildable). An unsupervised edit
    to the harness's own machinery is uniquely dangerous (it can corrupt `TASKS.json` or defeat the
    loop's own safety rails, edited by the very process it constrains). See `.harness/CLAUDE.md`.
 
@@ -149,7 +149,7 @@ For each task, in dependency order, produce a JSON object:
   "title": "<concise title>",
   "status": "pending",
   "dependsOn": ["<ids>"],            // [] if none
-  "gate": null,                       // null | "gate" | "needs-human"
+  "gate": null,                       // null | "needs-human"
   "tags": ["<type>"],                 // optional, DESCRIPTIVE (feature area) — NOT the calibration key
   "facets": { "layer": "...", "workType": "...", "risk": [] },  // §2.4 — the ONLY difficulty signal; OMIT for needs-human/gated tasks
   "scope": ["<files/globs>"],
@@ -170,10 +170,12 @@ add, also create its `.harness/tasks/TNNN.md`** with `## Do` and `## Done when` 
 
 ### Writing the spec MD (`.harness/tasks/TNNN.md`) so a fresh agent gets it right
 
-Each task's spec is a Markdown file with two sections — `## Do` (the work, 1–3 sentences) and
-`## Done when` (the task-specific acceptance bar). The building agent is a **fresh agent** with
-**none** of this interview's context — the spec is the entire brief it binds to. Make it
-self-contained and unambiguous, or it will confidently build the wrong thing:
+Each task's spec is a Markdown file with three sections — a leading **`## Overview`** (one or two
+plain-language sentences: *what* this task is doing and *why*, the "at a glance" line read FIRST),
+then `## Do` (the work, 1–3 sentences) and `## Done when` (the task-specific acceptance bar). (The
+Overview is a later convention — pre-existing specs without one are fine, don't backfill.) The building
+agent is a **fresh agent** with **none** of this interview's context — the spec is the entire brief it
+binds to. Make it self-contained and unambiguous, or it will confidently build the wrong thing:
 
 - **No ambiguous referents.** Name the exact artifact/identifier; avoid bare words like "the ID",
   "the page", "the value". (A real miss: *"the ID of the workflow"* got built against the workflow
@@ -238,7 +240,7 @@ that any tasks you add *later* will append *after* it, so re-check that the rena
 - Existing task count + new count == total: `jq '.tasks | length' tracking/TASKS.json` matches expectation,
   and no prior `status` changed (`jq -r '.tasks[]|select(.status=="done")|.id'` is unchanged).
 - Every `dependsOn` id exists (`jq` cross-check), no dangling deps, no cycles, no duplicate ids.
-- `gate` is one of `null` / `"gate"` / `"needs-human"`; no task carries `model`/`effort`/`escalation`.
+- `gate` is one of `null` / `"needs-human"`; no task carries `model`/`effort`/`escalation`.
 - **Every task has a `spec` path AND a matching `.harness/tasks/TNNN.md` on disk** (sections `## Do` /
   `## Done when`) — no inline `do`/`doneWhen` in the JSON. (`for s in $(jq -r '.tasks[].spec' tracking/TASKS.json); do test -f "$s" || echo "missing $s"; done`)
 - **Every buildable (non-needs-human) task has a `facets` object** with a `layer` + `workType` drawn

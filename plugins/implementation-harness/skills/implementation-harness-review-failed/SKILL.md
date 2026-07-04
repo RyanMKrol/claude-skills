@@ -119,7 +119,8 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >       "gate": null, "tags": [...], "scope": ["files this unit should touch"],
 >       "design": null, "verify": [], "expectsTest": false,
 >       "facets": { "layer": "...", "workType": "...", "risk": [] },
->       "specDo": "OPEN with one sentence naming what this re-attempts and why the first attempt didn't land (e.g. 'Re-attempt of <TNNN>, blocked because its scope excluded the client helper the Done-when required'), THEN the corrected work.",
+>       "specOverview": "Name what this re-attempts and WHY the first attempt didn't land — e.g. 'Re-attempt of <TNNN>, blocked because its scope excluded the client helper the Done-when required.' One or two sentences; this is the task's traceability back to the failure.",
+>       "specDo": "The corrected work — incorporate the actual lesson (see below), not a restatement of the original spec.",
 >       "specDoneWhen": "The task-specific, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green)."
 >     }
 >   ],
@@ -134,8 +135,8 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >   resolve it explicitly in the text. If it was genuine difficulty, consider a smaller, further-atomised
 >   task, or set `visualVerify: true` if the miss was visual.
 > - **Do NOT set `dependsOn` to the original failed/blocked task** — it's terminal, nothing should wait
->   on it. Traceability lives in the `specDo` prose. Atomise into multiple units if the review surfaces
->   more than one separable follow-up.
+>   on it. Traceability lives in the `specOverview` (which names the re-attempt). Atomise into multiple
+>   units if the review surfaces more than one separable follow-up.
 > - `needs-human` units omit `facets` entirely. `ideaBullets` is `["<TNNN>: <original title>"]` — a
 >   synthetic string (review agents have no real idea bullet) that keeps the file byte-compatible with
 >   the consolidation script; it will not match anything in `IDEAS.md` (that's expected — see Stage 3).

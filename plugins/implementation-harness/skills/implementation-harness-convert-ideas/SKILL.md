@@ -35,7 +35,13 @@ whole file, then execute in order.
     when the prior sweep ended. Re-surface those questions via `AskUserQuestion` now (§4's format),
     then either resume that idea's shaping yourself (read the pending-questions file for the
     context it captured) or re-launch a fresh agent for just that idea with the answer folded in.
-  - If both directories are empty, proceed normally.
+  - **Stale already-converted bullets.** A prior sweep may have consolidated tasks but died before its
+    bullet-removal committed, leaving an inbox bullet whose task already exists. Skim
+    `git log --oneline -15` for recent `consolidate-ideas`/backlog commits and the ~10 most recent
+    `TASKS.json` task titles; if an inbox bullet looks like it already became a task, **surface it to
+    the owner** (name the bullet + the matching task id) and only remove it if they confirm — never
+    silently delete a bullet you're merely guessing was converted.
+  - If all of the above are clear, proceed normally.
 
 ## 1. Read the inbox
 
@@ -43,15 +49,21 @@ Read `.harness/tracking/IDEAS.md`. Extract every numbered bullet under `## Inbox
 argument names a specific idea number or a keyword, filter to matching bullets; otherwise process
 the whole inbox. If the inbox is empty, say so and stop.
 
-## 2. Dedup / cluster pass (you do this, not an agent)
+## 2. Dedup + cluster pass (you do this, not an agent)
 
-Read through the extracted bullets and group any that share the **same underlying feature or
-answer-space** — not just literal duplicates, but ideas that would require exploring the same code
-and would produce overlapping or dependent tasks. Two bullets about the same UI component, or two
-bullets that are really "the same bug, described twice," become ONE cluster handled by ONE agent
-(so it doesn't duplicate exploration or produce two conflicting task sets). Bullets with no overlap
-each become their own singleton cluster. This pass is cheap — do it by reading, not by launching
-agents.
+Two distinct sub-passes, both by reading (cheap — no agents):
+
+**2a. Dedup — ask, don't auto-merge.** Find bullets that are genuinely the *same idea described twice*
+(near-identical intent, not merely related). Group each set of suspected duplicates and **surface it to
+the owner via `AskUserQuestion`** — ask whether to merge them into one, keep the clearer one, or treat
+them separately. **Do NOT silently collapse them yourself** — a semantic near-match may be two real,
+distinct asks, and only the owner knows. Apply their decision before clustering.
+
+**2b. Cluster — group by shared answer-space.** Of the survivors, group any that share the **same
+underlying feature or code area** — ideas that would require exploring the same code and would produce
+overlapping or dependent tasks — into ONE cluster handled by ONE agent (so it doesn't duplicate
+exploration or emit conflicting task sets). Bullets with no overlap each become their own singleton
+cluster. Clustering is a scheduling choice (one agent vs many), not a merge — it doesn't drop any idea.
 
 ## 3. Fan out — one agent per idea/cluster, in parallel
 
@@ -85,14 +97,23 @@ idea/cluster used in its scratch filenames):
 > 4. **Split a decision/unknown into its own `needs-human` unit** if the idea hinges on a human
 >    decision or an unknown that needs probing before the real work can be specified — a
 >    `needs-human` decision unit, plus a dependent buildable follow-up once it's answered.
-> 5. If you hit a genuinely open question you cannot resolve yourself (you do NOT have
->    `AskUserQuestion` — do not attempt to call it), STOP shaping that specific unit and instead
->    write `.harness/.pending-questions/<SLUG>.json`:
->    `{ "slug": "<SLUG>", "question": "<the exact question>", "context": "<what you've found so far>", "ideaText": "<IDEA TEXT>" }`
->    then finish shaping whatever OTHER units from this idea don't depend on the answer, and write
->    those to `.pending-tasks/<SLUG>.json` as normal (partial output is fine — the coordinator will
->    relay your question and either resume you or re-run this idea once answered).
-> 6. Otherwise, write `.harness/.pending-tasks/<SLUG>.json`:
+> 5. **Prefer a judgment call over manufacturing a question.** For a low-stakes, reasonable-default
+>    decision (a naming choice, which of two obvious spots to put something), just DECIDE it, note the
+>    call in your unit's `report`, and keep going — don't block the owner on it. Only escalate a
+>    GENUINELY open question you cannot responsibly resolve (a real product/design decision, an
+>    ambiguity where guessing wrong wastes a build). When you must: you do NOT have `AskUserQuestion`
+>    (do not attempt to call it) — STOP shaping the affected unit and write
+>    `.harness/.pending-questions/<SLUG>.json`:
+>    `{ "slug": "<SLUG>", "question": "For idea <SLUG> (<short idea gist>): <the exact question>", "context": "<what you've found so far>", "ideaText": "<IDEA TEXT>" }`
+>    — **the question MUST name which idea it's about** (several agents relay questions concurrently;
+>    an unlabelled one is ambiguous). Then finish shaping whatever OTHER units from this idea don't
+>    depend on the answer and write those to `.pending-tasks/<SLUG>.json` as normal (partial output is
+>    fine — the coordinator relays your question and resumes/re-runs you once answered).
+> 6. If you conclude **no task is actually warranted** (the idea is already done, is a non-issue, or on
+>    investigation doesn't hold up), still write `.harness/.pending-tasks/<SLUG>.json` but with
+>    `"units": []`, a `"report"` explaining why, AND the `ideaBullets` — so consolidation removes the
+>    converted bullet from the inbox (the report is the record of why nothing was authored).
+>    Otherwise, write `.harness/.pending-tasks/<SLUG>.json` with the shaped units:
 >    ```json
 >    {
 >      "units": [
@@ -101,11 +122,13 @@ idea/cluster used in its scratch filenames):
 >          "gate": null, "tags": [...], "scope": ["files this unit should touch"],
 >          "design": null, "verify": [], "expectsTest": false,
 >          "facets": { "layer": "...", "workType": "...", "risk": [] },
+>          "specOverview": "ONE or TWO plain-language sentences — the 'what are we actually doing here, and why, at a glance' line. It's read FIRST and fastest, before the denser Do / Done-when detail.",
 >          "specDo": "1-3 sentences: the work.",
 >          "specDoneWhen": "The task-specific, concrete, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green) — that's already covered once, globally."
 >        }
 >      ],
->      "ideaBullets": ["<the exact original bullet text from IDEAS.md, for fuzzy removal>"]
+>      "ideaBullets": ["<the exact original bullet text from IDEAS.md, for fuzzy removal>"],
+>      "report": "optional: any judgment calls you made, or why no task was warranted (units: [])."
 >    }
 >    ```
 >    `needs-human` units omit `facets` entirely. `tempId`s only need to be unique within YOUR file;
@@ -113,16 +136,22 @@ idea/cluster used in its scratch filenames):
 >    an existing task. Your final message should just confirm what you wrote — the coordinator
 >    reads the file, not your response text.
 
-## 4. Relay pending questions
+## 4. Relay pending questions (multi-round — no cap)
 
-After all agents finish, check `.harness/.pending-questions/*.json`. If any exist, read them all and
-batch them into **one** real `AskUserQuestion` call (don't ask one at a time). For each answer, either:
-- resume that agent via `SendMessage` (if it's still addressable) with the answer, so it can finish
-  writing its `.pending-tasks/<slug>.json`, or
-- if the agent session is gone, incorporate the answer yourself and write that idea's
-  `.pending-tasks/<slug>.json` directly, following the same schema as §3 step 6.
-
-Delete a `.pending-questions/*.json` file once its question has been answered and folded in.
+Use durable files, not conversation memory — an agent's question and the owner's answer must survive a
+dropped session. After all agents finish, check `.harness/.pending-questions/*.json`. If any exist,
+read them all and batch them into **one** real `AskUserQuestion` call (don't ask one at a time; each
+question already names its idea). For each answer:
+- **resume that agent** via `SendMessage` (if still addressable) with the answer so it finishes its
+  `.pending-tasks/<slug>.json`, or **incorporate the answer yourself** and write that idea's
+  `.pending-tasks/<slug>.json` directly (same schema as §3 step 6) if the agent is gone.
+- **The answer may not fully settle it.** If it does, delete the `.pending-questions/<slug>.json`. If
+  the answer opens a genuinely NEW question, that idea's agent (or you) **overwrites the same
+  `.pending-questions/<slug>.json`** (same file, same schema) with the follow-up — then relay again.
+  **There is no cap on rounds** — loop §4 until every pending-questions file is resolved or deleted.
+- **If the owner defers or declines the idea entirely**, do NOT write a `.pending-tasks` file for it
+  and DELETE its pending-questions file — with no pending-tasks entry, consolidation won't touch its
+  bullet, so the idea simply **stays in the inbox** for a future sweep (nothing is authored, nothing removed).
 
 ## 5. Consolidate
 
@@ -132,13 +161,27 @@ real sequential task ids, resolves every `tempId` reference (dropping and loggin
 resolve), writes each unit's `tasks/TNNN.md` spec, appends the new task objects to `TASKS.json`,
 fuzzy-removes the converted bullets from `IDEAS.md`, and commits + pushes. Read its output.
 
-## 6. Report
+## 6. Validate
+
+Before reporting, confirm consolidation left the backlog sound (catches a corrupt write or a shaping bug):
+- `jq empty .harness/tracking/TASKS.json` — valid JSON.
+- No duplicate task ids; every `dependsOn` id exists in `TASKS.json`.
+- Every new **buildable** task has `facets` with `layer`/`workType` drawn from `config/facets.json`'s
+  vocabulary; every `needs-human` task has none.
+- Every new task's `spec` path exists on disk with non-empty `## Do` / `## Done when`.
+- `.harness/.pending-tasks/` and `.harness/.pending-questions/` are empty (no straggler left un-consolidated).
+- Converted bullets are gone from `IDEAS.md`; ideas you deferred/declined are still there.
+
+If any check fails, fix it (or flag it) before the report — don't report success over a broken backlog.
+
+## 7. Report
 
 Summarize for the user: how many ideas were processed, the resulting task ids (grouped by which
 idea they came from), any `dependsOn` that had to be dropped (a real authoring problem to flag, not
-silently ignore), and any ideas still sitting in the inbox (skipped by a filter, or still blocked on
-an unanswered question). Do NOT claim an idea is "done" — converting it to tasks means the loop can
-now build it, not that it has been built.
+silently ignore), any ideas where **no task was warranted** (with the agent's reason), and any ideas
+still sitting in the inbox (deferred/declined, skipped by a filter, or still blocked on an unanswered
+question). Do NOT claim an idea is "done" — converting it to tasks means the loop can now build it,
+not that it has been built.
 
 If the sweep produced ≥1 new task, close by suggesting the user run
 `/implementation-harness-pre-loop-checkin` before the next unattended loop run — it vets the new tasks'

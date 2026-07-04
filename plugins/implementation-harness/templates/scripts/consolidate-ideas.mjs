@@ -166,14 +166,21 @@ function main() {
       .filter(Boolean);
 
     const specRel = path.join('.harness', 'tasks', `${id}.md`).split(path.sep).join('/');
+    const specOverview = unit.specOverview || '';
     const specDo = unit.specDo || '(missing ## Do — fix before building)';
     const specDoneWhen = unit.specDoneWhen || '(missing ## Done when — fix before building)';
     if (!unit.specDo || !unit.specDoneWhen) {
       console.warn(`WARN: ${id} is missing specDo/specDoneWhen — wrote a placeholder spec`);
     }
+    if (!specOverview) {
+      console.warn(`WARN: ${id} has no specOverview — spec written without the leading ## Overview (one or two plain-language sentences: what & why)`);
+    }
+    // A leading ## Overview (the plain-language "what are we doing, at a glance" — read first) precedes
+    // the denser Do / Done-when detail when the author supplied one.
+    const overviewBlock = specOverview ? `## Overview\n${specOverview}\n\n` : '';
     fs.writeFileSync(
       path.join(TASKS_DIR, `${id}.md`),
-      `## Do\n${specDo}\n\n## Done when\n${specDoneWhen}\n`
+      `${overviewBlock}## Do\n${specDo}\n\n## Done when\n${specDoneWhen}\n`
     );
 
     // A needs-human task carries a "needs-human" tag so any tag-based consumer (dashboards, filters)

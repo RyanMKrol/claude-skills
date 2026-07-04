@@ -427,15 +427,16 @@ run_integrate_hook() {
   ( cd "$ROOT" && eval "$INTEGRATE_HOOK" ) || log "WARN: integrate hook failed (non-fatal)"
 }
 
-# visual_verify_block <id> — print an instruction block telling the reader (builder or auditor) to run
-# VISUAL_VERIFY_HOOK and actually LOOK at its output before declaring done. Fires when the hook is set
-# AND the task opts in: a task-level `visualVerify:true` fires it on ANY platform (browser, native/
-# desktop, a mobile simulator, a generated image); `visualVerify:false` suppresses it; with no flag it
-# falls back to a heuristic — the task's workType is in VISUAL_VERIFY_WORKTYPES (default "component").
-# No-op (prints nothing) otherwise, so non-visual tasks and projects pay zero cost. See
-# docs/designs/visual-verification.md for the rationale and worked per-platform examples.
+# visual_verify_block <id> [audit] — print an instruction block telling the reader to run
+# VISUAL_VERIFY_HOOK and actually LOOK at its output. Fires when the hook is set AND the task opts in:
+# a task-level `visualVerify:true` fires it on ANY platform (browser, native/desktop, a mobile
+# simulator, a generated image); `visualVerify:false` suppresses it; with no flag it falls back to a
+# heuristic — the task's workType is in VISUAL_VERIFY_WORKTYPES (default "component"). No-op (prints
+# nothing) otherwise, so non-visual tasks and projects pay zero cost. The optional second arg "audit"
+# frames it for the independent auditor (a PASS/FAIL decision) instead of the builder (record + declare
+# done). See docs/designs/visual-verification.md for the rationale and worked per-platform examples.
 visual_verify_block() {
-  local tid="$1" vv wt
+  local tid="$1" mode="${2:-build}" vv wt
   [ -n "$VISUAL_VERIFY_HOOK" ] || return 0
   # NB: read .visualVerify WITHOUT `// empty` — jq's `//` treats a literal `false` as empty too, which
   # would drop an explicit opt-OUT. Absent → "null"/"" (falls through to the heuristic); false → "false".
@@ -444,6 +445,14 @@ visual_verify_block() {
   if [ "$vv" != true ]; then
     wt="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
     case " $VISUAL_VERIFY_WORKTYPES " in *" $wt "*) ;; *) return 0 ;; esac
+  fi
+  if [ "$mode" = audit ]; then
+    printf '\n--- VISUAL EVIDENCE (this is a visual task — a text-diff review is NOT sufficient) ---\n'
+    printf 'Run `%s` and LOOK at what it produces. Judge whether the rendered output actually satisfies\n' "$VISUAL_VERIFY_HOOK"
+    printf 'every visual "## Done when" item — the intended element is present AND painted/visible, not merely\n'
+    printf 'in the DOM/tree. FAIL if a screenshot contradicts a "## Done when" claim, if the visual check exits\n'
+    printf 'non-zero, or if a visual requirement is not evidenced by what actually renders.\n'
+    return 0
   fi
   printf '\n--- VISUAL VERIFICATION (required before reporting done — see docs/designs/visual-verification.md) ---\n'
   printf 'This task produces visual output. Passing tests/build alone is NOT sufficient.\n'
@@ -459,7 +468,7 @@ prompt() {
   cat <<'EOF'
 
 Obey CLAUDE.md, .harness/tracking/TASKS.json, and .harness/docs/HARNESS.md exactly. You run
-head-less and unattended.
+head-less and unattended. First read CLAUDE.md (conventions) and README.md (the current implemented state).
 
 1. BUILD COLD. You are starting FRESH on a clean branch off origin/main — do NOT look for or rely on
    any prior-attempt state (worklog, partial commits); build this task from the spec alone. Read this
@@ -695,7 +704,7 @@ $spec
 --- IMPLEMENTATION DIFF (origin/main..HEAD) ---
 $diff
 EOF
-  visual_verify_block "$id"
+  visual_verify_block "$id" audit
 }
 
 # audit_gate <id> — per-cell SAMPLED blocking audit (§4.3/4.6) on the CI-green branch. Sets

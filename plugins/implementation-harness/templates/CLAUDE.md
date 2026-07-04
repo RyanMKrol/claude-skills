@@ -66,6 +66,17 @@ the same commit** — never as a follow-up. A task is **done when its branch is 
 - If a task reveals additional needed work, prefer finishing the current task and committing
   the rest separately over expanding scope mid-task.
 
+### 4a. Commit + push as you go — uncommitted work is NOT durable here (non-negotiable)
+
+The in-place loop can be run with **`LOOP_AUTORESET=1`**: if the working tree is dirty when a run
+starts, it **auto-stashes everything and hard-resets to `origin/main`**. So any uncommitted work —
+notably a `/implementation-harness-convert-ideas` sweep that just authored a batch of new tasks, or a
+hand-edit to `TASKS.json` — can silently vanish into a stash the next time the loop starts. **Treat
+"uncommitted" as "not durable."** When a discrete unit of work is done (a conversion sweep, a backlog
+edit, a recovery), **commit and push it immediately**, don't leave it sitting in the tree across a
+session. (The `mark-*.sh` and `consolidate-ideas.sh` tools already commit+push for you; the risk is
+hand-edits and multi-step flows that don't.)
+
 ### 5. Every change records its trade-offs & limitations
 
 - When a change introduces or reveals a design **trade-off**, **bottleneck**, or known
