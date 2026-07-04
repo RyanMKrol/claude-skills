@@ -275,11 +275,18 @@ function renderPage() {
 <div id="sections"></div>
 </div>
 <script>
-const state = { open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null };
+const state = { open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null };
 
 async function refresh() {
   const res = await fetch('/api/backlog');
   const data = await res.json();
+  // Skip the re-render entirely when the backlog hasn't changed since the last poll. Rebuilding
+  // #sections' innerHTML recreates every open <pre>, which resets its scroll to the top — so a
+  // no-op 5s refresh would yank you back up while you're reading a spec. Only touch the DOM on a
+  // real change. (User-driven UI actions call rerender() directly, bypassing this guard.)
+  const json = JSON.stringify(data);
+  if (json === state.lastFetchedJson) return;
+  state.lastFetchedJson = json;
   render(data);
 }
 
@@ -336,7 +343,8 @@ function renderTask(task, bucketName) {
     detail += '<div class="bar" style="margin-top:10px">';
     if (bucketName === 'needsHuman') detail += \`<button class="act" onclick="markDone('\${task.id}')">Mark done</button>\`;
     if (bucketName === 'done' && !task.failed) detail += \`<button class="act danger" onclick="markFailed('\${task.id}')">Mark failed</button>\`;
-    detail += \`<button class="act" onclick="markReviewed('\${task.id}')">\${task.reviewed ? 'Reviewed ✓' : 'Mark reviewed'}</button>\`;
+    // A failed task is implicitly reviewed (see lib.js) — offer the review toggle only when NOT failed.
+    if (!task.failed) detail += \`<button class="act" onclick="markReviewed('\${task.id}')">\${task.reviewed ? 'Reviewed ✓' : 'Mark reviewed'}</button>\`;
     detail += '</div></div>';
   }
   // Only offer a bulk-select checkbox where bulk actions exist: needsHuman (mark-done) and

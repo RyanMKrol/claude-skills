@@ -32,6 +32,16 @@ Entry format:
 
 ---
 
+## 1.16.0 → 1.16.1 — dashboard fixes: spec-scroll reset + failed-implies-reviewed
+- mechanism: `dashboard/server.js` — the 5s auto-refresh now skips the re-render when the backlog is
+  unchanged since the last poll (it was rebuilding `#sections` every tick, recreating each open `<pre>`
+  and snapping its scroll back to the top mid-read); the per-task "Mark reviewed" button is no longer
+  offered on a failed task.
+- mechanism: `dashboard/lib.js` — a failed task is now implicitly reviewed (`reviewed = isReviewed || failed`),
+  so it drops out of the unreviewed / bulk-review set and shows the reviewed pill; failure is itself the
+  review verdict.
+- config: none. breaking: none.
+
 ## 1.15.0 → 1.16.0 — upgrade skill + version stamping + migration ledger
 - new files: `.harness/.harness-version` (written by create/upgrade — the plugin version marker; commit it).
 - mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` gain a `# harness-loop-variant:` header line

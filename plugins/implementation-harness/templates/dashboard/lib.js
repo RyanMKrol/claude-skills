@@ -80,9 +80,13 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
   const buckets = { ready: [], waiting: [], needsHuman: [], done: [] };
 
   for (const task of tasks) {
-    const reviewed = isReviewed(task, overlays);
-    if (isTerminalDone(task, overlays) || isFailed(task, overlays)) {
-      buckets.done.push({ ...task, failed: isFailed(task, overlays), reviewed });
+    const failed = isFailed(task, overlays);
+    // A failed task is IMPLICITLY reviewed — marking a task failed is itself a review verdict, so it
+    // never needs (and the UI must not offer) a separate "mark reviewed" step. (failed is only ever
+    // true for done-bucket tasks, so this doesn't affect ready/waiting/needsHuman rows.)
+    const reviewed = isReviewed(task, overlays) || failed;
+    if (isTerminalDone(task, overlays) || failed) {
+      buckets.done.push({ ...task, failed, reviewed });
       continue;
     }
     if (isNeedsHuman(task, blockedIds)) {

@@ -36,6 +36,20 @@ test('a status:failed task lands in done, flagged failed', () => {
   assert.strictEqual(b.done[0].failed, true);
 });
 
+test('a failed task is implicitly reviewed (even with no reviews overlay)', () => {
+  const tasks = { tasks: [{ id: 'T001', status: 'failed', gate: null, dependsOn: [] }] };
+  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  assert.strictEqual(b.done[0].failed, true);
+  assert.strictEqual(b.done[0].reviewed, true);   // failure IS a review verdict — no separate mark-reviewed
+});
+
+test('a manual-fail task is implicitly reviewed', () => {
+  const tasks = { tasks: [{ id: 'T001', status: 'done', gate: null, dependsOn: [] }] };
+  const overlays = { ...EMPTY_OVERLAYS, manualFail: { T001: { failed: true } } };
+  const b = computeBacklog(tasks, overlays, new Set());
+  assert.strictEqual(b.done[0].reviewed, true);
+});
+
 test('human-done overlay promotes a needs-human task to done', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'pending', gate: 'needs-human', dependsOn: [] }] };
   const overlays = { ...EMPTY_OVERLAYS, humanDone: { T001: { done: true } } };
