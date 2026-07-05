@@ -43,7 +43,8 @@ same ladder as any other task.
 
 `facets.json → .tiers.ladder`: one ordered list of `{model, effort}` tiers, cheapest → priciest. The
 policy picks a **start tier** per task; escalation walks **up** the ladder (clamped at the top). The
-authored model/effort is only the cold-start prior. `MAX_ATTEMPTS` soft failures per tier before
+cold-start prior is the `harness.env` `MODEL`/`EFFORT` floor (per-task `model`/`effort` fields are
+ignored — facets are the only per-task difficulty signal). `MAX_ATTEMPTS` soft failures per tier before
 escalating (default 2 — the ladder is fine-grained).
 
 ## 3. Capture — the ledger  *(in `loop.sh`)*
@@ -58,7 +59,7 @@ is the SOLE input to calibration** — the aggregator joins *from* a ledger row 
 
 `policy.jq` reads the ledger and, for a task's `(layer × work-type)` cell, returns the **cheapest tier
 whose historical first-attempt success rate ≥ floor (default 0.75) with ≥ minN (default 6) samples;
-else the authored difficulty** (cold-start prior). `pick_base` runs it at task selection; the rung
+else the `harness.env` `MODEL`/`EFFORT` floor** (cold-start prior). `pick_base` runs it at task selection; the rung
 machinery rides the global ladder offset by that base. Robust: any missing facets / empty ledger /
 error → the prior, so it can never break the loop.
 

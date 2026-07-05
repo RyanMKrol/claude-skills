@@ -373,15 +373,24 @@ tier_strength() {
   echo $(( mr * 10 + er ))
 }
 
+# rand_pm — uniform integer in 0..999. $RANDOM spans 0..32767, and 32768 % 1000 != 0, so a bare
+# `RANDOM % 1000` over-weights 0..767 — enough to skew the sampled audit rate slightly below the
+# configured per-mille. Rejection-sample below 32000 (32 exact cycles of 1000) before reducing.
+rand_pm() {
+  local r
+  while :; do r=$RANDOM; [ "$r" -lt 32000 ] && break; done
+  echo $(( r % 1000 ))
+}
+
 # pick_base <id> — the policy's chosen START tier INDEX: the cheapest ladder tier whose
-# (layer × work-type) cell historically clears the floor with >= minN samples; else the authored
-# difficulty (cold-start prior). Robust: missing facets / empty ledger / any error → the prior.
+# (layer × work-type) cell historically clears the floor with >= minN samples; else the harness.env
+# MODEL/EFFORT floor (cold-start prior). facets are the ONLY per-task difficulty signal — a stray
+# hand-added per-task "model"/"effort" field is deliberately ignored, never an override. Robust:
+# missing facets / empty ledger / any error → the prior.
 pick_base() {
-  local id="$1" layer wt am ae cold tiers
-  am="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.model // empty')"; am="${am:-$MODEL}"
-  ae="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.effort // empty')"; ae="${ae:-$EFFORT}"
+  local id="$1" layer wt cold tiers
   tiers="$(jq -c '.tiers.ladder' "$FACETS" 2>/dev/null)"
-  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$am" --arg e "$ae" '($t|map(.model==$m and .effort==$e)|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
+  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$MODEL" --arg e "$EFFORT" '($t|map(.model==$m and .effort==$e)|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
   if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s' "$cold"; return; fi
@@ -732,7 +741,7 @@ audit_gate() {
         --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
         --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' 2>/dev/null || echo 1000)"
   pm="${pm:-1000}"
-  if [ "$(( RANDOM % 1000 ))" -ge "$pm" ]; then
+  if [ "$(rand_pm)" -ge "$pm" ]; then
     log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
   fi
   # The auditor runs at its CONFIGURED tier (AUDITOR_MODEL/EFFORT — e.g. opus/medium, which need NOT
@@ -863,7 +872,9 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   fi
   task="$sel"
   if [ "$task" != "$cur_task" ]; then
-    cur_task="$task"; cur_attempts=0; cur_rung=0
+    # cur_verification resets here too: a task that terminates BEFORE its audit_gate runs (structural
+    # fail / CI red / blocked) must not inherit the previous task's "audited" into its ledger row.
+    cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"
     cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi

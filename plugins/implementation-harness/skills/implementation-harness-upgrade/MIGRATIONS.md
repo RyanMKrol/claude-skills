@@ -32,6 +32,30 @@ Entry format:
 
 ---
 
+## 1.18.0 → 1.18.1 — loop correctness fixes (ledger accuracy + policy hygiene)
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` —
+  - `cur_verification` now resets to `ci-only` whenever a NEW task is selected (was reset only inside
+    `audit_gate`, so a task failing before its audit could write the previous task's `"audited"` into
+    its outcome/blocked ledger row).
+  - `pick_base` no longer reads per-task `.model`/`.effort` from `TASKS.json` — the cold-start prior is
+    always the `harness.env` `MODEL`/`EFFORT` floor. Facets were already the documented only difficulty
+    signal; a stray hand-added field could silently override the tier floor.
+  - audit sampling uses a new `rand_pm` helper (rejection-sampled `$RANDOM`) instead of `RANDOM % 1000`,
+    removing the modulo bias that skewed the effective audit rate slightly below the configured per-mille.
+- mechanism: `scripts/loop.sh` (worktree variant only) — `sync_primary_checkout` no longer checks out
+  `main` from another branch: a primary checkout deliberately left on a feature branch (or detached) is
+  left alone; only a checkout already on `main` is fast-forwarded.
+- mechanism: `docs/HARNESS.md`, `docs/designs/difficulty-autotune.md` — cold-start-prior wording updated
+  to match (prior = `harness.env` floor; per-task `model`/`effort` ignored).
+- config: `config/harness.env` — comment-only clarification on `PUSH_COOLDOWN_SECONDS` (the throttle
+  covers the integration push; the follow-up `[skip ci]` status/ledger push is not throttled). No ACTION —
+  knob reconciliation doesn't carry comments; nothing to apply.
+- manual attention: root `CLAUDE.md` template (golden rule 7) rewords the cold-start-prior sentence and
+  now says per-task `model`/`effort` fields are ignored — existing installs may want to update their copy.
+  If any existing `TASKS.json` task carries a hand-added `model`/`effort` field, it stops having an effect
+  as of this version (facets/ladder govern entirely).
+- breaking: none.
+
 ## 1.17.0 → 1.18.0 — dashboard Ideas + Internals (per-facet calibration) tabs
 - mechanism: `dashboard/server.js` + `dashboard/lib.js` — the dashboard is now a 3-tab app
   (Backlog / Ideas / Internals). New `GET /api/ideas` (renders `tracking/IDEAS.md` via a dependency-free,

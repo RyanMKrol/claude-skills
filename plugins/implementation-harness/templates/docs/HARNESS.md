@@ -122,10 +122,10 @@ tasks that actually need it.
 **Difficulty is auto-tuned (see `.harness/docs/designs/difficulty-autotune.md`).** Rather than per-task
 `escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
 policy (`.harness/scripts/policy.jq`) picks each task's START tier from its `(layer × work-type)` facet cell's
-escalation history (the cheapest tier clearing `floor` with ≥ `minN` samples; else the authored
-difficulty as a cold-start prior). Every built task's outcome is captured to `outcomes.jsonl` — the
-sole, forward-only calibration input. With no authored per-task model/effort, the cold-start prior is
-simply the cheapest tier (the `harness.env` floor); `needs-human` tasks are carved out entirely. Tasks
+escalation history (the cheapest tier clearing `floor` with ≥ `minN` samples; else the `harness.env`
+`MODEL`/`EFFORT` floor as the cold-start prior). Every built task's outcome is captured to `outcomes.jsonl` —
+the sole, forward-only calibration input. Facets are the ONLY per-task difficulty signal: a per-task
+`model`/`effort` field is ignored by the loop, never an override; `needs-human` tasks are carved out entirely. Tasks
 are classified with **facets** (not a guessed
 difficulty) by the add-to-backlog skill, and the `layer` vocabulary self-evolves via a poor-fit gate.
 

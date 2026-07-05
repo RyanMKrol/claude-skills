@@ -104,8 +104,10 @@ the live local DB / daemon — there a leaky test pollutes real state immediatel
 Every BUILDABLE task you add to `TASKS.json` MUST carry a `"facets": { "layer": …, "workType": …,
 "risk": [...] }` object, with values chosen ONLY from `facets.json`'s controlled vocabulary (use the
 task's `scope` paths to pick the `layer`). The loop's policy reads facets to choose each task's
-STARTING model/effort from escalation history, so `model`/`effort` are now just a **cold-start
-prior**. `needs-human` (gated) tasks are **carved out** — they get NO facets. Author through the
+STARTING model/effort from escalation history; the cold-start prior is the `harness.env`
+`MODEL`/`EFFORT` floor. **Never add per-task `model`/`effort` fields — the loop ignores them**
+(facets are the only per-task difficulty signal). `needs-human` (gated) tasks are **carved out** —
+they get NO facets. Author through the
 add-to-backlog skill when it's available (it assigns facets + runs the poor-fit / layer-evolution
 gate), but the rule holds even on a direct `TASKS.json` edit: a buildable task without facets gets
 no auto-tuning, and the loop **pre-flight WARNs** about facet-less buildable tasks. This same
