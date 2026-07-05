@@ -6,8 +6,10 @@ description: >-
   latest harness changes", "is my harness up to date", "/upgrade-harness". Reconciles the installed
   `.harness/` against the plugin's bundled reference: refreshes plugin-owned mechanism files and adds new
   `harness.env` knobs, REPORTING first and asking before every change, and NEVER touching the backlog,
-  worklog, ledgers, or the user's config values. Requires a harness already scaffolded (use
-  implementation-harness-create for a fresh install).
+  worklog, ledgers, or the user's config values. Also ADOPTS legacy or hand-forked installs (no version
+  marker, hand-maintained since install, or a pre-plugin hand-ported harness) — classifying each
+  difference as plugin-newer vs local-bespoke vs conflict before anything is overwritten. Requires a
+  harness already scaffolded (use implementation-harness-create for a fresh install).
 argument-hint: "[optional: path to the project or its .harness — defaults to cwd]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -63,6 +65,54 @@ change safely* (especially the additive `harness.env` instructions and any file 
   An empty result means a **legacy install** (scaffolded before version stamping) — note that and proceed.
 - If `CUR_VERSION` = `REF_VERSION`, tell the user the harness is already on the current version. Offer an
   optional **integrity re-scan** anyway (stages 3–5 still detect local drift); if they decline, stop here.
+- **A version marker is a starting point, not a promise.** Never assume the installed files actually match
+  `CUR_VERSION` — owners hand-edit mechanism files between upgrades. The content diffs in stage 3 are
+  always the ground truth; the marker only selects which ledger entries explain the *expected* deltas.
+
+## 1a. Adoption mode — legacy & hand-forked installs
+
+Treat the run as an **adoption** (a full-content reconciliation rather than a ledger walk) when any of
+these hold: there is no `.harness-version`; `loop.sh` has no `# harness-loop-variant:` header; canonical
+paths are missing but similarly-named files exist elsewhere under `.harness/`; or stage-3 diffs contain
+changes the selected ledger entries cannot explain. This is the normal shape of a harness that predates
+the plugin or was hand-maintained in parallel with it — it is not an error.
+
+- **Confirm the heuristics.** The variant grep in stage 1 (`git worktree add` → worktree; else in-place —
+  an in-place loop resets the primary checkout with `git reset --hard origin/...` / a `cold_reset`
+  function) is a guess on a fork: state which variant you detected and WHY, and have the user confirm
+  before diffing against that reference.
+- **Locate files by name, not just canonical path.** Old installs may keep a flat layout (`HARNESS.md`,
+  `harness.env`, `TASKS.json`, overlays at the `.harness/` root) predating the `config/` + `tracking/` +
+  `docs/` regroup. Match each reference file to its installed counterpart by filename anywhere under
+  `.harness/`, diff against *that*, and list the canonical-layout moves as their own report section — the
+  user may adopt the layout or keep theirs (a kept nonstandard layout means mechanism files will keep
+  showing path-derivation diffs; say so).
+- **Classify every differing mechanism file three ways, hunk by hunk**, instead of one overwrite/keep
+  call per file:
+  - **(a) plugin-newer** — the delta matches a ledger entry newer than the install's vintage (or, with no
+    vintage, is present in the reference and clearly the shipped mechanism). Recommend *take*.
+  - **(b) local-bespoke** — present in the target, absent from the reference, and not explained by any
+    ledger entry: the owner's own hardening or project coupling (e.g. a custom integrate hook, extra
+    logging, a daemon-shared lock). Recommend *keep*, and where the improvement is generic, **explicitly
+    suggest upstreaming it as a plugin change** — a fork's fix that never reaches `templates/` is how the
+    lineages drift apart.
+  - **(c) conflict** — both sides changed the same area. Show both versions of the hunk; the user decides.
+    Where they take the reference file wholesale, offer to re-apply their bespoke hunks on top.
+- **A missing mechanism file may be a deliberate removal, not a gap.** (Real example: an install that
+  drives all owner actions through its dashboard removed the `mark-*.sh` CLIs on purpose.) In adoption
+  mode, present missing files as a question — "the reference ships X; your install doesn't have it —
+  add it, or was it removed deliberately?" — never as an automatic "new files to add".
+- **Facet vocabularies belong to the project.** `facets.json`'s `layer`/`workType`/`risk` word lists are
+  user config, tailored and self-evolving per project (one real install uses `api / dashboard-logic / db /
+  job / service / ui`, not the template's generic set). NEVER "correct" vocabulary toward the template.
+  Only the policy knobs and schema keys the ledger explicitly names are reconcilable — and check the
+  policy actually *consumes* what the config declares (a known fork drift: the vocabulary defined `risk`
+  but the local `policy.jq` predated risk wiring and silently never read it — exactly the kind of
+  plugin-newer mechanism delta to recommend taking).
+- **Finish by making the next upgrade normal.** After applying approvals, ensure `loop.sh` carries the
+  correct `# harness-loop-variant:` header (if the user kept a forked `loop.sh` without one, offer to
+  insert just the header line — a one-line, behavior-free edit), then stamp `.harness-version` per stage
+  5. From then on the install upgrades by ledger walk like any other.
 
 ## 2. Select the relevant migration entries
 
@@ -93,7 +143,8 @@ its template source and compare bytes (`cmp -s A B` → identical):
 
 For each file, classify:
 - **identical** (`cmp -s` passes) → up to date, skip.
-- **missing in target** → a **new file** the reference adds (a new script/doc). Candidate to add.
+- **missing in target** → a **new file** the reference adds (a new script/doc). Candidate to add. (In
+  adoption mode this is a question, not a recommendation — it may be a deliberate removal; see §1a.)
 - **differs** → capture the unified diff (`diff -u "$target" "$ref"`) **and** the matching ledger note(s).
   Do NOT decide anything yet — this goes in the report for the user to adjudicate.
 
@@ -142,7 +193,8 @@ user must always be able to see what diverged before approving.
 
 - **Re-stamp:** write the new version — `printf '%s\n' "$REF_VERSION" > "$H/.harness-version"` — so the
   next upgrade starts from here. (Do this even on a legacy install; it also creates the marker for the
-  first time.)
+  first time.) If the retained `loop.sh` still lacks a `# harness-loop-variant:` header, offer to insert
+  it now (see §1a) so the next run doesn't have to re-guess the variant.
 - **Validate the upgraded harness is healthy:**
   ```bash
   for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
