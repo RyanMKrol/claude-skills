@@ -1,0 +1,101 @@
+name: CI
+
+# Guardrails for the plugin marketplace. Two jobs:
+#   validate    — every script parses (bash 3.2 has no CI runner, so `bash -n` + the repo's own tests
+#                 are the floor), every JSON is valid, the dashboard test suite passes.
+#   conventions — enforce the repo's two #1 gotchas with tooling instead of discipline:
+#                 (1) any change to a plugin's files ships WITH a version bump in its plugin.json
+#                     (the plugin cache only re-installs on a version change);
+#                 (2) any change under templates/ ships WITH a MIGRATIONS.md entry (the upgrade
+#                     skill is ledger-driven — a missing entry never reaches existing installs).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n every shell script
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            bash -n "$f" || { echo "SYNTAX ERROR: $f"; fail=1; }
+          done < <(find plugins -name '*.sh' -print0)
+          exit "$fail"
+
+      - name: node --check every JS file + run the dashboard tests
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            node --check "$f" || { echo "PARSE ERROR: $f"; fail=1; }
+          done < <(find plugins -name '*.js' -print0)
+          [ "$fail" = 0 ]
+          node plugins/implementation-harness/templates/dashboard/lib.test.js
+
+      - name: jq empty every JSON file
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            jq empty "$f" || { echo "BAD JSON: $f"; fail=1; }
+          done < <(find plugins .claude-plugin -name '*.json' -print0)
+          exit "$fail"
+
+  conventions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: resolve the diff range
+        id: range
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch --quiet origin "${{ github.base_ref }}"
+            echo "range=${base}...HEAD" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ] \
+            && git cat-file -e "${{ github.event.before }}" 2>/dev/null; then
+            echo "range=${{ github.event.before }}..HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo "range=HEAD~1..HEAD" >> "$GITHUB_OUTPUT"   # new branch / force push — best effort
+          fi
+
+      - name: plugin change ⇒ version bump (same push)
+        run: |
+          set -euo pipefail
+          range="${{ steps.range.outputs.range }}"
+          changed="$(git diff --name-only "$range" -- 'plugins/' || true)"
+          [ -n "$changed" ] || { echo "no plugin files changed — ok"; exit 0; }
+          fail=0
+          for plugin in $(printf '%s\n' "$changed" | cut -d/ -f2 | sort -u); do
+            manifest="plugins/$plugin/.claude-plugin/plugin.json"
+            [ -f "$manifest" ] || continue
+            if ! git diff "$range" -- "$manifest" | grep -q '^+.*"version"'; then
+              echo "::error::plugins/$plugin changed without a version bump in $manifest — the plugin cache only re-installs on a version change, so this change silently never reaches consumers."
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+      - name: templates/ change ⇒ MIGRATIONS.md entry (same push)
+        run: |
+          set -euo pipefail
+          range="${{ steps.range.outputs.range }}"
+          tpl="plugins/implementation-harness/templates"
+          ledger="plugins/implementation-harness/skills/implementation-harness-upgrade/MIGRATIONS.md"
+          if [ -n "$(git diff --name-only "$range" -- "$tpl" || true)" ] \
+            && [ -z "$(git diff --name-only "$range" -- "$ledger" || true)" ]; then
+            echo "::error::$tpl changed without a $ledger entry — the upgrade skill is ledger-driven, so this change never reaches existing installs on upgrade."
+            exit 1
+          fi
+          echo "ok"
