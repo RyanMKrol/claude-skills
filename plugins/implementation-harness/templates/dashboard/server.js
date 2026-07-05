@@ -15,7 +15,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
-const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, mdToHtml } = require('./lib');
+const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, mdToHtml } = require('./lib');
 
 const HARNESS_DIR = path.join(__dirname, '..');
 const ROOT = path.join(HARNESS_DIR, '..');
@@ -217,10 +217,101 @@ function buildHarnessState() {
   const value = {
     ladder, coldIdx,
     policy: { floor, minN, auditStartN, auditFloorN, auditFloor: auditFloorPM / 1000, auditorModel: pol.auditorModel || null, auditorEffort: pol.auditorEffort || null },
-    cells, recent: recentActivity(outcomes, failures, 20), jqOk,
+    cells, recent: recentActivity(outcomes, failures, 20), failureKinds: failureKinds(failures), jqOk,
   };
   _harnessCache = { key, value };
   return value;
+}
+
+// ─── Live activity ("Now" strip): lock + heartbeat + log tail + freshness ────────────────────────
+const NAME = path.basename(ROOT);
+const HEARTBEAT_PATH = path.join(WORKLOG_DIR, '.current.json');
+
+// envKnob(name, fallback) — real env wins, else the harness.env `${NAME:=default}` line, else fallback
+// (same precedence the loop's own `: "${VAR:=…}"` sourcing gives).
+function envKnob(name, fallback) {
+  if (process.env[name]) return process.env[name];
+  const env = readText(HARNESS_ENV_PATH) || '';
+  const m = new RegExp('\\$\\{' + name + ':=([^}"\\s]+)').exec(env);
+  return m ? m[1] : fallback;
+}
+
+let _gitCommon = undefined;   // memoised — the git common dir never changes while the server runs
+function gitCommonDir() {
+  if (_gitCommon !== undefined) return _gitCommon;
+  try {
+    let d = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: ROOT, encoding: 'utf8', timeout: 3000 }).trim();
+    if (!path.isAbsolute(d)) d = path.join(ROOT, d);
+    _gitCommon = d;
+  } catch (_err) { _gitCommon = null; }
+  return _gitCommon;
+}
+
+// lockState() — read the loop's own mkdir lock (<git-common>/<name>-loop.lock/pid, identical
+// derivation to repo-lock.sh) and probe the PID, so "running / idle / stale lock" can never
+// disagree with what the loop itself would conclude.
+function lockState() {
+  const common = gitCommonDir();
+  if (!common) return { held: false, pid: null, alive: false };
+  const lockDir = path.join(common, `${NAME}-loop.lock`);
+  if (!fs.existsSync(lockDir)) return { held: false, pid: null, alive: false };
+  const pid = parseInt(readText(path.join(lockDir, 'pid')) || '', 10);
+  if (!Number.isFinite(pid)) return { held: true, pid: null, alive: false };
+  let alive = true;
+  try { process.kill(pid, 0); } catch (_err) { alive = false; }
+  return { held: true, pid, alive };
+}
+
+// claudeOutTail() — the last ~40 lines of the builder/auditor's live output. The worktree variant
+// writes it inside the loop worktree (../<name>-loop/.harness/worklog/), the in-place variant in the
+// primary checkout — read whichever was touched most recently.
+function claudeOutTail() {
+  const candidates = [
+    path.join(WORKLOG_DIR, '.claude-out'),
+    path.join(path.dirname(ROOT), `${NAME}-loop`, '.harness', 'worklog', '.claude-out'),
+  ];
+  let best = null, bestM = 0;
+  for (const p of candidates) {
+    try { const m = fs.statSync(p).mtimeMs; if (m > bestM) { bestM = m; best = p; } } catch (_err) { /* absent */ }
+  }
+  if (!best) return null;
+  const text = readText(best);
+  if (!text) return null;
+  const lines = text.split('\n');
+  return lines.slice(-40).join('\n').slice(-8000);
+}
+
+// freshness() — how stale is what this dashboard renders? Age of the last `git fetch` (FETCH_HEAD
+// mtime) + whether the local checkout's HEAD is the same commit as origin/<main>. The dashboard reads
+// LOCAL files, so with the loop stopped and no fetch, it can silently lag origin — this surfaces that.
+function freshness() {
+  const common = gitCommonDir();
+  let lastFetchSec = null;
+  if (common) {
+    try { lastFetchSec = Math.max(0, Math.round((Date.now() - fs.statSync(path.join(common, 'FETCH_HEAD')).mtimeMs) / 1000)); } catch (_err) { /* never fetched */ }
+  }
+  const rev = (ref) => {
+    try { return execFileSync('git', ['rev-parse', ref], { cwd: ROOT, encoding: 'utf8', timeout: 3000 }).trim(); } catch (_err) { return null; }
+  };
+  const mainBranch = envKnob('MAIN_BRANCH', 'main');
+  const localHead = rev('HEAD');
+  const originHead = rev(`origin/${mainBranch}`);
+  return {
+    lastFetchSec,
+    mainBranch,
+    inSync: !!(localHead && originHead && localHead === originHead),
+    known: !!(localHead && originHead),
+  };
+}
+
+function activityState() {
+  return {
+    lock: lockState(),
+    current: readJson(HEARTBEAT_PATH, null),
+    logTail: claudeOutTail(),
+    freshness: freshness(),
+    fetchEverySec: parseInt(envKnob('HARNESS_DASHBOARD_FETCH_SECONDS', '0'), 10) || 0,
+  };
 }
 
 function isLoopback(req) {
@@ -281,6 +372,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/harness') {
       return sendJson(res, 200, buildHarnessState());
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/activity') {
+      return sendJson(res, 200, activityState());
     }
 
     if (req.method === 'GET' && url.pathname === '/') {
@@ -385,8 +480,21 @@ function renderPage() {
   .flash{animation:flash 1.6s ease-out;border-radius:6px}
   @keyframes flash{from{background:rgba(232,130,31,.25)}to{background:transparent}}
 
-  .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 20px;}
+  .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 12px;}
   .topbar h1{margin:0}
+
+  /* "Now" strip — live loop status + freshness, on every tab */
+  .nowbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;font-size:12px}
+  .nowpill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--muted);white-space:nowrap}
+  .nowpill.run{color:var(--green);border-color:rgba(90,158,46,.45);background:rgba(90,158,46,.10);font-weight:600}
+  .nowpill.idle{color:var(--muted)}
+  .nowpill.warn{color:var(--yellow);border-color:rgba(201,138,18,.45);background:rgba(201,138,18,.10);font-weight:600}
+  .nowpill.bad{color:var(--red);border-color:rgba(224,73,46,.4);background:rgba(224,73,46,.08);font-weight:600}
+  .nowbar details{flex-basis:100%;margin-top:2px}
+  .nowbar summary{color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
+  .nowbar pre{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:260px;overflow:auto;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin:6px 0 0}
+
+  .kindpills{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px}
   .tabs{display:flex;gap:6px;flex-wrap:wrap}
   .tab{font-size:13px;padding:5px 13px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--muted);}
   .tab:hover{border-color:var(--accent);color:var(--text)}
@@ -436,6 +544,7 @@ function renderPage() {
     <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
   </nav>
 </div>
+<div id="nowbar" class="nowbar"></div>
 <div id="view-backlog" class="view">
   <p class="sub" id="summary"></p>
   <div id="sections"></div>
@@ -448,7 +557,7 @@ function renderPage() {
 </div>
 </div>
 <script>
-const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, lastIdeasJson: null, lastHarnessJson: null };
+const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: false };
 
 function switchView(name) {
   state.activeView = name;
@@ -459,12 +568,65 @@ function switchView(name) {
   refreshActive();
 }
 
-// One 5s poll, dispatched to whichever view is active. Each view keeps its own change-guard so an
-// unchanged poll never rebuilds the DOM (preserves scroll / open <pre> position — see the backlog note).
+// One 5s poll, dispatched to whichever view is active (plus the always-on "Now" strip). Each view
+// keeps its own change-guard so an unchanged poll never rebuilds the DOM (preserves scroll / open
+// <pre> position — see the backlog note).
 function refreshActive() {
+  refreshNow();
   if (state.activeView === 'ideas') return refreshIdeas();
   if (state.activeView === 'harness') return refreshHarness();
   return refreshBacklog();
+}
+
+async function refreshNow() {
+  let data; try { data = await (await fetch('/api/activity')).json(); } catch (e) { return; }
+  const json = JSON.stringify(data);
+  if (json === state.lastNowJson) return;
+  state.lastNowJson = json;
+  renderNow(data);
+}
+
+function ago(sec) {
+  if (sec == null) return 'never';
+  if (sec < 60) return sec + 's ago';
+  if (sec < 3600) return Math.round(sec / 60) + 'm ago';
+  return (sec / 3600).toFixed(1) + 'h ago';
+}
+
+// renderNow(data) — the live status strip: what the loop is doing RIGHT NOW (from its lock +
+// worklog/.current.json heartbeat), how fresh the rendered data is vs origin, and a collapsible
+// tail of the builder's live output.
+function renderNow(data) {
+  const el = document.getElementById('nowbar');
+  const lock = data.lock || {}, cur = data.current, fr = data.freshness || {};
+  let h = '';
+  if (lock.held && lock.alive) {
+    if (cur && cur.task) {
+      const tier = cur.model ? ' · ' + esc(cur.model) + '/' + esc(cur.effort) : '';
+      h += '<span class="nowpill run">▶ ' + esc(cur.task) + ' — ' + esc(cur.phase || 'working')
+         + ' (rung ' + esc(String(cur.rung)) + ', attempt ' + esc(String(+cur.attempt + 1)) + tier + ')</span>';
+    } else {
+      h += '<span class="nowpill run">▶ loop running (PID ' + esc(String(lock.pid || '?')) + ')</span>';
+    }
+  } else if (lock.held && !lock.alive) {
+    h += '<span class="nowpill warn" title="The lock dir exists but its PID is dead — a loop was interrupted. Run the loop-recover skill.">⚠ stale lock (PID ' + esc(String(lock.pid || '?')) + ' dead) — run loop-recover</span>';
+  } else {
+    h += '<span class="nowpill idle">◼ loop idle</span>';
+  }
+  if (fr.known && !fr.inSync) {
+    h += '<span class="nowpill bad" title="The local checkout this dashboard reads is not on the same commit as origin/' + esc(fr.mainBranch || 'main') + ' — what you see may be stale or ahead.">local ≠ origin/' + esc(fr.mainBranch || 'main') + '</span>';
+  }
+  const fetchCls = (fr.lastFetchSec == null || fr.lastFetchSec > 900) ? 'nowpill warn' : 'nowpill idle';
+  const fetchNote = data.fetchEverySec > 0 ? ' (auto-fetch ' + data.fetchEverySec + 's)' : '';
+  h += '<span class="' + fetchCls + '" title="Age of the last git fetch — the dashboard renders LOCAL files, so origin changes are invisible until something fetches. Set HARNESS_DASHBOARD_FETCH_SECONDS to have the dashboard fetch itself.">origin seen: ' + ago(fr.lastFetchSec) + fetchNote + '</span>';
+  if (data.logTail) {
+    h += '<details id="now-log" ontoggle="state.nowLogOpen=this.open"' + (state.nowLogOpen ? ' open' : '') + '>'
+       + '<summary>live output (' + (cur && cur.task ? esc(cur.task) : 'last run') + ')</summary>'
+       + '<pre id="now-log-pre">' + esc(data.logTail) + '</pre></details>';
+  }
+  el.innerHTML = h;
+  const pre = document.getElementById('now-log-pre');
+  if (pre && state.nowLogOpen) pre.scrollTop = pre.scrollHeight;
 }
 
 async function refreshBacklog() {
@@ -522,20 +684,32 @@ function renderHarness(data) {
   if (!cells.length) {
     h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
   } else {
-    h += '<table class="ftable"><thead><tr><th>Facet</th><th>Start model</th><th class="num">Audit</th><th class="num">Builds</th><th class="num">✓</th><th class="num">✗</th><th class="num">⚠ fails</th></tr></thead><tbody>';
+    h += '<table class="ftable"><thead><tr><th>Facet</th><th>Start model</th><th class="num" title="The sampling probability the policy will use for the NEXT build in this cell">Audit (policy)</th><th class="num" title="What actually happened: audited successes / all successes recorded in the ledger">Audited (observed)</th><th class="num">Builds</th><th class="num">✓</th><th class="num">✗</th><th class="num">⚠ fails</th></tr></thead><tbody>';
     for (const c of cells) {
       const model = c.chosenModel ? esc(c.chosenModel) + ' / ' + esc(c.chosenEffort) : '—';
       const cold = (c.chosenModel && !c.hasHistory) ? '<span class="cold-tag">cold</span>' : '';
       const audit = (c.auditPct != null) ? c.auditPct + '%' : '—';
+      const observed = c.successes ? Math.round((c.audited / c.successes) * 100) + '% <span class="cold-tag">' + c.audited + '/' + c.successes + '</span>' : '—';
+      const failTip = Object.entries(c.kinds || {}).map(function (kv) { return kv[0] + ' ×' + kv[1]; }).join(', ');
       h += '<tr><td class="facet-name">' + esc(c.layer) + '/' + esc(c.workType) + '</td>' +
            '<td class="model-tag">' + model + cold + '</td>' +
            '<td class="num">' + audit + '</td>' +
+           '<td class="num">' + observed + '</td>' +
            '<td class="num">' + c.builds + '</td>' +
            '<td class="num">' + c.successes + '</td>' +
            '<td class="num">' + c.blocked + '</td>' +
-           '<td class="num">' + c.failures + '</td></tr>';
+           '<td class="num"' + (failTip ? ' title="' + esc(failTip) + '"' : '') + '>' + c.failures + '</td></tr>';
     }
     h += '</tbody></table>';
+  }
+
+  const kinds = data.failureKinds || [];
+  if (kinds.length) {
+    h += '<div class="htitle">Failure health</div>';
+    h += '<p class="note">Every failed attempt in <span class="mono">ledgers/failures.jsonl</span>, by kind — which gate is actually catching things. (Hover a cell\\'s ⚠ count above for its per-facet breakdown.)</p>';
+    h += '<div class="kindpills">' + kinds.map(function (k) {
+      return '<span class="pill blocked">' + esc(k.kind) + ' ×' + k.count + '</span>';
+    }).join('') + '</div>';
   }
 
   h += '<div class="htitle">Recent activity</div>';
@@ -769,6 +943,16 @@ if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`[dashboard] listening on http://127.0.0.1:${PORT}`);
   });
+  // Opt-in freshness fetch (HARNESS_DASHBOARD_FETCH_SECONDS > 0): keep FETCH_HEAD / origin refs
+  // current so the backlog can't silently lag origin when the loop isn't running. Fetch-only —
+  // never touches the working tree; failures (offline, no remote) are silent and harmless.
+  const fetchEvery = parseInt(envKnob('HARNESS_DASHBOARD_FETCH_SECONDS', '0'), 10) || 0;
+  if (fetchEvery > 0) {
+    setInterval(() => {
+      execFile('git', ['fetch', 'origin', '--quiet'], { cwd: ROOT, timeout: 60000 }, () => {});
+    }, fetchEvery * 1000);
+    console.log(`[dashboard] fetching origin every ${fetchEvery}s (HARNESS_DASHBOARD_FETCH_SECONDS)`);
+  }
 }
 
 module.exports = { server, loadState, isLoopback };

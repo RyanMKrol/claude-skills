@@ -4,7 +4,7 @@
 'use strict';
 
 const assert = require('assert');
-const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, mdToHtml } = require('./lib');
+const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, failureKinds, mdToHtml } = require('./lib');
 
 const EMPTY_OVERLAYS = { humanDone: {}, manualFail: {}, reviews: {} };
 let pass = 0;
@@ -222,6 +222,33 @@ test('harnessCells surfaces a pending-task cell with no history yet', () => {
   assert.strictEqual(cells.length, 1);
   assert.strictEqual(cells[0].pending, 1);
   assert.strictEqual(cells[0].builds, 0);
+});
+
+test('harnessCells tallies failure kinds per cell', () => {
+  const failures = [
+    { id: 'T1', facets: { layer: 'backend', workType: 'feature' }, kind: 'ci-red' },
+    { id: 'T1', facets: { layer: 'backend', workType: 'feature' }, kind: 'ci-red' },
+    { id: 'T2', facets: { layer: 'backend', workType: 'feature' }, kind: 'audit-fail' },
+    { id: 'T3', facets: { layer: 'backend', workType: 'feature' } },   // no kind → 'unknown'
+  ];
+  const cells = harnessCells([], failures, [], {});
+  assert.deepStrictEqual(cells[0].kinds, { 'ci-red': 2, 'audit-fail': 1, unknown: 1 });
+  assert.strictEqual(cells[0].failures, 4);
+});
+
+test('failureKinds aggregates globally, sorted by count desc then kind asc', () => {
+  const failures = [
+    { id: 'T1', kind: 'audit-fail' }, { id: 'T2', kind: 'ci-red' }, { id: 'T3', kind: 'ci-red' },
+    { id: 'T4', kind: 'scope-creep' }, { id: 'T5', kind: 'audit-fail' }, { id: 'T6' },
+  ];
+  assert.deepStrictEqual(failureKinds(failures), [
+    { kind: 'audit-fail', count: 2 },
+    { kind: 'ci-red', count: 2 },
+    { kind: 'scope-creep', count: 1 },
+    { kind: 'unknown', count: 1 },
+  ]);
+  assert.deepStrictEqual(failureKinds([]), []);
+  assert.deepStrictEqual(failureKinds(null), []);
 });
 
 test('recentActivity merges + sorts by ts desc and honours the limit', () => {

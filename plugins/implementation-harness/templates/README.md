@@ -120,9 +120,17 @@ deliberately *not* parallel).
   worklog, audit log) and buttons that call the same `mark-*.sh` scripts a human would run by hand.
 - **Ideas** — `tracking/IDEAS.md` rendered as markdown, so the inbox is visible without opening the file.
 - **Internals** — the harness's own calibration, per `layer × work-type` facet cell: the model/effort it
-  would pick and the audit rate (computed by invoking `scripts/policy.jq` exactly as the loop does, so the
-  numbers match what the loop actually uses), plus build/failure counts, the tier ladder, the policy knobs,
-  and a recent-activity feed.
+  would pick and the audit rate the policy will use next (computed by invoking `scripts/policy.jq` exactly
+  as the loop does, so the numbers match what the loop actually uses) **alongside the observed audited
+  fraction from the ledger**, plus build/failure counts, a failure-kind health panel (which gate is
+  actually catching things), the tier ladder, the policy knobs, and a recent-activity feed.
+
+Every tab also carries a live **"Now" strip**: whether the loop is running (from its own repo lock —
+including a ⚠ stale-lock warning after an interrupt), the current task/phase/rung/attempt from the loop's
+`worklog/.current.json` heartbeat, a collapsible tail of the builder's live output, and a freshness badge
+("origin seen Xm ago" / "local ≠ origin") — the dashboard renders LOCAL files, so this surfaces when
+nothing has fetched recently. Set `HARNESS_DASHBOARD_FETCH_SECONDS` (harness.env) to have the dashboard
+`git fetch` on an interval itself (fetch-only; it never touches the working tree).
 
 It re-reads everything from disk on every request — no daemon; the Internals tab memoises its per-facet
 `jq` work on the ledger mtimes so the 5s refresh is cheap.

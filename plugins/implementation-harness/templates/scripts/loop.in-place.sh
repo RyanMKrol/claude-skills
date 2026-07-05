@@ -226,6 +226,18 @@ record_outcome() {
 # ledgers/outcomes.jsonl). Flushed into ledgers/failures.jsonl by flush_failures at the task's next
 # terminal outcome (mark_done or block_task), alongside the outcome row, in the SAME commit.
 FAILURES_BUF="$WORKLOG/.failures.buf"   # gitignored; survives cold_reset (git clean -fd doesn't remove ignored files)
+
+# ─── Heartbeat: the dashboard's live "Now" view ───────────────────────────────
+# worklog/.current.json — a best-effort breadcrumb of what the loop is doing RIGHT NOW (task, phase,
+# rung, attempt, tier). Written at phase transitions, removed at every terminal outcome and on any
+# exit (trap). Purely observational: nothing in the loop reads it back, every write is `|| true`,
+# and it lives among the gitignored worklog scratch so it can never be committed or affect a diff.
+HEARTBEAT="$WORKLOG/.current.json"
+heartbeat() {
+  printf '{"task":"%s","phase":"%s","rung":%s,"attempt":%s,"model":"%s","effort":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
+    "${cur_task:-}" "$1" "${cur_rung:-0}" "${cur_attempts:-0}" "${tmodel:-}" "${teffort:-}" "${hb_started:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$HEARTBEAT" 2>/dev/null || true
+}
+heartbeat_clear() { rm -f "$HEARTBEAT" 2>/dev/null || true; }
 record_failure() {
   local id="$1" kind="$2" detail="${3:-}" ts m e facets
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -822,7 +834,7 @@ fi
 
 # --- Main loop --------------------------------------------------------------
 acquire_lock
-trap 'release_lock' EXIT INT TERM
+trap 'heartbeat_clear; release_lock' EXIT INT TERM
 
 # SAFETY: the in-place loop cold-resets the working tree (`git reset --hard origin/main`) between
 # every attempt, which DISCARDS any uncommitted work in this checkout. If the tree is dirty at
@@ -843,7 +855,7 @@ if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
   fi
 fi
 
-cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"; hb_started=""
 
 # Give up on ONE task WITHOUT halting the loop: discard any local unpushed work, record a
 # failed:blocked marker in the task's worklog (so select_task skips it from now on), push that,
@@ -864,7 +876,7 @@ block_task() {
   git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
-  cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+  heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
 }
 
 bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
@@ -910,7 +922,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   if [ "$task" != "$cur_task" ]; then
     # cur_verification resets here too: a task that terminates BEFORE its audit_gate runs (structural
     # fail / CI red / blocked) must not inherit the previous task's "audited" into its ledger row.
-    cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"
+    cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"; hb_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
@@ -924,6 +936,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   rl_waited=0; rl_sleep="$RL_BACKOFF_MIN"
   while :; do
     cold_reset
+    heartbeat building
     # `… || rc=$?` (NOT `; rc=$?`) — run_claude flips `set -e` back ON internally before it
     # `return`s, so a bare `; rc=$?` would let a nonzero return KILL loop.sh right here (before rc is
     # ever captured) instead of triggering the reset-aware backoff below. The `||` keeps the call in
@@ -942,6 +955,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         rl_banner "$rlwait" "$WORKLOG/.claude-out" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
         rl_sleep=$(( rl_sleep * 2 )); [ "$rl_sleep" -gt "$RL_EXP_MAX" ] && rl_sleep="$RL_EXP_MAX"
       fi
+      heartbeat rate-limited
       sleep "$rlwait"; rl_waited=$(( rl_waited + rlwait )); continue
     fi
     break
@@ -966,10 +980,12 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "structural checks failed for $task — discarding commit + soft retry."
         cold_reset; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
       fi
+      heartbeat auditing
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
         cold_reset; record_failure "$task" "audit-fail"; bump "$task"; board; continue
       fi
+      heartbeat integrating
       if ! throttled_push "$ROOT" origin "HEAD:$MAIN_BRANCH"; then
         log "push to $MAIN_BRANCH failed (remote moved / network) — soft retry."
         record_failure "$task" "push-race"; bump "$task"; board; continue
@@ -978,11 +994,12 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # the whole CI_TIMEOUT, return indeterminate, and soft-retry forever. Short-circuit to done —
       # there is deliberately no CI to wait for (e.g. an operational / scope:[] task).
       if [ "$REQUIRE_CI" = "1" ] && git -C "$ROOT" log -1 --format=%s 2>/dev/null | grep -qF '[skip ci]'; then
-        mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       elif [ "$REQUIRE_CI" = "1" ]; then
+        heartbeat awaiting-ci
         ci_rc=0; wait_ci_green || ci_rc=$?
         if [ "$ci_rc" = 0 ]; then
-          mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+          mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
         elif [ "$ci_rc" = 1 ]; then
           # CI genuinely RED. NEVER halt the whole loop on one red: revert the pushed commit to restore
           # main, then soft-retry. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
@@ -1002,7 +1019,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
           record_failure "$task" "ci-indeterminate" "CI produced no definitive result (cancelled/skipped/no-run)"; bump "$task"
         fi
       else
-        mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       fi
       ;;
     failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;

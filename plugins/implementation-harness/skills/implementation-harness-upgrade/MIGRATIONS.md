@@ -32,6 +32,34 @@ Entry format:
 
 ---
 
+## 1.19.0 → 1.21.0 — dashboard ops console: live "Now" strip, freshness, observed audit + failure health
+(1.20.0 was skill-only — the upgrade skill's adoption mode for legacy/hand-forked installs — no template
+changes, so no entry.)
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — new `heartbeat`/`heartbeat_clear` helpers:
+  the loop drops a gitignored `worklog/.current.json` breadcrumb (task, phase building/awaiting-ci/
+  auditing/integrating/rate-limited, rung, attempt, tier, timestamps) at phase transitions and removes it
+  at terminal outcomes and on any exit (trap). Purely observational — nothing reads it back; every write
+  is `|| true`.
+- mechanism: `dashboard/server.js` — new `GET /api/activity` (loop lock state via the same
+  `<git-common>/<name>-loop.lock/pid` derivation as repo-lock.sh with a PID liveness probe; the heartbeat;
+  the last ~40 lines of `.claude-out` from whichever checkout was touched last; freshness = FETCH_HEAD age
+  + local HEAD vs `origin/<MAIN_BRANCH>`), an always-visible "Now" strip on every tab (running / idle /
+  ⚠ stale-lock-run-loop-recover pill, `local ≠ origin` and "origin seen Xm ago" badges, collapsible live
+  output tail), an opt-in interval `git fetch` (`HARNESS_DASHBOARD_FETCH_SECONDS`, fetch-only), and the
+  Internals table now shows **Audit (policy)** next to **Audited (observed)** plus a global failure-kind
+  health panel (per-cell kinds on the ⚠ hover).
+- mechanism: `dashboard/lib.js` + `dashboard/lib.test.js` — `harnessCells` cells gain a `kinds` breakdown;
+  new `failureKinds()` global aggregation; tests for both.
+- mechanism: `README.md` — dashboard section documents the Now strip, observed-audit column, failure
+  health, and the fetch knob.
+- config: `config/harness.env` — ACTION: add these knobs if absent (do NOT touch existing values):
+  `HARNESS_DASHBOARD_PORT` (default `4790`), `HARNESS_DASHBOARD_FETCH_SECONDS` (default `0`).
+- manual attention: repo-root `.gitignore` (user data) — add `.harness/worklog/.current.json` next to the
+  other worklog scratch entries. Without it the heartbeat is still safe (the worktree variant writes it
+  only to the primary checkout; the in-place variant never stages it), but it will show as an untracked
+  file.
+- breaking: none.
+
 ## 1.18.1 → 1.19.0 — smarter rate-limit backoff + production field notes
 - mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` —
   - `rl_reset_wait` now returns non-zero (echoes nothing) when no reset time parses, instead of

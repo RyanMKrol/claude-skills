@@ -166,6 +166,19 @@ AUDITOR_EFFORT="$(blob config/facets.json | jq -r '.policy.auditorEffort // "med
 LOCAL_DOD="${LOCAL_DOD:-}"   # optional cheap gate run before the audit; empty = rely on CI (which the worktree variant already has)
 FAILURES_BUF="$HARNESS_DIR/worklog/.failures.buf"   # gitignored, in the PRIMARY checkout (survives worktree rebuilds); per-current-task, flushed into ledgers/failures.jsonl at each terminal outcome
 
+# ─── Heartbeat: the dashboard's live "Now" view ───────────────────────────────
+# worklog/.current.json in the PRIMARY checkout — a best-effort breadcrumb of what the loop is doing
+# RIGHT NOW (task, phase, rung, attempt, tier). Written at phase transitions, removed at every
+# terminal outcome and on any exit (trap). Purely observational: nothing in the loop reads it back,
+# every write is `|| true`, and it lives among the gitignored worklog scratch so it can never be
+# committed or affect a diff.
+HEARTBEAT="$HARNESS_DIR/worklog/.current.json"
+heartbeat() {
+  printf '{"task":"%s","phase":"%s","rung":%s,"attempt":%s,"model":"%s","effort":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
+    "${cur_task:-}" "$1" "${cur_rung:-0}" "${cur_attempts:-0}" "${tmodel:-}" "${teffort:-}" "${hb_started:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$HEARTBEAT" 2>/dev/null || true
+}
+heartbeat_clear() { rm -f "$HEARTBEAT" 2>/dev/null || true; }
+
 # gtier <idx> — echo "model effort" for the ladder tier at idx, clamped to [0, top].
 gtier() {
   local idx="$1" last=$(( ${#TIER_TUPLES[@]} - 1 ))
@@ -863,9 +876,9 @@ fi
 
 # --- Main loop --------------------------------------------------------------
 acquire_lock
-trap 'release_lock' EXIT INT TERM
+trap 'heartbeat_clear; release_lock' EXIT INT TERM
 
-cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"; hb_started=""
 
 # Give up on ONE task WITHOUT halting the loop: tear down its branch/worktree, record a
 # failed:blocked marker on main (select_task reads worklog from origin/main, so it then skips the
@@ -897,7 +910,7 @@ block_task() {
     remove_wt
   fi
   log "BLOCKED $id ($reason) — recorded on main; moving on to the next task."
-  cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+  heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
 }
 
 bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
@@ -941,7 +954,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   if [ "$task" != "$cur_task" ]; then
     # cur_verification resets here too: a task that terminates BEFORE its audit_gate runs (structural
     # fail / CI red / blocked) must not inherit the previous task's "audited" into its ledger row.
-    cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"
+    cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"; hb_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
@@ -957,6 +970,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     cleanup_task "$branch"        # discard any prior state (leftover crash branch OR a previous attempt)
     prepare_wt "$branch" 1        # FRESH worktree off origin/main — cold
     rm -f "$RESULT"
+    heartbeat building
     # `… || rc=$?` (NOT `; rc=$?`) — run_claude flips `set -e` back ON internally before it
     # `return`s, so a bare `; rc=$?` would let a nonzero return KILL loop.sh right here (before rc is
     # ever captured) instead of triggering the reset-aware backoff below. The `||` keeps the call in
@@ -975,6 +989,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         rl_banner "$rlwait" "$LOOP_WT/.harness/worklog/.claude-out" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
         rl_sleep=$(( rl_sleep * 2 )); [ "$rl_sleep" -gt "$RL_EXP_MAX" ] && rl_sleep="$RL_EXP_MAX"
       fi
+      heartbeat rate-limited
       sleep "$rlwait"; rl_waited=$(( rl_waited + rlwait )); continue
     fi
     break
@@ -995,6 +1010,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       if [ "$REQUIRE_CI" = "1" ] && git -C "$ROOT" log -1 --format=%s "origin/$branch" 2>/dev/null | grep -qF '[skip ci]'; then
         log "[skip ci] build on $branch — no CI run expected; proceeding to structural + audit gates."
       elif [ "$REQUIRE_CI" = "1" ]; then
+        heartbeat awaiting-ci
         ci_rc=0; wait_ci_green "$branch" || ci_rc=$?
         if [ "$ci_rc" = 2 ]; then
           # INDETERMINATE (no run appeared / cancelled / skipped / stale / neutral) isn't the same as
@@ -1020,12 +1036,14 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       if ! structural_checks "$task"; then
         log "structural checks failed for $task — tearing down branch + cold retry."; cleanup_task "$branch"; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
       fi
+      heartbeat auditing
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — tearing down branch (never integrated) + cold retry."; cleanup_task "$branch"; record_failure "$task" "audit-fail"; bump "$task"; board; continue
       fi
+      heartbeat integrating
       if integrate "$branch"; then
         record_outcome "$task" false                # difficulty auto-tuning: record the success on main (verification in the row)
-        log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       else
         record_failure "$task" "integrate-race" "ff to main rejected"; bump "$task"
       fi

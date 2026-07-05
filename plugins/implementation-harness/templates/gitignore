@@ -2,6 +2,7 @@
 .harness/worklog/.result
 .harness/worklog/.claude-out
 .harness/worklog/.failures.buf
+.harness/worklog/.current.json
 .harness/worklog/STATUS.md
 .harness/worklog/*.log
 .harness/worklog/*.audit.md
