@@ -32,6 +32,15 @@ Entry format:
 
 ---
 
+## 1.17.0 → 1.18.0 — dashboard Ideas + Internals (per-facet calibration) tabs
+- mechanism: `dashboard/server.js` + `dashboard/lib.js` — the dashboard is now a 3-tab app
+  (Backlog / Ideas / Internals). New `GET /api/ideas` (renders `tracking/IDEAS.md` via a dependency-free,
+  XSS-safe `mdToHtml`) and `GET /api/harness` (per `layer × work-type` cell: chosen model + audit rate by
+  invoking `scripts/policy.jq` exactly as the loop does, plus build/failure counts, the tier ladder, the
+  policy knobs, and a recent-activity feed; memoised on ledger mtimes). `README.md` dashboard section updated.
+- config: none. new files: none. breaking: none. (Pure dashboard refresh — no change to the loop, ledgers,
+  or task schema.)
+
 ## 1.16.1 → 1.17.0 — worktree loop leaves the primary checkout on main when done
 - mechanism: `scripts/loop.sh` (worktree variant only) — new `sync_primary_checkout()`, called at the
   clean "backlog drained / idle" exits: fast-forwards the owner's primary checkout onto the latest main so

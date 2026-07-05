@@ -4,7 +4,7 @@
 'use strict';
 
 const assert = require('assert');
-const { computeBacklog } = require('./lib');
+const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, mdToHtml } = require('./lib');
 
 const EMPTY_OVERLAYS = { humanDone: {}, manualFail: {}, reviews: {} };
 let pass = 0;
@@ -173,6 +173,87 @@ test('reviewed flag is attached to tasks in every bucket, not just done', () => 
   const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
   const b = computeBacklog(tasks, overlays, new Set());
   assert.strictEqual(b.needsHuman[0].reviewed, true);
+});
+
+// ─── Internals-view helpers ──────────────────────────────────────────────────────────────────────
+
+test('parseJsonl skips blank + garbled lines', () => {
+  const rows = parseJsonl('{"a":1}\n\nnot json\n{"a":2}\n');
+  assert.deepStrictEqual(rows, [{ a: 1 }, { a: 2 }]);
+});
+
+test('coldTierIndex finds the tier, else 0', () => {
+  const ladder = [{ model: 's', effort: 'low' }, { model: 's', effort: 'high' }, { model: 'o', effort: 'medium' }];
+  assert.strictEqual(coldTierIndex(ladder, 'o', 'medium'), 2);
+  assert.strictEqual(coldTierIndex(ladder, 'nope', 'x'), 0);
+});
+
+test('harnessCells aggregates counts per (layer × workType)', () => {
+  const outcomes = [
+    { id: 'T1', facets: { layer: 'backend', workType: 'feature' }, blocked: false, verification: 'audited' },
+    { id: 'T2', facets: { layer: 'backend', workType: 'feature' }, blocked: false, verification: 'ci-only' },
+    { id: 'T3', facets: { layer: 'backend', workType: 'feature' }, blocked: true, verification: 'ci-only' },
+    { id: 'T4', facets: { layer: 'frontend', workType: 'component' }, blocked: false, verification: 'ci-only' },
+  ];
+  const failures = [{ id: 'T3', facets: { layer: 'backend', workType: 'feature' }, kind: 'ci-red' }];
+  const cells = harnessCells(outcomes, failures, [], {});
+  const be = cells.find((c) => c.layer === 'backend' && c.workType === 'feature');
+  assert.strictEqual(be.builds, 3);
+  assert.strictEqual(be.successes, 2);
+  assert.strictEqual(be.blocked, 1);
+  assert.strictEqual(be.audited, 1);
+  assert.strictEqual(be.ciOnly, 1);
+  assert.strictEqual(be.failures, 1);
+  assert.strictEqual(cells.length, 2);   // one cell per distinct facet
+});
+
+test('harnessCells treats a manual-fail overturn as a failure, not a success', () => {
+  const outcomes = [{ id: 'T1', facets: { layer: 'backend', workType: 'feature' }, blocked: false, verification: 'audited' }];
+  const cells = harnessCells(outcomes, [], [], { T1: { failed: true } });
+  const be = cells[0];
+  assert.strictEqual(be.successes, 0);
+  assert.strictEqual(be.blocked, 1);
+  assert.strictEqual(be.audited, 0);   // overturned → not counted as an audited success
+});
+
+test('harnessCells surfaces a pending-task cell with no history yet', () => {
+  const tasks = [{ id: 'T9', status: 'pending', facets: { layer: 'data', workType: 'migration' } }];
+  const cells = harnessCells([], [], tasks, {});
+  assert.strictEqual(cells.length, 1);
+  assert.strictEqual(cells[0].pending, 1);
+  assert.strictEqual(cells[0].builds, 0);
+});
+
+test('recentActivity merges + sorts by ts desc and honours the limit', () => {
+  const outcomes = [{ id: 'T1', ts: '2026-01-01T00:00:00Z', blocked: false, verification: 'audited', facets: { layer: 'backend', workType: 'feature' } }];
+  const failures = [{ id: 'T2', ts: '2026-01-03T00:00:00Z', kind: 'ci-red', detail: 'x' }, { id: 'T3', ts: '2026-01-02T00:00:00Z', kind: 'audit-fail' }];
+  const ev = recentActivity(outcomes, failures, 2);
+  assert.strictEqual(ev.length, 2);
+  assert.strictEqual(ev[0].id, 'T2');           // newest first
+  assert.strictEqual(ev[0].type, 'failure');
+  assert.strictEqual(ev[1].id, 'T3');
+});
+
+test('mdToHtml renders headings, lists, bold, inline code, links', () => {
+  const h = mdToHtml('# Title\n\n- one\n- two\n\n**bold** and `code` and [x](https://e.com)');
+  assert.ok(h.includes('<h1>Title</h1>'));
+  assert.ok(h.includes('<ul>') && h.includes('<li>one</li>'));
+  assert.ok(h.includes('<strong>bold</strong>'));
+  assert.ok(h.includes('<code>code</code>'));
+  assert.ok(h.includes('<a href="https://e.com"'));
+});
+
+test('mdToHtml is XSS-safe: raw HTML/script is escaped, never executed', () => {
+  const h = mdToHtml('<script>alert(1)</script>\n\n[x](javascript:alert(1))');
+  assert.ok(!/<script>/.test(h));                 // the tag is escaped
+  assert.ok(h.includes('&lt;script&gt;'));
+  assert.ok(!/href="javascript:/i.test(h));       // unsafe scheme dropped
+});
+
+test('mdToHtml strips HTML comments (authoring guidance)', () => {
+  const h = mdToHtml('before\n<!-- guidance\nmultiline -->\nafter');
+  assert.ok(!h.includes('guidance'));
+  assert.ok(h.includes('before') && h.includes('after'));
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

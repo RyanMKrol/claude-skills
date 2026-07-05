@@ -14,8 +14,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
-const { computeBacklog } = require('./lib');
+const { execFile, execFileSync } = require('child_process');
+const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, mdToHtml } = require('./lib');
 
 const HARNESS_DIR = path.join(__dirname, '..');
 const ROOT = path.join(HARNESS_DIR, '..');
@@ -28,6 +28,12 @@ const OVERLAY_PATHS = {
 const WORKLOG_DIR = path.join(HARNESS_DIR, 'worklog');
 const LEDGERS_DIR = path.join(HARNESS_DIR, 'ledgers');
 const SCRIPTS_DIR = path.join(HARNESS_DIR, 'scripts');
+const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.md');
+const FACETS_PATH = path.join(HARNESS_DIR, 'config', 'facets.json');
+const HARNESS_ENV_PATH = path.join(HARNESS_DIR, 'config', 'harness.env');
+const OUTCOMES_PATH = path.join(LEDGERS_DIR, 'outcomes.jsonl');
+const FAILURES_PATH = path.join(LEDGERS_DIR, 'failures.jsonl');
+const POLICY_JQ = path.join(SCRIPTS_DIR, 'policy.jq');
 const PORT = parseInt(process.env.HARNESS_DASHBOARD_PORT || '4790', 10);
 
 function readJson(p, fallback) {
@@ -114,6 +120,109 @@ function loadState() {
   };
 }
 
+// ─── Internals view: per-facet calibration state ─────────────────────────────────────────────────
+// buildHarnessState() surfaces the harness's OWN calibration for each (layer × work-type) cell:
+//   • chosen start model/effort + audit rate — by INVOKING scripts/policy.jq exactly as the loop's
+//     pick_base()/audit_gate() do, so the dashboard shows the SAME numbers the loop uses (no reimpl);
+//   • build/failure counts — aggregated in lib.js (harnessCells);
+//   • the tier ladder + policy knobs (facets.json) + a recent-activity feed.
+// Memoised on the max mtime of the inputs so the 5s poll only re-runs jq when a ledger actually changed.
+let _harnessCache = { key: null, value: null };
+
+function mtimeKey(paths) {
+  let mx = 0;
+  for (const p of paths) { try { mx = Math.max(mx, fs.statSync(p).mtimeMs); } catch (_err) { /* missing = 0 */ } }
+  return mx;
+}
+
+// Cold-start prior: env MODEL/EFFORT wins, else the harness.env `${X:=default}`, else cheapest tier.
+function coldStartTuple(ladder) {
+  const env = readText(HARNESS_ENV_PATH) || '';
+  const grab = (name, envVal) => {
+    if (envVal) return envVal;
+    const m = new RegExp('\\$\\{' + name + ':=([^}"\\s]+)').exec(env);
+    return m ? m[1] : null;
+  };
+  return {
+    model: grab('MODEL', process.env.MODEL) || (ladder[0] && ladder[0].model),
+    effort: grab('EFFORT', process.env.EFFORT) || (ladder[0] && ladder[0].effort),
+  };
+}
+
+// runPolicy(argPairs) — invoke scripts/policy.jq and return the parsed number (or null). Every policy.jq
+// arg must be supplied on every call (both branches compile), so callers pass the full set with
+// placeholders for the unused branch — mirroring loop.sh's pick_base()/audit_gate() invocations.
+function runPolicy(argPairs) {
+  const args = ['-n', '-f', POLICY_JQ];
+  for (const [flag, name, val] of argPairs) args.push(flag, name, val);
+  const out = execFileSync('jq', args, { encoding: 'utf8', timeout: 5000 });
+  const n = Number(String(out).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildHarnessState() {
+  const facets = readJson(FACETS_PATH, {});
+  const ladder = (facets.tiers && facets.tiers.ladder) || [];
+  const pol = facets.policy || {};
+  const floor = pol.floor != null ? pol.floor : 0.75;
+  const minN = pol.minN != null ? pol.minN : 6;
+  const auditStartN = pol.auditStartN != null ? pol.auditStartN : 3;
+  const auditFloorN = pol.auditFloorN != null ? pol.auditFloorN : 8;
+  const auditFloorPM = Math.round((pol.auditFloor != null ? pol.auditFloor : 0.10) * 1000);
+
+  const key = mtimeKey([OUTCOMES_PATH, FAILURES_PATH, FACETS_PATH, OVERLAY_PATHS.manualFail, TASKS_PATH]);
+  if (_harnessCache.key === key && _harnessCache.value) return _harnessCache.value;
+
+  const outcomes = parseJsonl(readText(OUTCOMES_PATH));
+  const failures = parseJsonl(readText(FAILURES_PATH));
+  const manualFail = readJson(OVERLAY_PATHS.manualFail, {});
+  const tasks = (readJson(TASKS_PATH, { tasks: [] }).tasks) || [];
+  const coldIdx = coldTierIndex(ladder, ...Object.values(coldStartTuple(ladder)));
+  const cells = harnessCells(outcomes, failures, tasks, manualFail);
+
+  let jqOk = true;
+  try { execFileSync('jq', ['--version'], { timeout: 3000, stdio: 'ignore' }); } catch (_e) { jqOk = false; }
+  if (jqOk && cells.length) {
+    const rowsJson = JSON.stringify(outcomes), ladderJson = JSON.stringify(ladder), mfJson = JSON.stringify(manualFail);
+    for (const c of cells) {
+      try {
+        const chosenIdx = runPolicy([
+          ['--argjson', 'rows', rowsJson], ['--argjson', 'tiers', ladderJson],
+          ['--arg', 'layer', c.layer], ['--arg', 'wt', c.workType],
+          ['--argjson', 'floor', String(floor)], ['--argjson', 'minN', String(minN)], ['--argjson', 'coldIdx', String(coldIdx)],
+          ['--argjson', 'manualFail', mfJson], ['--argjson', 'risk', '[]'],
+          ['--argjson', 'auditCount', '-1'], ['--argjson', 'auditStartN', String(auditStartN)],
+          ['--argjson', 'auditFloorN', String(auditFloorN)], ['--argjson', 'auditFloorPM', String(auditFloorPM)],
+        ]);
+        const tier = (chosenIdx != null && ladder[chosenIdx]) || null;
+        c.chosenModel = tier ? tier.model : null;
+        c.chosenEffort = tier ? tier.effort : null;
+        c.chosenIdx = chosenIdx;
+        c.hasHistory = c.builds >= minN;   // rough "data-driven vs cold-start prior" hint
+
+        // audit rate: confirmed-audited successes in the cell (== loop's audit_gate query), then policy audit branch
+        const auditCount = outcomes.filter((r) => r.facets && r.facets.layer === c.layer && r.facets.workType === c.workType
+          && r.blocked === false && r.verification === 'audited' && !(manualFail[r.id] && manualFail[r.id].failed === true)).length;
+        const pm = runPolicy([
+          ['--argjson', 'auditCount', String(auditCount)], ['--argjson', 'risk', '[]'],
+          ['--argjson', 'auditStartN', String(auditStartN)], ['--argjson', 'auditFloorN', String(auditFloorN)], ['--argjson', 'auditFloorPM', String(auditFloorPM)],
+          ['--argjson', 'rows', '[]'], ['--argjson', 'tiers', '[]'], ['--arg', 'layer', ''], ['--arg', 'wt', ''],
+          ['--argjson', 'floor', '0'], ['--argjson', 'minN', '0'], ['--argjson', 'coldIdx', '0'], ['--argjson', 'manualFail', '{}'],
+        ]);
+        c.auditPct = pm != null ? Math.round(pm / 10) : null;
+      } catch (_err) { /* one bad cell shouldn't blank the rest; leave its calibration fields undefined */ }
+    }
+  }
+
+  const value = {
+    ladder, coldIdx,
+    policy: { floor, minN, auditStartN, auditFloorN, auditFloor: auditFloorPM / 1000, auditorModel: pol.auditorModel || null, auditorEffort: pol.auditorEffort || null },
+    cells, recent: recentActivity(outcomes, failures, 20), jqOk,
+  };
+  _harnessCache = { key, value };
+  return value;
+}
+
 function isLoopback(req) {
   const addr = req.socket.remoteAddress || '';
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
@@ -163,6 +272,15 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/backlog') {
       return sendJson(res, 200, loadState());
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/ideas') {
+      const html = mdToHtml(readText(IDEAS_PATH) || '');
+      return sendJson(res, 200, { html, empty: html.trim() === '' });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/harness') {
+      return sendJson(res, 200, buildHarnessState());
     }
 
     if (req.method === 'GET' && url.pathname === '/') {
@@ -266,28 +384,174 @@ function renderPage() {
 
   .flash{animation:flash 1.6s ease-out;border-radius:6px}
   @keyframes flash{from{background:rgba(232,130,31,.25)}to{background:transparent}}
+
+  .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 20px;}
+  .topbar h1{margin:0}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .tab{font-size:13px;padding:5px 13px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--muted);}
+  .tab:hover{border-color:var(--accent);color:var(--text)}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .view[hidden]{display:none}
+  .note{color:var(--muted);font-size:12px;margin:6px 0 14px}
+
+  /* Ideas (rendered markdown) */
+  .md-body{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 22px 20px;}
+  .md-body h1,.md-body h2,.md-body h3,.md-body h4{color:var(--text);margin:18px 0 8px}
+  .md-body h1{font-size:20px} .md-body h2{font-size:17px} .md-body h3{font-size:15px} .md-body h4{font-size:13px}
+  .md-body p{margin:8px 0}
+  .md-body ul,.md-body ol{margin:8px 0;padding-left:24px} .md-body li{margin:3px 0}
+  .md-body code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+  .md-body pre{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px;overflow:auto} .md-body pre code{background:none;border:none;padding:0}
+  .md-body blockquote{margin:8px 0;padding:2px 14px;border-left:3px solid var(--border);color:var(--muted)}
+  .md-body hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+  .md-body a{color:var(--accent)}
+
+  /* Internals (per-facet calibration) */
+  .htitle{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:22px 0 8px}
+  .htitle:first-child{margin-top:2px}
+  .ftable{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px}
+  .ftable th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600}
+  .ftable td{padding:7px 10px;border-bottom:1px solid var(--border)} .ftable tr:last-child td{border-bottom:none}
+  .ftable td.num,.ftable th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .facet-name{font-weight:600}
+  .model-tag{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .cold-tag{font-size:10px;color:var(--muted);margin-left:5px}
+  .refgrid{display:flex;gap:16px;flex-wrap:wrap}
+  .refcard{flex:1;min-width:240px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-size:13px}
+  .refcard ol{margin:6px 0 0;padding-left:22px} .refcard li{margin:2px 0;font-size:12px}
+  .refcard .knob{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:2px 0;color:var(--muted)} .refcard .knob b{color:var(--text);font-weight:600;text-align:right}
+  .recent{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:4px 14px}
+  .recent .ev{display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px} .recent .ev:last-child{border-bottom:none}
+  .recent .ev .t{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .recent .ev .eid{font-weight:700;min-width:42px}
 </style>
 </head>
 <body>
 <div class="container">
-<h1>Backlog</h1>
-<p class="sub" id="summary"></p>
-<div id="sections"></div>
+<div class="topbar">
+  <h1>⚙ Harness</h1>
+  <nav class="tabs">
+    <button class="tab on" data-view="backlog" onclick="switchView('backlog')">Backlog</button>
+    <button class="tab" data-view="ideas" onclick="switchView('ideas')">Ideas</button>
+    <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
+  </nav>
+</div>
+<div id="view-backlog" class="view">
+  <p class="sub" id="summary"></p>
+  <div id="sections"></div>
+</div>
+<div id="view-ideas" class="view" hidden>
+  <div id="ideas-md" class="md-body"></div>
+</div>
+<div id="view-harness" class="view" hidden>
+  <div id="harness-body"></div>
+</div>
 </div>
 <script>
-const state = { open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null };
+const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, lastIdeasJson: null, lastHarnessJson: null };
 
-async function refresh() {
-  const res = await fetch('/api/backlog');
-  const data = await res.json();
-  // Skip the re-render entirely when the backlog hasn't changed since the last poll. Rebuilding
-  // #sections' innerHTML recreates every open <pre>, which resets its scroll to the top — so a
-  // no-op 5s refresh would yank you back up while you're reading a spec. Only touch the DOM on a
-  // real change. (User-driven UI actions call rerender() directly, bypassing this guard.)
+function switchView(name) {
+  state.activeView = name;
+  var tabs = document.querySelectorAll('.tab');
+  for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('on', tabs[i].dataset.view === name);
+  var views = document.querySelectorAll('.view');
+  for (var j = 0; j < views.length; j++) views[j].hidden = (views[j].id !== 'view-' + name);
+  refreshActive();
+}
+
+// One 5s poll, dispatched to whichever view is active. Each view keeps its own change-guard so an
+// unchanged poll never rebuilds the DOM (preserves scroll / open <pre> position — see the backlog note).
+function refreshActive() {
+  if (state.activeView === 'ideas') return refreshIdeas();
+  if (state.activeView === 'harness') return refreshHarness();
+  return refreshBacklog();
+}
+
+async function refreshBacklog() {
+  let data; try { data = await (await fetch('/api/backlog')).json(); } catch (e) { return; }
   const json = JSON.stringify(data);
   if (json === state.lastFetchedJson) return;
   state.lastFetchedJson = json;
-  render(data);
+  renderBacklog(data);
+}
+
+async function refreshIdeas() {
+  let data; try { data = await (await fetch('/api/ideas')).json(); } catch (e) { return; }
+  const json = JSON.stringify(data);
+  if (json === state.lastIdeasJson) return;
+  state.lastIdeasJson = json;
+  renderIdeas(data);
+}
+
+async function refreshHarness() {
+  let data; try { data = await (await fetch('/api/harness')).json(); } catch (e) { return; }
+  const json = JSON.stringify(data);
+  if (json === state.lastHarnessJson) return;
+  state.lastHarnessJson = json;
+  renderHarness(data);
+}
+
+function renderIdeas(data) {
+  const el = document.getElementById('ideas-md');
+  if (data.empty) {
+    el.innerHTML = '<p class="note">No ideas captured yet — add one with <span class="mono">/implementation-harness-capture-idea</span>, then sweep them into tasks with <span class="mono">/implementation-harness-convert-ideas</span>.</p>';
+    return;
+  }
+  el.innerHTML = data.html;   // server-rendered by lib.js mdToHtml (HTML-escaped first → XSS-safe)
+}
+
+function knob(label, val) { return '<div class="knob"><span>' + label + '</span><b>' + esc(String(val)) + '</b></div>'; }
+
+function renderHarness(data) {
+  const el = document.getElementById('harness-body');
+  const L = data.ladder || [], cells = data.cells || [], recent = data.recent || [], p = data.policy || {};
+  let h = '';
+  h += '<div class="htitle">Model tiers &amp; policy</div><div class="refgrid">';
+  h += '<div class="refcard"><b>Tier ladder</b> — cheapest → priciest<ol>' +
+       L.map(function (t) { return '<li class="model-tag">' + esc(t.model) + ' / ' + esc(t.effort) + '</li>'; }).join('') + '</ol></div>';
+  h += '<div class="refcard"><b>Policy knobs</b>' +
+       knob('pass floor', Math.round((p.floor || 0) * 100) + '% first-attempt') +
+       knob('min samples', p.minN) +
+       knob('audit taper', '100% until ' + p.auditStartN + ' → ' + Math.round((p.auditFloor || 0) * 100) + '% by ' + p.auditFloorN + ' audited') +
+       knob('auditor', (p.auditorModel || '—') + ' / ' + (p.auditorEffort || '—')) +
+       '</div></div>';
+
+  h += '<div class="htitle">Per-facet calibration</div>';
+  if (data.jqOk === false) h += '<p class="note">⚠ <span class="mono">jq</span> not found on PATH — install jq to compute the chosen model &amp; audit rate. The counts below are still accurate.</p>';
+  h += '<p class="note">Baseline per <b>layer × work-type</b> cell (no risk flags). A task carrying a risk facet always audits (100%) and starts at least one tier higher.</p>';
+  if (!cells.length) {
+    h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
+  } else {
+    h += '<table class="ftable"><thead><tr><th>Facet</th><th>Start model</th><th class="num">Audit</th><th class="num">Builds</th><th class="num">✓</th><th class="num">✗</th><th class="num">⚠ fails</th></tr></thead><tbody>';
+    for (const c of cells) {
+      const model = c.chosenModel ? esc(c.chosenModel) + ' / ' + esc(c.chosenEffort) : '—';
+      const cold = (c.chosenModel && !c.hasHistory) ? '<span class="cold-tag">cold</span>' : '';
+      const audit = (c.auditPct != null) ? c.auditPct + '%' : '—';
+      h += '<tr><td class="facet-name">' + esc(c.layer) + '/' + esc(c.workType) + '</td>' +
+           '<td class="model-tag">' + model + cold + '</td>' +
+           '<td class="num">' + audit + '</td>' +
+           '<td class="num">' + c.builds + '</td>' +
+           '<td class="num">' + c.successes + '</td>' +
+           '<td class="num">' + c.blocked + '</td>' +
+           '<td class="num">' + c.failures + '</td></tr>';
+    }
+    h += '</tbody></table>';
+  }
+
+  h += '<div class="htitle">Recent activity</div>';
+  if (!recent.length) {
+    h += '<p class="note">Nothing recorded yet.</p>';
+  } else {
+    h += '<div class="recent">' + recent.map(function (e) {
+      const when = (e.ts || '').slice(0, 16).replace('T', ' ');
+      const cls = e.type === 'failure' ? 'pill blocked' : 'pill done';
+      return '<div class="ev"><span class="t">' + esc(when) + '</span><span class="eid mono">' + esc(e.id) + '</span>' +
+             '<span class="' + cls + '">' + esc(e.label) + '</span>' +
+             '<span class="t">' + esc(e.facet) + '</span>' +
+             (e.detail ? '<span>' + esc(e.detail) + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+  el.innerHTML = h;
 }
 
 function esc(s) { return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -392,7 +656,7 @@ function renderSection(name, emoji, label, desc, tasks, countStr) {
   </details>\`;
 }
 
-function render(data) {
+function renderBacklog(data) {
   state.lastData = data;   // cache so pure-UI actions (expand, filter, select) re-render without a refetch
   const b = data.buckets, c = data.counts;
   const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.done.length;
@@ -408,7 +672,7 @@ function render(data) {
 }
 
 // Re-render from cached data (no network) — for expand/collapse, filter, and selection changes.
-function rerender() { if (state.lastData) render(state.lastData); }
+function rerender() { if (state.lastData) renderBacklog(state.lastData); }
 
 function onLogToggle(el) { el.open ? state.openLogs.add(el.id) : state.openLogs.delete(el.id); }
 
@@ -473,14 +737,14 @@ async function post(path, body) {
 
 async function markDone(id) {
   if (!confirm('Mark ' + id + ' done? Writes human-done.json, commits + pushes.')) return;
-  if (await post('/api/mark-done', { ids: [id] })) refresh();
+  if (await post('/api/mark-done', { ids: [id] })) refreshActive();
 }
 async function markFailed(id) {
   const reason = prompt('Mark ' + id + ' as a false success — what was actually wrong?');
   if (!reason) return;
-  if (await post('/api/mark-failed', { id, reason })) refresh();
+  if (await post('/api/mark-failed', { id, reason })) refreshActive();
 }
-async function markReviewed(id) { if (await post('/api/mark-reviewed', { ids: [id] })) refresh(); }
+async function markReviewed(id) { if (await post('/api/mark-reviewed', { ids: [id] })) refreshActive(); }
 
 async function bulkAction(bucket) {
   const ids = [...state.selected];
@@ -491,11 +755,11 @@ async function bulkAction(bucket) {
     ok = await post('/api/mark-done', { ids });
   }
   if (bucket === 'done') ok = await post('/api/mark-reviewed', { ids });
-  if (ok) { state.selected.clear(); refresh(); }
+  if (ok) { state.selected.clear(); refreshActive(); }
 }
 
-refresh();
-setInterval(refresh, 5000);
+refreshActive();
+setInterval(refreshActive, 5000);   // one poll → the active view (each keeps its own change-guard)
 </script>
 </body>
 </html>`;

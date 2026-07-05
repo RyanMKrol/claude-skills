@@ -111,12 +111,21 @@ deliberately *not* parallel).
   dependency independent of your project's own stack — like `jq`/`gh`, it doesn't need to be
   something your project itself uses.
 
-## Backlog dashboard (optional)
+## Dashboard (optional)
 
 `dashboard/server.js` is a small, dependency-free Node HTTP server (core modules only — no
-`npm install`, no build step) that renders the live backlog: ready / waiting / needs-you / done,
-with per-task detail (spec, worklog, audit log) and buttons that call the same `mark-*.sh` scripts
-a human would run by hand. It re-reads everything from disk on every request — no daemon, no cache.
+`npm install`, no build step) with three tabs:
+
+- **Backlog** — the live task buckets (ready / waiting / needs-you / done) with per-task detail (spec,
+  worklog, audit log) and buttons that call the same `mark-*.sh` scripts a human would run by hand.
+- **Ideas** — `tracking/IDEAS.md` rendered as markdown, so the inbox is visible without opening the file.
+- **Internals** — the harness's own calibration, per `layer × work-type` facet cell: the model/effort it
+  would pick and the audit rate (computed by invoking `scripts/policy.jq` exactly as the loop does, so the
+  numbers match what the loop actually uses), plus build/failure counts, the tier ladder, the policy knobs,
+  and a recent-activity feed.
+
+It re-reads everything from disk on every request — no daemon; the Internals tab memoises its per-facet
+`jq` work on the ledger mtimes so the 5s refresh is cheap.
 
 ```sh
 node dashboard/server.js                 # binds 127.0.0.1:4790
