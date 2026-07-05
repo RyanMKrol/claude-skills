@@ -385,9 +385,12 @@ deploy/restart command run after each task integrates, so the running product ma
 - **Usage / session limits are not failures.** When `claude` reports a usage/session limit, the loop
   first **parses the reset time out of Claude's own message** — a clock time with zone (`resets 2:30pm
   (Europe/London)`), a relative duration (`in 42 minutes`), or an ISO timestamp — and **sleeps until
-  then + `RL_BUFFER`**, then RE-ATTEMPTS the same task COLD. If nothing parses it falls back to
-  **polling every `RL_POLL` (default 15 min)**. Either way it picks back up shortly after the quota
-  resets rather than idling for hours. Only after `RL_MAX_WAIT` (~6h) still-limited does it exit (code
+  then + `RL_BUFFER`** (capped at `RL_BACKOFF_MAX`), then RE-ATTEMPTS the same task COLD. If nothing
+  parses, the build path **backs off exponentially** (`RL_BACKOFF_MIN` doubling to `RL_EXP_MAX`)
+  rather than hammering a fixed poll; the audit path polls every `RL_POLL`. Every sleep prints a
+  boxed banner with the wall-clock resume time, so an unattended overnight run is diagnosable from
+  the log alone. Either way it picks back up shortly after the quota resets rather than idling for
+  hours. Only after `RL_MAX_WAIT` (~6h) still-limited does it exit (code
   5); `supervise.sh` then relaunches after a short `RETRY_INTERVAL` instead of waiting out the full window.
 - **Stops cleanly for review** at every 🔒 needs-human task — the loop surfaces it
   on the status board and halts/moves on rather than spinning.

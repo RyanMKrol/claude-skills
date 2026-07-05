@@ -79,6 +79,33 @@ keep them here so the design's compromises live in one place alongside your proj
   *Impact:* if the checkout is *also* used by hand, a dirty tree at startup gets stashed.
   *Revisit:* leave it OFF (default) unless the checkout is dedicated solely to the loop.
 
+### Field notes — traps learned operating this harness in production
+
+Distilled from real incidents in the harnesses this design grew out of. The *mechanism* fixes are
+already in the scripts; what's listed is the part that stays true for operators and maintainers.
+(Log your own incidents in `.harness/CLAUDE.md` § *Known-but-deferred issues*.)
+
+- **Ctrl-C between the code push and the status commit orphans the task.** The work is merged on
+  `main` but the task is still `pending`, so the next run rebuilds it and the gates then fight the
+  already-merged diff. After ANY manual interrupt, run the **loop-recover skill** before restarting
+  the loop — that's exactly what it exists for.
+- **Never recombine the `git add`s in `mark_done`/`block_task`/`record_outcome`.** They stage
+  always-present files first and add `failures.jsonl` only `if [ -f … ]`, because a single `git add`
+  that lists a missing file fails **atomically** — staging nothing — and the `status:"done"` commit
+  silently never happens (this once orphaned five consecutive completed tasks). The split is
+  load-bearing, not style.
+- **A rapid string of task-completion pushes can trip your deploy webhook's own rate limit.** A
+  Vercel Hobby project once had ~10 pushes land within an hour; deploys silently stopped for ~10h
+  with no alert. That's why `PUSH_COOLDOWN_SECONDS` exists — set it if anything deploys off `main`.
+- **UI false-successes dominate owner manual-fails.** Structurally-green, CI-green changes shipped
+  invisible or mis-rendered UI (an element present in the DOM but not visible; a theme flicker that
+  had to be manually failed four times). Visual verification only works if a human actually LOOKS at
+  the captures — treat "the screenshot exists" as not verified.
+- **Tests can encode the same bug as the code.** A data-migration task passed its own tests because
+  the fixtures used the same wrong field names, then crashed on first live run. A task whose
+  `Done when` only cites its own new tests is weaker evidence than one verified against real data or
+  an independent audit.
+
 ---
 
 ## Project

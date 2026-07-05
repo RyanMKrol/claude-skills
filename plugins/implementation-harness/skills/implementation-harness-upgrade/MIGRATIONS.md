@@ -32,6 +32,29 @@ Entry format:
 
 ---
 
+## 1.18.1 → 1.19.0 — smarter rate-limit backoff + production field notes
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` —
+  - `rl_reset_wait` now returns non-zero (echoes nothing) when no reset time parses, instead of
+    silently returning `RL_POLL`; a PARSED wait is capped at `RL_BACKOFF_MAX`.
+  - The build path falls back to **exponential backoff** (`RL_BACKOFF_MIN` doubling to `RL_EXP_MAX`)
+    when the notice carries no parseable reset time; the audit path still polls `RL_POLL`. The
+    `RL_MAX_WAIT` → exit-5-for-supervise budget is unchanged.
+  - New `_hms` + `rl_banner` helpers: every rate-limit sleep prints a boxed banner with what Claude
+    reported, the sleep duration, and the WALL-CLOCK resume time (unattended runs become diagnosable
+    from the log alone). Inline `RL_BUFFER` default raised 60 → 300 (waking a hair early re-hits the
+    same limit and burns the attempt).
+- mechanism: `docs/HARNESS.md` (§ usage-limit handling rewritten to match),
+  `docs/LIMITATIONS.md` (new "Field notes — traps learned operating this harness in production"
+  subsection under Harness: interrupt-orphan → run loop-recover; the load-bearing split `git add`s;
+  deploy-webhook rate limits → `PUSH_COOLDOWN_SECONDS`; UI false-successes need a human to actually
+  look; tests can encode the same bug as the code).
+- config: `config/harness.env` — ACTION: add these knobs if absent (do NOT touch existing values):
+  `RL_BACKOFF_MIN` (default `300`), `RL_EXP_MAX` (default `3600`), `RL_BACKOFF_MAX` (default `18000`).
+  ACTION: `RL_BUFFER` default changed `60` → `300` — update only if the target still holds the old
+  default verbatim (`: "${RL_BUFFER:=60}"`); if the user customized it, leave it and just report.
+- breaking: none (RL_POLL keeps its role as the audit-path fallback; behavior only changes on the
+  previously-fixed-poll unknown-reset build path).
+
 ## 1.18.0 → 1.18.1 — loop correctness fixes (ledger accuracy + policy hygiene)
 - mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` —
   - `cur_verification` now resets to `ci-only` whenever a NEW task is selected (was reset only inside

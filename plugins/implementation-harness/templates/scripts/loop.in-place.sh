@@ -70,16 +70,47 @@ PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds bet
 LOOP_AUTORESET="${LOOP_AUTORESET:-0}"              # opt-in: self-heal (stash+reset) a dirty tree at startup instead of refusing — dedicated checkouts only
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
-# Rate-limit-aware handling: when Claude hits a usage/session limit, POLL on a fixed short
-# interval and resume the SAME task — so we retry soon after the quota resets, not hours later.
-RL_POLL="${RL_POLL:-900}"                          # poll again every 15 min while limited
+# Rate-limit-aware handling: when Claude hits a usage/session limit, resume the SAME task. A PARSED
+# reset time is honoured directly (+ RL_BUFFER cushion, capped at RL_BACKOFF_MAX); when nothing
+# parses, the build path backs off exponentially (RL_BACKOFF_MIN doubling to RL_EXP_MAX) instead of
+# hammering a fixed poll — the notice usually means the window is exhausted for a while.
+RL_POLL="${RL_POLL:-900}"                          # audit-path fallback poll while limited
 RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervise after ~6h limited
+RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # exponential-fallback FIRST sleep (unknown reset)
+RL_EXP_MAX="${RL_EXP_MAX:-3600}"                   # exponential-fallback cap (unknown-reset path only)
+RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap for a PARSED reset wait (~5h — a known reset can be hours away)
 FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
 board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
+
+# _hms <seconds> → human duration like "4h 34m" / "12m" / "45s"
+_hms() {
+  local s="$1" h m
+  h=$(( s / 3600 )); m=$(( (s % 3600) / 60 ))
+  if [ "$h" -gt 0 ]; then printf '%dh %dm' "$h" "$m"
+  elif [ "$m" -gt 0 ]; then printf '%dm' "$m"
+  else printf '%ds' "$s"; fi
+}
+
+# rl_banner <seconds> <claude-out-file> [note] — human-readable usage-limit banner: echoes what
+# Claude reported, how long we sleep, and the WALL-CLOCK resume time (so an unattended overnight run
+# is diagnosable from the log alone, and the sleep can be sanity-checked against the reset Claude
+# quoted). Mirrors supervise.sh's boxed style.
+rl_banner() {
+  local secs="$1" outf="$2" note="${3:-}" reset_txt resume
+  reset_txt="$(grep -oiE 'resets[^.)]{0,60}\)?' "$outf" 2>/dev/null | tail -1)"
+  resume="$(date -v+"${secs}"S '+%a %H:%M %Z' 2>/dev/null || date -d "+${secs} seconds" '+%a %H:%M %Z' 2>/dev/null || echo "in $(_hms "$secs")")"
+  log "══════════════════════════════════════════════════════════════════════"
+  log "🛑 Claude usage/session limit hit — NOT a failure; the loop will auto-resume."
+  [ -n "$reset_txt" ] && log "   Claude says: ${reset_txt}"
+  [ -n "$note" ] && log "   $note"
+  log "   ⏳ Sleeping $(_hms "$secs")  →  resuming ~${resume}, then RE-ATTEMPT COLD."
+  log "   ✅ SAFE TO Ctrl-C NOW — nothing is running."
+  log "══════════════════════════════════════════════════════════════════════"
+}
 
 command -v jq >/dev/null 2>&1 || { log "jq is required to parse TASKS.json — install it (e.g. brew install jq)"; exit 3; }
 
@@ -474,18 +505,20 @@ RL_RE='usage limit|session limit|hit your .*limit|limit.*reset|rate.?limit|429|r
 # the limit notice is a normal assistant message, not a process error. The tightness ensures ordinary
 # task output is never misread as a limit on a genuinely successful run.
 RL_HARD_RE='hit your (session|usage|account|weekly|5.?hour) limit|(session|usage|weekly|account) limit reached|reached your (usage|session|weekly) limit'
-RL_BUFFER="${RL_BUFFER:-60}"   # seconds of slack added on top of a parsed reset time
+RL_BUFFER="${RL_BUFFER:-300}"   # seconds of slack added on top of a parsed reset time
 
 # rl_reset_wait <output-file> — best-effort: parse a reset time out of Claude's own rate-limit
-# message and return how many seconds to sleep until then (+ RL_BUFFER slack). Falls back to
-# RL_POLL when no reset time is found or it fails to parse — never blocks on a bad parse. Handles
-# three shapes Claude's CLI has been observed to use: an absolute clock time ("resets at 3:45 PM"),
-# a relative duration ("resets in 45 minutes"), and an ISO-8601 timestamp.
+# message and echo how many seconds to sleep until then (+ RL_BUFFER slack, capped at
+# RL_BACKOFF_MAX). Returns non-zero (echoes NOTHING) when no reset time is found or it fails to
+# parse — callers fall back (build path: exponential backoff; audit path: RL_POLL). Call it
+# `… || true` inside a command substitution: a bare failing $( ) assignment would trip set -e.
+# Handles three shapes Claude's CLI has been observed to use: an absolute clock time
+# ("resets at 3:45 PM"), a relative duration ("resets in 45 minutes"), and an ISO-8601 timestamp.
 rl_reset_wait() {
-  local out="$1" now line target iso n unit clock
+  local out="$1" now line target iso n unit clock secs
   now=$(date +%s)
   line="$(grep -oiE 'resets?[^.]{0,40}' "$out" 2>/dev/null | tail -1)"
-  [ -n "$line" ] || { printf '%s' "$RL_POLL"; return; }
+  [ -n "$line" ] || return 1
 
   iso="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})?' | head -1)"
   if [ -n "$iso" ]; then
@@ -531,9 +564,11 @@ rl_reset_wait() {
   fi
 
   if [ -n "${target:-}" ] && [ "$target" -gt "$now" ]; then
-    printf '%s' "$(( target - now + RL_BUFFER ))"
+    secs=$(( target - now + RL_BUFFER ))
+    [ "$secs" -gt "$RL_BACKOFF_MAX" ] && secs="$RL_BACKOFF_MAX"
+    printf '%s' "$secs"
   else
-    printf '%s' "$RL_POLL"
+    return 1
   fi
 }
 
@@ -764,8 +799,9 @@ audit_gate() {
     # the call in an AND-OR list, which `set -e` never aborts on.
     arc=0; set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")" || arc=$?; set -e
     if [ "$arc" = 10 ]; then
-      rlpoll="$(rl_reset_wait "$WORKLOG/.claude-out")"
-      log "auditor rate-limited — waiting ${rlpoll}s (NOT an audit fail)"; sleep "$rlpoll"; continue
+      rlpoll="$(rl_reset_wait "$WORKLOG/.claude-out" || true)"; rlpoll="${rlpoll:-$RL_POLL}"
+      rl_banner "$rlpoll" "$WORKLOG/.claude-out" "(this is the AUDIT step, not the build — NOT an audit fail)"
+      sleep "$rlpoll"; continue
     fi
     break
   done
@@ -885,7 +921,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
 
   # Run Claude COLD, polling + auto-resuming on usage/session limits (NOT counted as a failure). Every
   # (re)attempt resets to a CLEAN tree first, so it measures one cold pass of this tier (§4.1).
-  rl_waited=0
+  rl_waited=0; rl_sleep="$RL_BACKOFF_MIN"
   while :; do
     cold_reset
     # `… || rc=$?` (NOT `; rc=$?`) — run_claude flips `set -e` back ON internally before it
@@ -898,8 +934,14 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         board; exit 5
       fi
-      rlwait="$(rl_reset_wait "$WORKLOG/.claude-out")"
-      log "Claude usage/session limit hit — RE-ATTEMPTING the same task COLD in ${rlwait}s (not a failure; waited ${rl_waited}s so far)."
+      rlwait="$(rl_reset_wait "$WORKLOG/.claude-out" || true)"
+      if [ -n "$rlwait" ]; then
+        rl_banner "$rlwait" "$WORKLOG/.claude-out" "(that's the reported reset + a $(_hms "$RL_BUFFER") cushion; waited $(_hms "$rl_waited") so far)"
+      else
+        rlwait="$rl_sleep"
+        rl_banner "$rlwait" "$WORKLOG/.claude-out" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
+        rl_sleep=$(( rl_sleep * 2 )); [ "$rl_sleep" -gt "$RL_EXP_MAX" ] && rl_sleep="$RL_EXP_MAX"
+      fi
       sleep "$rlwait"; rl_waited=$(( rl_waited + rlwait )); continue
     fi
     break
