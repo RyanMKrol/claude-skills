@@ -594,6 +594,16 @@ run_integrate_hook() {
 # nothing) otherwise, so non-visual tasks and projects pay zero cost. The optional second arg "audit"
 # frames it for the independent auditor (a PASS/FAIL decision) instead of the builder (record + declare
 # done). See docs/designs/visual-verification.md for the rationale and worked per-platform examples.
+#
+# A project can enrich the block (without forking the loop) by dropping custom/visual-verify-build.md
+# and/or custom/visual-verify-audit.md — appended below when the block fires. See _visual_verify_custom.
+_visual_verify_custom() {   # <build|audit> — append a project snippet from the custom/ overlay if present
+  local mode="$1" f="$HARNESS_DIR/custom/visual-verify-${mode}.md"
+  [ -f "$f" ] || return 0
+  printf '\n--- PROJECT-SPECIFIC VISUAL VERIFICATION GUIDANCE ---\n'
+  cat "$f"
+  printf '\n'
+}
 visual_verify_block() {
   local tid="$1" mode="${2:-build}" vv wt ly fire
   [ -n "$VISUAL_VERIFY_HOOK" ] || return 0
@@ -624,12 +634,14 @@ visual_verify_block() {
     printf 'every visual "## Done when" item — the intended element is present AND painted/visible, not merely\n'
     printf 'in the DOM/tree. FAIL if a screenshot contradicts a "## Done when" claim, if the visual check exits\n'
     printf 'non-zero, or if a visual requirement is not evidenced by what actually renders.\n'
+    _visual_verify_custom audit
     return 0
   fi
   printf '\n--- VISUAL VERIFICATION (required before reporting done — see docs/designs/visual-verification.md) ---\n'
   printf 'This task produces visual output. Passing tests/build alone is NOT sufficient.\n'
   printf 'Run `%s` and actually LOOK at what it produces (screenshots / rendered output) to confirm the\n' "$VISUAL_VERIFY_HOOK"
   printf 'change renders and behaves as intended. Record what you OBSERVED (not just "ran it") in the worklog.\n'
+  _visual_verify_custom build
 }
 
 # --- Per-task build prompt --------------------------------------------------

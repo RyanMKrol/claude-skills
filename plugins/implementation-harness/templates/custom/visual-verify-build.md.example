@@ -1,0 +1,15 @@
+# Project visual-verification guidance — BUILDER prompt (example stub)
+
+Copy this file to `visual-verify-build.md` (drop the `.example`) and REPLACE the body below with your
+project's guidance. Its contents are appended to the loop's generic visual-verification block in the
+**builder** prompt — but only for tasks that fire visual verification (the `VISUAL_VERIFY_HOOK` is set AND
+the task opts in via `visualVerify: true` or the facets heuristic). Absent → no output → identical to stock.
+
+Keep it concrete and builder-focused (do-and-record): the exact capture command(s), a fixtures /
+living-artifact file to keep current, named screens/flows to screenshot, and what "renders correctly"
+means for THIS project.
+
+<!-- Replace everything below with your real guidance. Example:
+Run `npm run screenshots -- --routes=/,/dashboard` and LOOK at each. If you touched a shared component,
+screenshot every page listed in `docs/visual-fixtures.md`, and update that file for any new/changed
+screen. Record in the worklog which screens you captured and what you observed. -->

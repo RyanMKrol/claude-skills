@@ -32,6 +32,22 @@ Entry format:
 
 ---
 
+## 1.26.0 → 1.27.0 — project visual-verify prompt snippets (custom/ injection)
+Adds a `custom/` extension point for project-specific visual-verification prompt text, so a project with a
+richer discipline (exact capture commands, a living-fixtures file, named flows) injects it into the
+builder/auditor prompts without forking `loop.sh`. Follows the 1.24.0 `custom/` pattern: convention-located
+optional file, absent → byte-identical prior behavior.
+- new files: `custom/visual-verify-build.md.example`, `custom/visual-verify-audit.md.example` — overlay
+  stubs. **Add-if-missing on upgrade; NEVER overwrite a user's real `visual-verify-*.md`.** The whole-tree
+  `custom/` copy lands them on fresh installs.
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — both gain a `_visual_verify_custom <build|audit>`
+  helper that **appends** `custom/visual-verify-<mode>.md` (if present) to the generic visual-verification
+  block, gated identically (only when the block already fires — task opted in / heuristic matched; never an
+  independent trigger). `docs/HARNESS.md` §8.3 + `docs/designs/visual-verification.md` document it. Absent
+  files → byte-identical prior prompt. Covered by `scripts/loop-extend.test.sh`.
+- config: none.
+- breaking: none.
+
 ## 1.25.0 → 1.26.0 — in-place postflight variant (fix the worktree-only status board)
 The single shipped `postflight.sh` was worktree-bound: it read the board from `origin/main` blobs and
 detected in-flight by grepping for `tNNN` task branches — neither fits the in-place variant (it builds on

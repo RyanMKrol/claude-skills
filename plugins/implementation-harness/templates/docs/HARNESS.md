@@ -520,6 +520,15 @@ per line (blank/`#` lines ignored), **OR-appended** to the built-in guard. **App
 and the base guard stays fully active (a bad custom pattern can never wedge the loop or disable the guard).
 Probe a path with `scripts/loop.sh --guard-selftest <path>` (prints `BLOCK`/`ALLOW`).
 
+**Visual-verification prompt snippets — `custom/visual-verify-build.md` / `custom/visual-verify-audit.md`.**
+When the visual-verification block fires for a task (the `VISUAL_VERIFY_HOOK` is set AND the task opts in —
+`visualVerify: true` or the facets heuristic), the loop **appends** the matching file's contents to the
+generic block: `visual-verify-build.md` in the builder prompt, `visual-verify-audit.md` in the auditor
+prompt. It's how a project injects its own richer discipline — exact capture commands, a living-fixtures
+file to keep current, named flows to screenshot — without forking `loop.sh`. It only *appends* (the generic
+baseline stays), only fires when the block already fires (not an independent trigger), and absent → no
+output → identical to stock. Populate one or both.
+
 Customize behavior or the guard by adding a `custom/` file — **never by editing `loop.sh`** (an inline edit
 forfeits clean upgrades; see `custom/CLAUDE.md`).
 

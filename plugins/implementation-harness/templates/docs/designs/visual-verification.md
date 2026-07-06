@@ -89,6 +89,20 @@ This pattern is NOT shipped as harness code — adopt it once a project has enou
 a shared capture script worth maintaining. A one-surface project doesn't need it; `VISUAL_VERIFY_HOOK`
 pointing straight at a one-off capture command is plenty.
 
+## Adding project-specific richness — a `custom/` snippet (no fork)
+
+The shipped block is deliberately generic ("run the hook and LOOK"). A project with a richer discipline —
+exact capture commands, a living-fixtures file to keep current, named flows to screenshot — injects that
+**without editing `loop.sh`** by dropping a snippet in the `custom/` overlay:
+
+- `custom/visual-verify-build.md` → appended to the **builder** block (do-and-record framing).
+- `custom/visual-verify-audit.md` → appended to the **auditor** block (adversarial / pass-fail framing).
+
+The loop appends the file's contents whenever the block fires (same gating — the task opted in or the
+heuristic matched), so it *enriches* the baseline rather than replacing it, and is zero-cost + byte-identical
+when absent. This is the supported alternative to forking the loop; see `docs/HARNESS.md` §8.3 and the
+`.example` stubs under `.harness/custom/`.
+
 ## What this does NOT do
 
 - It does not replace the audit gate's text-diff review — it supplements it for visual work, since a

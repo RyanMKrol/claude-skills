@@ -89,10 +89,48 @@ EOF
 assert "nonzero hook exit is non-fatal (rc 0)"    bash -c "case \"\$1\" in *rc=0*) exit 0;; *) exit 1;; esac" _ "$(drive blocked T042 'some reason')"
 rm -rf "$d"
 
+# ============ Visual-verify project snippet injection (custom/visual-verify-{build,audit}.md) ==========
+# Extract the REAL visual_verify_block + _visual_verify_custom from the shipped loop (byte-identical across
+# variants) and drive them with a tj() stub that opts the task in, so the block fires and we can check the
+# snippet is appended when present / absent when not.
+d="$(setup_repo)"; mkdir -p "$d/.harness/custom"
+{
+  echo 'tj(){ echo true; }'                    # any .visualVerify read → "true" → block fires (skips heuristic)
+  echo 'VISUAL_VERIFY_HOOK="echo shot"'
+  printf 'HARNESS_DIR=%q\n' "$d/.harness"
+  sed -n '/^_visual_verify_custom() {/,/^}/p' "$SCRIPT_DIR/loop.sh"
+  sed -n '/^visual_verify_block() {/,/^}/p' "$SCRIPT_DIR/loop.sh"
+  echo 'visual_verify_block "$@"'
+} > "$d/vv.sh"
+vv() { bash "$d/vv.sh" "$@" 2>/dev/null; }
+has() { case "$2" in *"$1"*) return 0;; *) return 1;; esac; }
+CB="$d/.harness/custom/visual-verify-build.md"; CA="$d/.harness/custom/visual-verify-audit.md"
+
+# absent → generic block fires, NO project snippet (byte-identical to stock)
+ob="$(vv T1)"; oa="$(vv T1 audit)"
+assert "vv build: generic block fires"            has 'VISUAL VERIFICATION' "$ob"
+assert "vv audit: generic block fires"            has 'VISUAL EVIDENCE' "$oa"
+assert "vv build: no snippet marker when absent"  bash -c 'case "$1" in *PROJECT-SPECIFIC*) exit 1;; *) exit 0;; esac' _ "$ob"
+assert "vv audit: no snippet marker when absent"  bash -c 'case "$1" in *PROJECT-SPECIFIC*) exit 1;; *) exit 0;; esac' _ "$oa"
+
+# build snippet present → appears in BUILD only
+printf 'CAPTURE-THE-DASHBOARD-ROUTE\n' > "$CB"
+ob="$(vv T1)"; oa="$(vv T1 audit)"
+assert "vv build: snippet marker appended"        has 'PROJECT-SPECIFIC VISUAL VERIFICATION GUIDANCE' "$ob"
+assert "vv build: snippet content appended"       has 'CAPTURE-THE-DASHBOARD-ROUTE' "$ob"
+assert "vv audit: build snippet does NOT leak"    bash -c 'case "$1" in *CAPTURE-THE-DASHBOARD-ROUTE*) exit 1;; *) exit 0;; esac' _ "$oa"
+
+# audit snippet present → appears in AUDIT
+printf 'FAIL-IF-THE-CHART-IS-BLANK\n' > "$CA"
+oa="$(vv T1 audit)"
+assert "vv audit: snippet marker appended"        has 'PROJECT-SPECIFIC VISUAL VERIFICATION GUIDANCE' "$oa"
+assert "vv audit: snippet content appended"       has 'FAIL-IF-THE-CHART-IS-BLANK' "$oa"
+rm -rf "$d"
+
 # ============ Structural wiring assertions on the shipped loops ============
 for V in loop.sh loop.in-place.sh; do
   L="$SCRIPT_DIR/$V"
-  for ev in "run_hook drained drained" "run_hook drained idle" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated"; do
+  for ev in "run_hook drained drained" "run_hook drained idle" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build"; do
     assert "[$V] wires: $ev" grep -qF "$ev" "$L"
   done
   # a lifecycle hook must NEVER fire on the prereq/config error exit path (exit 3)

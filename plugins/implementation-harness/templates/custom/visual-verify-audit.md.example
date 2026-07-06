@@ -1,0 +1,14 @@
+# Project visual-verification guidance — AUDITOR prompt (example stub)
+
+Copy this file to `visual-verify-audit.md` (drop the `.example`) and REPLACE the body below with your
+project's guidance. Its contents are appended to the loop's generic visual-verification block in the
+independent **auditor** prompt — only for tasks that fire visual verification (as above). Absent → no
+output → identical to stock.
+
+Keep it adversarial and pass/fail-focused: exactly what to capture, which visual "## Done when" claims to
+scrutinize, and the concrete conditions that should FAIL the audit for THIS project.
+
+<!-- Replace everything below with your real guidance. Example:
+Run `npm run screenshots -- --routes=<the routes the task touched>` and compare against
+`docs/visual-fixtures.md`. FAIL if any screen regresses, if a new screen isn't captured, or if a
+"## Done when" visual claim isn't evidenced by what actually renders. -->
