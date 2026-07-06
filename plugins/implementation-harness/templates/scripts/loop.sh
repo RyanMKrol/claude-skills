@@ -36,6 +36,9 @@
 #                     worktree/branch down; red / audit-fail → a failed attempt (tear down → COLD retry).
 #
 # Usage:  .harness/scripts/loop.sh [TNNN]  # optional: force a specific task id this run
+#         .harness/scripts/loop.sh --guard-selftest [path]  # verify the guard regex (or test one path), then exit
+# Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
+#         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
 # Config: .harness/config/harness.env (sourced if present) and/or the environment override the
 #         defaults below. Real environment > harness.env > built-in default.
 set -euo pipefail
@@ -85,12 +88,24 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"           # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                  # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"         # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
 board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
+
+# run_hook <event> [args…] — run .harness/custom/hooks/on-<event>.sh if present. Child process
+# (never sourced, cannot touch loop state), NON-FATAL, best-effort. Exports harness context. May
+# recur (e.g. every supervise cycle that drains), so a hook MUST be cheap + idempotent.
+run_hook() {
+  local event="$1"; shift
+  local hook="$HARNESS_DIR/custom/hooks/on-$event.sh"
+  [ -f "$hook" ] || return 0
+  log "lifecycle hook: on-$event ($*)"
+  HARNESS_ROOT="$ROOT" HARNESS_DIR="$HARNESS_DIR" HARNESS_MAIN_BRANCH="${MAIN_BRANCH:-main}" \
+    bash "$hook" "$@" || log "WARN: on-$event hook exited non-zero (non-fatal)"
+}
 
 # _hms <seconds> → human duration like "4h 34m" / "12m" / "45s"
 _hms() {
@@ -494,6 +509,24 @@ throttled_push() {
 # main contains a sensitive path (.env.example is explicitly allowed).
 SENSITIVE_RE='(^|/)data/|(^|/)\.env($|\.)|chrome-profile|\.pem$|\.key$|\.p12$|service-account|credentials\.json'
 GUARD_ALLOW_RE='(^|[/:])\.env\.example$'
+
+# Optional project-appendable denylist: .harness/custom/sensitive-paths.txt (one ERE fragment per
+# line; blank/#-comment lines ignored). APPEND-ONLY — it can only TIGHTEN the guard, never loosen it.
+# A pattern that won't compile is ignored with a WARN (base guard stays fully active — never wedged).
+SENSITIVE_EXTRA_FILE="$HARNESS_DIR/custom/sensitive-paths.txt"
+if [ -f "$SENSITIVE_EXTRA_FILE" ]; then
+  extra="$(grep -vE '^[[:space:]]*(#|$)' "$SENSITIVE_EXTRA_FILE" 2>/dev/null | paste -sd'|' - || true)"
+  if [ -n "$extra" ]; then
+    candidate="$SENSITIVE_RE|$extra"
+    if printf '' | grep -qE "$candidate" 2>/dev/null; then
+      SENSITIVE_RE="$candidate"                          # matched (n/a on empty) → valid
+    else
+      rc=$?                                              # exit of the if-condition (set -e exempt)
+      if [ "$rc" -le 1 ]; then SENSITIVE_RE="$candidate"    # 1 = valid ERE, just no match → accept
+      else log "WARN: custom/sensitive-paths.txt has an invalid regex — ignoring it; using base guard only."; fi
+    fi
+  fi
+fi
 guard_clean() {   # <branch> — 0 = clean, 1 = a sensitive path is staged for integration
   local branch="$1" bad
   bad="$(git -C "$ROOT" diff --name-only "origin/main..origin/$branch" 2>/dev/null | grep -nE "$SENSITIVE_RE" | grep -vE "$GUARD_ALLOW_RE" || true)"
@@ -502,6 +535,42 @@ guard_clean() {   # <branch> — 0 = clean, 1 = a sensitive path is staged for i
   printf '   %s\n' $bad >&2
   return 1
 }
+
+# --guard-selftest [path]: with no arg, assert the (effective) guard regex blocks real secrets but
+# allows tracked templates. With a path arg, print BLOCK/ALLOW for that ONE path against the effective
+# guard (base + any custom/sensitive-paths.txt) — a "does the guard catch this?" probe.
+guard_selftest() {
+  if [ -n "${1:-}" ]; then
+    if printf '%s\n' "$1" | grep -nE "$SENSITIVE_RE" | grep -vE "$GUARD_ALLOW_RE" >/dev/null; then echo BLOCK; else echo ALLOW; fi
+    return 0
+  fi
+  local fail=0 p exp got
+  while read -r p exp; do
+    [ -z "$p" ] && continue
+    if printf '%s\n' "$p" | grep -nE "$SENSITIVE_RE" | grep -vE "$GUARD_ALLOW_RE" >/dev/null; then got=BLOCK; else got=ALLOW; fi
+    [ "$got" = "$exp" ] || { echo "guard FAIL: '$p' expected $exp got $got"; fail=1; }
+  done <<'CASES'
+.env BLOCK
+.env.local BLOCK
+.env.production BLOCK
+config/.env BLOCK
+.env.example ALLOW
+src/app/.env.example ALLOW
+data/out.json BLOCK
+src/jobs/x/data/raw.csv BLOCK
+chrome-profile/Default BLOCK
+config/credentials.json BLOCK
+secrets/id.pem BLOCK
+deploy/key.p12 BLOCK
+service-account.json BLOCK
+src/index.ts ALLOW
+README.md ALLOW
+TASKS.json ALLOW
+worklog/T001.md ALLOW
+CASES
+  [ "$fail" = 0 ] && { echo "guard self-test OK (16 cases)"; return 0; } || return 1
+}
+[ "${1:-}" = "--guard-selftest" ] && { guard_selftest "${2:-}"; exit $?; }
 
 integrate() {
   local branch="$1"
@@ -910,6 +979,7 @@ block_task() {
     remove_wt
   fi
   log "BLOCKED $id ($reason) — recorded on main; moving on to the next task."
+  run_hook blocked "$id" "$reason"
   heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
 }
 
@@ -948,7 +1018,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   sel="$(select_task || true)"
   if [ -z "$sel" ]; then
     log "no eligible task — backlog complete or everything left is gate/human-blocked."
-    board; sync_primary_checkout; exit 0
+    run_hook drained drained; board; sync_primary_checkout; exit 0
   fi
   read -r task branch mode <<<"$sel"
   if [ "$task" != "$cur_task" ]; then
@@ -979,7 +1049,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     if [ "$rc" = 10 ]; then
       if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
-        board; exit 5
+        run_hook exhausted rate-limit; board; exit 5
       fi
       rlwait="$(rl_reset_wait "$LOOP_WT/.harness/worklog/.claude-out" || true)"
       if [ -n "$rlwait" ]; then
@@ -1043,7 +1113,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       heartbeat integrating
       if integrate "$branch"; then
         record_outcome "$task" false                # difficulty auto-tuning: record the success on main (verification in the row)
-        log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       else
         record_failure "$task" "integrate-race" "ff to main rejected"; bump "$task"
       fi
@@ -1051,10 +1121,10 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     failed:soft)    log "agent soft-failed $rtask: ${extra:-} — tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;
     failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; record_failure "$task" "agent-blocked" "${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
-    idle)           log "agent reports idle — nothing to do"; board; sync_primary_checkout; exit 0 ;;
+    idle)           log "agent reports idle — nothing to do"; run_hook drained idle; board; sync_primary_checkout; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
   esac
   board
 done
 
-log "reached MAX_ITERS=$MAX_ITERS — stopping"; board; exit 4
+log "reached MAX_ITERS=$MAX_ITERS — stopping"; run_hook exhausted max-iters; board; exit 4

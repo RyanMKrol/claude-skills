@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# on-drained.sh — runs when the loop finishes with nothing left to build (backlog drained or agent idle).
+# Copy this file to `on-drained.sh` (drop the `.example`) to activate it.
+#
+#   $1                     "drained" (backlog exhausted) or "idle" (agent reported nothing to do)
+#   $HARNESS_ROOT          repo root (git top-level)
+#   $HARNESS_DIR           the .harness directory
+#   $HARNESS_MAIN_BRANCH   main branch name
+#
+# CONTRACT: this can fire once PER LOOP CYCLE (e.g. every supervise re-run that still finds the backlog
+# empty), so it MUST be cheap and idempotent — gate real work on "did anything actually change?". It runs
+# as a child process and is non-fatal: a nonzero exit is logged and ignored, it can never block or corrupt
+# the loop.
+#
+# Example: deploy the site when the backlog is drained and src/ changed since the last deploy.
+set -uo pipefail
+echo "[on-drained] reason=$1 — no-op stub; copy to on-drained.sh and implement."
+exit 0

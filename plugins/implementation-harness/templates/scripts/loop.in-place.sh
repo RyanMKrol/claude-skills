@@ -26,8 +26,10 @@
 #
 # Usage:  .harness/scripts/loop.sh [TNNN]          # optional: force a specific task id this run
 #         DRY_RUN=1 .harness/scripts/loop.sh       # print the task it WOULD build, then exit
-#         .harness/scripts/loop.sh --guard-selftest  # verify the pre-push guard regex, then exit
+#         .harness/scripts/loop.sh --guard-selftest [path]  # verify the guard regex (or test one path), then exit
 # Config: .harness/config/harness.env (sourced if present) and/or the environment.
+# Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
+#         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .harness/scripts — this script's own dir
@@ -86,6 +88,18 @@ read -r -a FLAGS <<<"$CLAUDE_FLAGS"
 log() { printf '[loop] %s\n' "$*" >&2; }
 board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
 
+# run_hook <event> [args…] — run .harness/custom/hooks/on-<event>.sh if present. Child process
+# (never sourced, cannot touch loop state), NON-FATAL, best-effort. Exports harness context. May
+# recur (e.g. every supervise cycle that drains), so a hook MUST be cheap + idempotent.
+run_hook() {
+  local event="$1"; shift
+  local hook="$HARNESS_DIR/custom/hooks/on-$event.sh"
+  [ -f "$hook" ] || return 0
+  log "lifecycle hook: on-$event ($*)"
+  HARNESS_ROOT="$ROOT" HARNESS_DIR="$HARNESS_DIR" HARNESS_MAIN_BRANCH="${MAIN_BRANCH:-main}" \
+    bash "$hook" "$@" || log "WARN: on-$event hook exited non-zero (non-fatal)"
+}
+
 # _hms <seconds> → human duration like "4h 34m" / "12m" / "45s"
 _hms() {
   local s="$1" h m
@@ -120,6 +134,24 @@ command -v jq >/dev/null 2>&1 || { log "jq is required to parse TASKS.json — i
 SENSITIVE_RE='(^|/)data/|(^|/)\.env($|\.)|chrome-profile|\.pem$|\.key$|\.p12$|service-account|credentials\.json'
 GUARD_ALLOW_RE='(^|[/:])\.env\.example$'
 
+# Optional project-appendable denylist: .harness/custom/sensitive-paths.txt (one ERE fragment per
+# line; blank/#-comment lines ignored). APPEND-ONLY — it can only TIGHTEN the guard, never loosen it.
+# A pattern that won't compile is ignored with a WARN (base guard stays fully active — never wedged).
+SENSITIVE_EXTRA_FILE="$HARNESS_DIR/custom/sensitive-paths.txt"
+if [ -f "$SENSITIVE_EXTRA_FILE" ]; then
+  extra="$(grep -vE '^[[:space:]]*(#|$)' "$SENSITIVE_EXTRA_FILE" 2>/dev/null | paste -sd'|' - || true)"
+  if [ -n "$extra" ]; then
+    candidate="$SENSITIVE_RE|$extra"
+    if printf '' | grep -qE "$candidate" 2>/dev/null; then
+      SENSITIVE_RE="$candidate"                          # matched (n/a on empty) → valid
+    else
+      rc=$?                                              # exit of the if-condition (set -e exempt)
+      if [ "$rc" -le 1 ]; then SENSITIVE_RE="$candidate"    # 1 = valid ERE, just no match → accept
+      else log "WARN: custom/sensitive-paths.txt has an invalid regex — ignoring it; using base guard only."; fi
+    fi
+  fi
+fi
+
 # --- Pre-push guard: refuse to push if anything sensitive is in the new commits ----
 guard_clean() {
   local bad
@@ -130,8 +162,14 @@ guard_clean() {
   return 1
 }
 
-# --guard-selftest: assert the guard regex blocks real secrets but allows tracked templates.
+# --guard-selftest [path]: with no arg, assert the (effective) guard regex blocks real secrets but
+# allows tracked templates. With a path arg, print BLOCK/ALLOW for that ONE path against the effective
+# guard (base + any custom/sensitive-paths.txt) — a "does the guard catch this?" probe.
 guard_selftest() {
+  if [ -n "${1:-}" ]; then
+    if printf '%s\n' "$1" | grep -nE "$SENSITIVE_RE" | grep -vE "$GUARD_ALLOW_RE" >/dev/null; then echo BLOCK; else echo ALLOW; fi
+    return 0
+  fi
   local fail=0 p exp got
   while read -r p exp; do
     [ -z "$p" ] && continue
@@ -158,7 +196,7 @@ worklog/T001.md ALLOW
 CASES
   [ "$fail" = 0 ] && { echo "guard self-test OK (16 cases)"; return 0; } || return 1
 }
-[ "${1:-}" = "--guard-selftest" ] && { guard_selftest; exit $?; }
+[ "${1:-}" = "--guard-selftest" ] && { guard_selftest "${2:-}"; exit $?; }
 
 [ -f "$BACKLOG" ] || { log "no .harness/tracking/TASKS.json — nothing to build"; exit 3; }
 
@@ -876,6 +914,7 @@ block_task() {
   git -C "$ROOT" commit -q -m "$id: blocked, needs human — skipping [skip ci]" 2>/dev/null || true
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
+  run_hook blocked "$id" "$reason"
   heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
 }
 
@@ -916,7 +955,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   sel="$(select_task || true)"
   if [ -z "$sel" ]; then
     log "no eligible task — backlog complete or everything left is gate/human-blocked."
-    board; exit 0
+    run_hook drained drained; board; exit 0
   fi
   task="$sel"
   if [ "$task" != "$cur_task" ]; then
@@ -945,7 +984,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     if [ "$rc" = 10 ]; then
       if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
-        board; exit 5
+        run_hook exhausted rate-limit; board; exit 5
       fi
       rlwait="$(rl_reset_wait "$WORKLOG/.claude-out" || true)"
       if [ -n "$rlwait" ]; then
@@ -994,12 +1033,12 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # the whole CI_TIMEOUT, return indeterminate, and soft-retry forever. Short-circuit to done —
       # there is deliberately no CI to wait for (e.g. an operational / scope:[] task).
       if [ "$REQUIRE_CI" = "1" ] && git -C "$ROOT" log -1 --format=%s 2>/dev/null | grep -qF '[skip ci]'; then
-        mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       elif [ "$REQUIRE_CI" = "1" ]; then
         heartbeat awaiting-ci
         ci_rc=0; wait_ci_green || ci_rc=$?
         if [ "$ci_rc" = 0 ]; then
-          mark_done "$task"; run_integrate_hook; log "integrated $task → $MAIN_BRANCH (CI green)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+          mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH (CI green)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
         elif [ "$ci_rc" = 1 ]; then
           # CI genuinely RED. NEVER halt the whole loop on one red: revert the pushed commit to restore
           # main, then soft-retry. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
@@ -1019,16 +1058,16 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
           record_failure "$task" "ci-indeterminate" "CI produced no definitive result (cancelled/skipped/no-run)"; bump "$task"
         fi
       else
-        mark_done "$task"; run_integrate_hook; log "marked $task done (REQUIRE_CI=0; local DoD only)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "marked $task done (REQUIRE_CI=0; local DoD only)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
       fi
       ;;
     failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;
     failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; record_failure "$task" "agent-blocked" "${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
-    idle)           log "agent reports idle — nothing to do"; board; exit 0 ;;
+    idle)           log "agent reports idle — nothing to do"; run_hook drained idle; board; exit 0 ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
   esac
   board
 done
 
-log "reached MAX_ITERS=$MAX_ITERS — stopping"; board; exit 4
+log "reached MAX_ITERS=$MAX_ITERS — stopping"; run_hook exhausted max-iters; board; exit 4

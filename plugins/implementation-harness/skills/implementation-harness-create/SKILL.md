@@ -274,6 +274,7 @@ grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-
 [ -f "$T/.harness/tracking/IDEAS.md" ] || echo "WARN: tracking/IDEAS.md inbox missing (should be a committed starter)"
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
+for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done

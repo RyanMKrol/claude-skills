@@ -39,6 +39,16 @@ jobs:
           [ "$fail" = 0 ]
           node plugins/implementation-harness/templates/dashboard/lib.test.js
 
+      - name: run harness shell test suites (*.test.sh)
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' t; do
+            echo "── running $t"
+            bash "$t" || { echo "TEST FAILED: $t"; fail=1; }
+          done < <(find plugins -name '*.test.sh' -print0)
+          exit "$fail"
+
       - name: jq empty every JSON file
         run: |
           set -euo pipefail

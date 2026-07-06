@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# on-blocked.sh — runs when the loop BLOCKS a task (needs-human: an agent-reported blocker, an unmet
+# prereq, or a tripped pre-push guard). Copy to `on-blocked.sh` (drop the `.example`) to activate it.
+#
+#   $1                     the blocked task id (e.g. T042)
+#   $2                     the block reason (free text)
+#   $HARNESS_ROOT / $HARNESS_DIR / $HARNESS_MAIN_BRANCH   harness context (see on-drained.sh.example)
+#
+# CONTRACT: child process, non-fatal (a nonzero exit is logged + ignored), fires once per block. Good for
+# notifying a human (Slack/email/an issue) that the loop is stuck on this task and needs attention.
+set -uo pipefail
+echo "[on-blocked] task=$1 reason=$2 — no-op stub; copy to on-blocked.sh and implement."
+exit 0

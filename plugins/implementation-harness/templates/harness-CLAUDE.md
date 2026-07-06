@@ -18,10 +18,14 @@ loads or points to its overlay, and upgrades never touch `custom/`. This file im
 the bottom, so anything you add there is always in context.
 
 **If you (or the owner) are about to edit a plugin-owned prose file directly, STOP and flag it** — move the
-change into the matching `custom/` file instead, so the install stays on a clean upgrade path. The
-exceptions are **scripts** and **config** (`harness.env`, `facets.json`): those have no prose overlay —
-tune behavior through `harness.env`, and if a script genuinely needs changing, flag it to upstream into the
-plugin rather than hand-editing it (a hand-edited script can't be cleanly upgraded).
+change into the matching `custom/` file instead, so the install stays on a clean upgrade path.
+
+`custom/` also carries two **behavior/config** extension points, so you needn't fork `loop.sh` either:
+lifecycle hooks (`custom/hooks/on-<event>.sh` — drain/idle, blocked, exhausted, integrated) and an
+append-only pre-push guard denylist (`custom/sensitive-paths.txt`). **Customize behavior or the guard by
+adding a `custom/` file, not by editing `loop.sh`** (see `docs/HARNESS.md` §8.3). The remaining exception is
+deeper script logic no hook covers (`harness.env` scalar knobs aside): flag it to upstream into the plugin
+rather than hand-editing a script — a hand-edited script can't be cleanly upgraded.
 
 ## Adding a backlog task → invoke the add-to-backlog skill
 

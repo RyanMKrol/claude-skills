@@ -489,6 +489,40 @@ this same checkout takes effect on the loop's very next pass. A `manual-fail` en
 retroactively corrects difficulty calibration **by subtracting at read time**, never by mutating the
 append-only ledger — see `docs/designs/manual-fail-signal.md` for the full mechanism and rationale.
 
+### 8.3 — Extending via `custom/` (lifecycle hooks + guard denylist)
+
+`.harness/custom/` is the harness's single customization surface — the prose overlays (the pointer in each
+doc) plus two **convention-based, opt-in** extension points the loop auto-discovers. Both are
+back-compatible: absent → byte-identical stock behavior. Each ships a `.example` stub; **copy it to the real
+filename to activate** (a shipped stub can never change behavior, and upgrades add-if-missing the `.example`
+without touching your real file).
+
+**Lifecycle hooks — `custom/hooks/on-<event>.sh`.** If present, the loop runs the matching script at that
+event as a **child process** (never sourced — it cannot touch loop state), **non-fatal** (a nonzero exit is
+logged and ignored), with `HARNESS_ROOT`, `HARNESS_DIR`, `HARNESS_MAIN_BRANCH` exported:
+
+| Hook file | Fires when | Args (`$1 …`) |
+|---|---|---|
+| `on-drained.sh` | the loop finishes with nothing left to build | `drained` (backlog empty) or `idle` (agent had nothing to do) |
+| `on-exhausted.sh` | the loop stops WITHOUT draining | `max-iters` or `rate-limit` |
+| `on-blocked.sh` | a task is blocked (needs-human / unmet prereq / guard-tripped) | task-id, reason |
+| `on-integrated.sh` | a task successfully integrates into main | task-id, verification (`audited`/`ci-only`) |
+
+A hook can fire **once per loop cycle** (e.g. `on-drained` on every supervise re-run while the backlog
+stays empty), so it MUST be **cheap and idempotent** — gate real work on "did anything actually change?".
+Hooks never fire on a prerequisite/config error exit. `on-integrated` fires *alongside* the `INTEGRATE_HOOK`
+env command (harness.env): use `INTEGRATE_HOOK` for a plain restart/redeploy; use the file hook when you
+want the task id / verification as arguments.
+
+**Guard denylist — `custom/sensitive-paths.txt`.** Extra pre-push secret-guard patterns, one ERE fragment
+per line (blank/`#` lines ignored), **OR-appended** to the built-in guard. **Append-only** — it can only
+*tighten* the guard, never loosen it. If the combined regex won't compile, the file is ignored with a WARN
+and the base guard stays fully active (a bad custom pattern can never wedge the loop or disable the guard).
+Probe a path with `scripts/loop.sh --guard-selftest <path>` (prints `BLOCK`/`ALLOW`).
+
+Customize behavior or the guard by adding a `custom/` file — **never by editing `loop.sh`** (an inline edit
+forfeits clean upgrades; see `custom/CLAUDE.md`).
+
 ---
 
 ## 9. Gates — the boundaries the loop will not cross

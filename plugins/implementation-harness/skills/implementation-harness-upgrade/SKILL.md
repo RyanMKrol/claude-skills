@@ -131,7 +131,11 @@ one-time **standardize** as the recommended second path (the user picks; never f
 **Scope: prose only.** Standardize touches the plugin-owned markdown prose files and nothing else —
 scripts, `config/harness.env`, and `config/facets.json` stay on the normal adoption/additive flow (they
 have no prose overlay; a forked script is upstreamed or reconciled, not "standardized"). Say so, so nothing
-is over-promised.
+is over-promised. **But `.harness/custom/` now also carries behavior/config extension points** — lifecycle
+hooks (`custom/hooks/on-<event>.sh`) and an append-only guard denylist (`custom/sensitive-paths.txt`). So if
+a fork inlined deploy-on-drain logic or extra secret-guard patterns into `loop.sh`, the clean adoption is to
+**move that into the matching `custom/` file and take the pristine loop** — call this out when you see it
+(see `docs/HARNESS.md` §8.3).
 
 If the user takes standardize, do this (report first, apply on confirm — the stage-4 rules still hold),
 reusing §1a's three-way hunk classification:
@@ -192,9 +196,12 @@ For each file, classify:
 - **identical** (`cmp -s` passes) → up to date, skip.
 - **missing in target** → a **new file** the reference adds (a new script/doc). Candidate to add. (In
   adoption mode this is a question, not a recommendation — it may be a deliberate removal; see §1a.)
-  Missing **`custom/` overlay stubs** are always add-candidates (they're scaffolding, not user content) —
-  an install predating the overlay won't have them, and the pristine prose files' `@custom/…`/pointer
-  references need them; offer to add them, and never treat a missing overlay as a deliberate removal.
+  Missing **`custom/` scaffolding** is always an add-candidate (scaffolding, not user content): the prose
+  overlay stubs (an install predating the overlay won't have them, and the pristine files' `@custom/…`/pointer
+  references need them) AND the extension `.example` stubs (`custom/hooks/on-*.sh.example`,
+  `custom/sensitive-paths.txt.example`). Offer to add any that are missing; never treat a missing `custom/`
+  scaffolding file as a deliberate removal — and NEVER overwrite a user's REAL `custom/hooks/*.sh` or
+  `custom/sensitive-paths.txt` (that's their content).
 - **differs** → capture the unified diff (`diff -u "$target" "$ref"`) **and** the matching ledger note(s).
   Do NOT decide anything yet — this goes in the report for the user to adjudicate.
 

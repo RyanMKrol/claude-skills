@@ -1,0 +1,10 @@
+# sensitive-paths.txt — extra pre-push secret-guard patterns for THIS project.
+# Copy to `sensitive-paths.txt` (drop the .example) to activate. One extended-regex (ERE) fragment per
+# line; blank lines and #-comments ignored. These are OR-APPENDED to the built-in guard — they can only
+# ADD protection, never remove it. If any line makes the combined regex invalid, the whole file is ignored
+# and the base guard is used. Check a path with:  .harness/scripts/loop.sh --guard-selftest <path>
+#
+# Example (a project deployed on Vercel that also uses AWS):
+# (^|/)\.vercel/
+# (^|/)\.aws/
+# aws-credentials

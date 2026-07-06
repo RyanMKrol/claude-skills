@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# on-exhausted.sh — runs when the loop STOPS WITHOUT draining the backlog: it hit MAX_ITERS, or gave up
+# after a long usage/rate-limit wait. (The complement to on-drained, which is the clean finish.)
+# Copy to `on-exhausted.sh` (drop the `.example`) to activate it.
+#
+#   $1                     "max-iters" or "rate-limit"
+#   $HARNESS_ROOT / $HARNESS_DIR / $HARNESS_MAIN_BRANCH   harness context (see on-drained.sh.example)
+#
+# CONTRACT: child process, non-fatal, fires once when the loop bails out early. Good for a "the run stopped
+# before finishing — come look" notification. Does NOT fire on a clean drain/idle (that's on-drained), nor
+# on a prerequisite/config error exit.
+set -uo pipefail
+echo "[on-exhausted] reason=$1 — no-op stub; copy to on-exhausted.sh and implement."
+exit 0

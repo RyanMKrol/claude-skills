@@ -66,7 +66,7 @@ The upgrade skill treats the three classes differently, so classify correctly:
   `.github/workflows/ci.yml` / `README.md`. A change to one of these templates can only be applied by hand
   — list it under **manual attention** so the upgrade surfaces it.
 
-## The prose overlay (`custom/`) — every plugin-owned prose file needs a companion
+## The `custom/` overlay — prose companions + behavior/config extension points
 
 The plugin-owned **prose** files (`harness-CLAUDE.md`→`.harness/CLAUDE.md`, `README.md`, everything under
 `docs/**`) are mechanism — the upgrade overwrites them. To keep them cleanly upgradeable, consumers put
@@ -85,6 +85,14 @@ migrates a fork onto this by extracting inline edits into `custom/`). Rules when
   not in a personalized `docs/HARNESS.md`).
 - The overlay absorbs *additions* cleanly; it does **not** absorb in-place *edits to shipped lines* — those
   remain a conflict the standardize path surfaces, not a thing the overlay solves.
+- **`custom/` also carries behavior/config extension points**, discovered by the loop by convention (never a
+  `harness.env` knob): lifecycle hooks (`custom/hooks/on-<event>.sh`, dispatched by `run_hook`) and an
+  append-only pre-push guard denylist (`custom/sensitive-paths.txt`). They ship as `.example` stubs (opt-in
+  by copy; add-if-missing on upgrade, never overwrite the user's real file). **Adding a new lifecycle event
+  = a `run_hook <event>` call at the fire point in BOTH loop variants (keep them in parity) + a new
+  `on-<event>.sh.example` stub + a row in the `docs/HARNESS.md` §8.3 event table.** Hooks run as non-fatal
+  children and must never fire on an error/prereq exit (`exit 3`); `templates/scripts/loop-extend.test.sh`
+  covers the guard extension + the dispatcher.
 
 ## Reminders that interact with the above
 

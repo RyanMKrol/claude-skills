@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# on-integrated.sh — runs after each task successfully integrates into the main branch.
+# Copy to `on-integrated.sh` (drop the `.example`) to activate it.
+#
+#   $1                     the integrated task id (e.g. T042)
+#   $2                     verification level ("audited" or "ci-only")
+#   $HARNESS_ROOT / $HARNESS_DIR / $HARNESS_MAIN_BRANCH   harness context (see on-drained.sh.example)
+#
+# CONTRACT: child process, non-fatal, fires once per integrated task. NOTE: this fires ALONGSIDE the
+# INTEGRATE_HOOK env var (harness.env) — use INTEGRATE_HOOK for a plain "restart/redeploy the product"
+# command; use this file hook when you want the task id + verification level as arguments.
+set -uo pipefail
+echo "[on-integrated] task=$1 verification=$2 — no-op stub; copy to on-integrated.sh and implement."
+exit 0

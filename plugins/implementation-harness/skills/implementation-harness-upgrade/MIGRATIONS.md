@@ -32,6 +32,35 @@ Entry format:
 
 ---
 
+## 1.23.0 → 1.24.0 — custom/ extension points: lifecycle hooks + append-only guard denylist
+Turns `.harness/custom/` into a behavior/config extension surface (not just prose). Both extension points
+are opt-in `.example` stubs and back-compatible: absent → byte-identical prior loop behavior. See
+`docs/HARNESS.md` §8.3.
+- new files: `custom/hooks/on-drained.sh.example`, `custom/hooks/on-blocked.sh.example`,
+  `custom/hooks/on-exhausted.sh.example`, `custom/hooks/on-integrated.sh.example`,
+  `custom/sensitive-paths.txt.example`. **Add-if-missing on upgrade; NEVER overwrite a user's REAL
+  `custom/hooks/on-*.sh` or `custom/sensitive-paths.txt`** (their content). The whole-tree `custom/` copy
+  lands them on fresh installs automatically.
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — both gain (a) a `run_hook <event>` dispatcher
+  running `custom/hooks/on-<event>.sh` if present (child process, non-fatal, exports
+  `HARNESS_ROOT`/`HARNESS_DIR`/`HARNESS_MAIN_BRANCH`), wired at drain/idle (`on-drained`), MAX_ITERS +
+  rate-limit give-up (`on-exhausted`), block (`on-blocked`), and integrate (`on-integrated`); (b) an
+  append-only guard extension that OR-appends valid patterns from `custom/sensitive-paths.txt` to
+  `SENSITIVE_RE` (an invalid regex → WARN + base-only, never wedges the loop or disables the guard); (c)
+  `--guard-selftest [path]` — the path-probe mode is new, and the whole `guard_selftest` is now PORTED to
+  the worktree `loop.sh` (previously in-place only). Absent custom files → byte-identical prior behavior.
+- plugin-CI only (NOT shipped to installs): `scripts/loop-extend.test.sh` (NEW) — hermetic tests for the
+  guard extension (both variants) + the hook dispatcher; run in the plugin's CI by the repo's new `*.test.sh`
+  step. It exercises both loop variants (which only coexist in `templates/`), so `create` does not copy it
+  and the upgrade never reconciles it into an install.
+- mechanism: `docs/HARNESS.md` — new §8.3 "Extending via custom/"; `harness-CLAUDE.md` — the forking section
+  now points at the hooks/denylist; `config/harness.env` — comment-only pointer to the two extension points.
+- config: none (convention over config — no new `harness.env` knob).
+- manual attention: a fork that inlined deploy-on-drain logic or extra guard patterns into `loop.sh` should
+  move them into `custom/hooks/on-drained.sh` / `custom/sensitive-paths.txt` and take the pristine loop (the
+  upgrade §1a note + §1b standardize path call this out).
+- breaking: none.
+
 ## 1.22.0 → 1.23.0 — prose customization overlay (`custom/`) + standardize upgrade path + version nudge
 The big change is the **prose overlay**: plugin-owned prose files (`.harness/CLAUDE.md`, `README.md`,
 `docs/**`) stay pristine and reference a parallel `.harness/custom/` tree where consumers put their edits —
