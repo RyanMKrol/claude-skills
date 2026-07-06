@@ -3,8 +3,9 @@
 # supervise.sh — run loop.sh on a fixed cadence, in the FOREGROUND, so you can watch it.
 #
 # Leave it in a terminal for days. Each cycle runs the single sequential loop (loop.sh),
-# which builds tasks one at a time in its own isolation worktree until the backlog is done,
-# a human gate is hit, or tokens run out. The loop's lock makes a fresh cycle a no-op if a
+# which builds tasks one at a time (in an isolation worktree or in-place, per the installed
+# variant) until the backlog is done, a human gate is hit, or tokens run out. The loop's lock
+# makes a fresh cycle a no-op if a
 # previous loop is somehow still running, so overlap is harmless. Stop with Ctrl-C (cleanest
 # between cycles — the banner tells you when it's idle).
 #

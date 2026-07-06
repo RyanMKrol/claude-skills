@@ -160,10 +160,12 @@ mkdir -p "$H/config" "$H/custom" "$H/dashboard" "$H/docs/designs" "$H/ledgers" "
 # Install the loop variant chosen in step 0 — BOTH install as .harness/scripts/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
   cp -p "$TPL/scripts/loop.in-place.sh" "$H/scripts/loop.sh"
+  cp -p "$TPL/scripts/postflight.in-place.sh" "$H/scripts/postflight.sh"   # in-place board: reads the LOCAL checkout + dirty-tree, not origin/main / tNNN branches
 else
   cp -p "$TPL/scripts/loop.sh" "$H/scripts/loop.sh"
+  cp -p "$TPL/scripts/postflight.sh" "$H/scripts/postflight.sh"            # worktree board: reads origin/main + detects the tNNN build branch
 fi
-cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/postflight.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/policy.jq" "$H/scripts/"
+cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/policy.jq" "$H/scripts/"
 cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$H/scripts/"
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
 cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack)

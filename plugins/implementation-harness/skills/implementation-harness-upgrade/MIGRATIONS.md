@@ -32,6 +32,26 @@ Entry format:
 
 ---
 
+## 1.25.0 → 1.26.0 — in-place postflight variant (fix the worktree-only status board)
+The single shipped `postflight.sh` was worktree-bound: it read the board from `origin/main` blobs and
+detected in-flight by grepping for `tNNN` task branches — neither fits the in-place variant (it builds on
+the local checkout, never creates `tNNN` branches, and may have no remote, so the board showed nothing
+in-flight and was empty without a remote). Adds a second postflight variant, selected by loop variant
+exactly like `loop.sh`.
+- new files: `scripts/postflight.in-place.sh` — the in-place status board (reads LOCAL
+  `tracking/TASKS.json` + `worklog/`; in-flight = a dirty working tree). Installs as `scripts/postflight.sh`
+  on an in-place install.
+- mechanism: `scripts/postflight.sh` is now VARIANT-SELECTED (like `loop.sh`) — the upgrade diffs an
+  installed `postflight.sh` against `postflight.in-place.sh` on an in-place install (VARIANT read from the
+  loop marker), else against `postflight.sh`. A fork that hand-rewrote its in-place postflight can now take
+  the pristine in-place reference and go byte-clean. `scripts/supervise.sh` — one header comment
+  de-worktree'd (its logic was already variant-agnostic; no behavior change).
+- config: none.
+- manual attention: an in-place install created before this shipped still carries the WORKTREE
+  `postflight.sh` (its board never shows in-flight, and is empty with no remote). Re-run
+  `/implementation-harness-upgrade` — it now offers the in-place postflight for that install.
+- breaking: none.
+
 ## 1.24.0 → 1.25.0 — trim the default tier ladder to 4 rungs (match the documented recommendation)
 The template shipped a 7-rung ladder reaching `opus/max`, while the docs recommended a short 4-tier ladder;
 this aligns the shipped DEFAULT with the recommendation. A stuck task now blocks to a human after at most

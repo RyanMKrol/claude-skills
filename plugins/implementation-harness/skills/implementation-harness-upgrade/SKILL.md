@@ -59,6 +59,9 @@ change safely* (especially the additive `harness.env` instructions and any file 
   elif grep -q 'git worktree add' "$H/scripts/loop.sh"; then VARIANT=worktree   # legacy install, pre-marker
   else VARIANT=in-place; fi                                                     # legacy in-place (no worktree calls)
   LOOP_SRC="$TPL/scripts/loop.sh"; [ "$VARIANT" = in-place ] && LOOP_SRC="$TPL/scripts/loop.in-place.sh"
+  # postflight also has two variants (the worktree board reads origin/main + the tNNN build branch; the
+  # in-place board reads the LOCAL checkout + a dirty-tree check). Both install as scripts/postflight.sh.
+  POSTFLIGHT_SRC="$TPL/scripts/postflight.sh"; [ "$VARIANT" = in-place ] && POSTFLIGHT_SRC="$TPL/scripts/postflight.in-place.sh"
   ```
 
 - **Read the installed version:** `CUR_VERSION="$(cat "$H/.harness-version" 2>/dev/null || echo '')"`.
@@ -182,7 +185,8 @@ its template source and compare bytes (`cmp -s A B` → identical):
 | Target (under `$H`) | Reference (under `$TPL`) |
 |---|---|
 | `scripts/loop.sh` | `$LOOP_SRC` (variant-selected above) |
-| `scripts/{supervise,postflight,repo-lock,mark-done,mark-failed,mark-reviewed,mark-done-bulk.test,check-task-scope,consolidate-ideas}.sh` | same name under `scripts/` |
+| `scripts/postflight.sh` | `$POSTFLIGHT_SRC` (variant-selected above, like `loop.sh`) |
+| `scripts/{supervise,repo-lock,mark-done,mark-failed,mark-reviewed,mark-done-bulk.test,check-task-scope,consolidate-ideas}.sh` | same name under `scripts/` |
 | `scripts/policy.jq`, `scripts/consolidate-ideas.mjs` | same |
 | `dashboard/{server,lib,lib.test}.js` | same |
 | `docs/HARNESS.md`, `docs/LIMITATIONS.md`, `docs/designs/*.md` | same |
