@@ -113,7 +113,7 @@
     "auditorEffort": "medium"
   },
   "tiers": {
-    "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). Example below uses Sonnet (cheap) → Opus (expensive).",
+    "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). The default is a deliberately SHORT 4-tier ladder — Sonnet low→medium→high, then Opus/high — so a stuck task blocks to a human after at most ladder_length × MAX_ATTEMPTS attempts (4×2=8). Extend the top (e.g. opus/xhigh, opus/max) ONLY if you'd genuinely want the hardest tasks built unsupervised — every extra rung is extra spend a stuck task grinds through before it asks for help.",
     "ladder": [
       {
         "model": "claude-sonnet-5",
@@ -129,19 +129,7 @@
       },
       {
         "model": "claude-opus-4-8",
-        "effort": "medium"
-      },
-      {
-        "model": "claude-opus-4-8",
         "effort": "high"
-      },
-      {
-        "model": "claude-opus-4-8",
-        "effort": "xhigh"
-      },
-      {
-        "model": "claude-opus-4-8",
-        "effort": "max"
       }
     ]
   }

@@ -32,6 +32,24 @@ Entry format:
 
 ---
 
+## 1.24.0 → 1.25.0 — trim the default tier ladder to 4 rungs (match the documented recommendation)
+The template shipped a 7-rung ladder reaching `opus/max`, while the docs recommended a short 4-tier ladder;
+this aligns the shipped DEFAULT with the recommendation. A stuck task now blocks to a human after at most
+`4 × MAX_ATTEMPTS = 8` cold attempts instead of 14.
+- config: `config/facets.json` — `.tiers.ladder` trimmed from 7 rungs (sonnet low/medium/high + opus
+  medium/high/xhigh/max) to **4** (sonnet low → medium → high, then opus/high); `.tiers._about` reworded to
+  describe the short default. ACTION: this is a shipped DEFAULT change, NOT an additive knob — the upgrade
+  must **NOT** touch an existing install's `.tiers.ladder` (it is tailored per project; §1a "facet
+  vocabularies belong to the project" already protects `facets.json` from clobbering).
+- mechanism: `docs/HARNESS.md` — the "keep the ladder short" callout now states the template ships the
+  4-tier ladder (was "ships a longer ladder that reaches `max`"); `README.md` — corrects the
+  `VISUAL_VERIFY_WORKTYPES` default to `component style` (was a stale `component`; `HARNESS.md` +
+  `visual-verification.md` were already correct).
+- new files: none.
+- manual attention: existing installs keep their own `.tiers.ladder`. To adopt the shorter default, edit
+  `.harness/config/facets.json` by hand (drop opus medium/xhigh/max; keep opus/high as the top rung).
+- breaking: none.
+
 ## 1.23.0 → 1.24.0 — custom/ extension points: lifecycle hooks + append-only guard denylist
 Turns `.harness/custom/` into a behavior/config extension surface (not just prose). Both extension points
 are opt-in `.example` stubs and back-compatible: absent → byte-identical prior loop behavior. See

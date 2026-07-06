@@ -116,12 +116,12 @@ there — so a backlog *tries cheap first* and automatically climbs to a stronge
 tasks that actually need it.
 
 > **Keep the ladder short on purpose.** A doomed task BLOCKS to a human after at most
-> `ladder_length × MAX_ATTEMPTS` attempts. A deliberately short ladder (e.g. the 4-tier
-> `sonnet/low→high, opus/high` some deployments use) makes that a *cheap* backstop: if `opus/high`
-> can't do it twice, a human glance is far cheaper than burning `opus/xhigh`/`max`. The template
-> ships a longer ladder that reaches `max`; if you extend it further, remember every extra rung is
-> extra spend a *stuck* task will grind through before it ever asks for help. Match the top rung to
-> the hardest task you'd want built unsupervised — not to the strongest model available.
+> `ladder_length × MAX_ATTEMPTS` attempts. The template ships a deliberately short **4-tier** ladder —
+> `sonnet/low → medium → high`, then `opus/high` — so that's at most `4 × 2 = 8` cold attempts before a
+> stuck task asks for help: if `opus/high` can't do it in two cold passes, a human glance is far cheaper
+> than burning `opus/xhigh`/`max`. If you extend it (adding e.g. `opus/xhigh`/`max`), remember every extra
+> rung is extra spend a *stuck* task grinds through before it ever asks for help — match the top rung to
+> the hardest task you'd want built unsupervised, not to the strongest model available.
 
 **Difficulty is auto-tuned (see `.harness/docs/designs/difficulty-autotune.md`).** Rather than per-task
 `escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
