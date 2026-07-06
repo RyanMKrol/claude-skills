@@ -127,10 +127,36 @@ assert "vv audit: snippet marker appended"        has 'PROJECT-SPECIFIC VISUAL V
 assert "vv audit: snippet content appended"       has 'FAIL-IF-THE-CHART-IS-BLANK' "$oa"
 rm -rf "$d"
 
+# ============ Build/audit prompt preamble injection (custom/{build,audit}-preamble.md) ============
+# Extract the REAL _custom_preamble (byte-identical across variants) and exercise it directly — it's
+# unconditional (no task gating), so no tj stub is needed.
+d="$(setup_repo)"; mkdir -p "$d/.harness/custom"
+{ printf 'HARNESS_DIR=%q\n' "$d/.harness"; sed -n '/^_custom_preamble() {/,/^}/p' "$SCRIPT_DIR/loop.sh"; echo '_custom_preamble "$@"'; } > "$d/pre.sh"
+pre() { bash "$d/pre.sh" "$@" 2>/dev/null; }
+BP="$d/.harness/custom/build-preamble.md"; AP="$d/.harness/custom/audit-preamble.md"
+
+# absent → empty output (byte-identical prior prompt)
+assert "preamble build: empty when absent"     bash -c 'case "$1" in ?*) exit 1;; *) exit 0;; esac' _ "$(pre build)"
+assert "preamble audit: empty when absent"     bash -c 'case "$1" in ?*) exit 1;; *) exit 0;; esac' _ "$(pre audit)"
+
+# build preamble present → appears (BUILD label) in build only
+printf 'NEVER-CALL-PAID-APIS\n' > "$BP"
+ob="$(pre build)"; oa="$(pre audit)"
+assert "preamble build: BUILD marker appended"  has 'PROJECT-SPECIFIC BUILD GUIDANCE' "$ob"
+assert "preamble build: content appended"        has 'NEVER-CALL-PAID-APIS' "$ob"
+assert "preamble audit: build file not read"     bash -c 'case "$1" in *NEVER-CALL-PAID-APIS*) exit 1;; *) exit 0;; esac' _ "$oa"
+
+# audit preamble present → appears (AUDIT label) in audit
+printf 'USE-CACHED-FIXTURES\n' > "$AP"
+oa="$(pre audit)"
+assert "preamble audit: AUDIT marker appended"  has 'PROJECT-SPECIFIC AUDIT GUIDANCE' "$oa"
+assert "preamble audit: content appended"        has 'USE-CACHED-FIXTURES' "$oa"
+rm -rf "$d"
+
 # ============ Structural wiring assertions on the shipped loops ============
 for V in loop.sh loop.in-place.sh; do
   L="$SCRIPT_DIR/$V"
-  for ev in "run_hook drained drained" "run_hook drained idle" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build"; do
+  for ev in "run_hook drained drained" "run_hook drained idle" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build" "_custom_preamble build" "_custom_preamble audit"; do
     assert "[$V] wires: $ev" grep -qF "$ev" "$L"
   done
   # a lifecycle hook must NEVER fire on the prereq/config error exit path (exit 3)

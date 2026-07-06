@@ -32,6 +32,23 @@ Entry format:
 
 ---
 
+## 1.27.0 → 1.28.0 — project build/audit prompt preambles (custom/ injection) + helper bugfix
+Adds a `custom/` extension point for **standing** project rules injected into *every* builder/auditor prompt
+(e.g. "never make live paid-API calls during verification; use cached fixtures + the scratch DB"). Follows
+the 1.24.0/1.27.0 `custom/` pattern. Also fixes a latent bug in the 1.27.0 visual-verify helper.
+- new files: `custom/build-preamble.md.example`, `custom/audit-preamble.md.example` — overlay stubs.
+  **Add-if-missing on upgrade; NEVER overwrite a user's real `build-preamble.md` / `audit-preamble.md`.**
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — both gain `_custom_preamble <build|audit>`,
+  which **unconditionally** appends `custom/<mode>-preamble.md` (if present) to the builder/auditor prompt (a
+  standing rule, not gated on the task). Absent → byte-identical prior prompt. **Bugfix:** both
+  `_custom_preamble` and the 1.27.0 `_visual_verify_custom` declared `local mode="$1" f="…${mode}…"` in ONE
+  `local` statement, so `${mode}` expanded *before* it was assigned → empty path. Split onto separate `local`
+  lines. (`_visual_verify_custom` worked in 1.27.0 only by coincidence — its caller's `mode` leaked in via
+  dynamic scope — but `_custom_preamble`, called from `prompt()`, would not have.)
+- docs: `docs/HARNESS.md` §8.3 documents the preamble pair. Covered by `scripts/loop-extend.test.sh`.
+- config: none.
+- breaking: none.
+
 ## 1.26.0 → 1.27.0 — project visual-verify prompt snippets (custom/ injection)
 Adds a `custom/` extension point for project-specific visual-verification prompt text, so a project with a
 richer discipline (exact capture commands, a living-fixtures file, named flows) injects it into the

@@ -380,9 +380,24 @@ run_integrate_hook() {
 # A project can enrich the block (without forking the loop) by dropping custom/visual-verify-build.md
 # and/or custom/visual-verify-audit.md — appended below when the block fires. See _visual_verify_custom.
 _visual_verify_custom() {   # <build|audit> — append a project snippet from the custom/ overlay if present
-  local mode="$1" f="$HARNESS_DIR/custom/visual-verify-${mode}.md"
+  local mode="$1"
+  local f="$HARNESS_DIR/custom/visual-verify-${mode}.md"   # separate line: ${mode} must be assigned first
   [ -f "$f" ] || return 0
   printf '\n--- PROJECT-SPECIFIC VISUAL VERIFICATION GUIDANCE ---\n'
+  cat "$f"
+  printf '\n'
+}
+
+# _custom_preamble <build|audit> — append a project-supplied prompt block from the custom/ overlay if
+# present. Convention-located (like custom/hooks, custom/sensitive-paths.txt, custom/visual-verify-*.md);
+# absent → no output → byte-identical prior prompt. UNCONDITIONAL when present (a standing project rule on
+# EVERY build/audit), unlike the visual snippet which is gated on the task opting in. mode ∈ build|audit.
+_custom_preamble() {
+  local mode="$1" label
+  local f="$HARNESS_DIR/custom/${mode}-preamble.md"   # separate line: ${mode} must be assigned first
+  [ -f "$f" ] || return 0
+  label="$([ "$mode" = audit ] && echo AUDIT || echo BUILD)"
+  printf '\n--- PROJECT-SPECIFIC %s GUIDANCE (required — project rules on top of the generic instructions above) ---\n' "$label"
   cat "$f"
   printf '\n'
 }
@@ -707,6 +722,7 @@ EOF
   printf 'You may change ONLY these files:\n'
   if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
   printf '%s\n' 'PLUS you may always add/change TEST files and your own .harness/worklog/<TASK>.md. Touching ANY OTHER file — including a doc (README/CLAUDE/LIMITATIONS) not listed above — AUTO-FAILS this task. If you genuinely need a file that is not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
+  _custom_preamble build
   visual_verify_block "$tid"
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — the SOLE source of do/done-when.
   local rel="" path
@@ -818,6 +834,7 @@ $spec
 $diff
 EOF
   visual_verify_block "$id" audit
+  _custom_preamble audit
 }
 
 # audit_gate <id> — per-cell SAMPLED blocking audit (§4.3/4.6). Sets cur_verification. Spawns a fresh,

@@ -529,6 +529,13 @@ file to keep current, named flows to screenshot — without forking `loop.sh`. I
 baseline stays), only fires when the block already fires (not an independent trigger), and absent → no
 output → identical to stock. Populate one or both.
 
+**Build/audit prompt preambles — `custom/build-preamble.md` / `custom/audit-preamble.md`.** Standing,
+always-applies project rules injected into **every** builder / auditor prompt (respectively) — e.g. "never
+make live paid-API calls during verification; use cached fixtures + the scratch DB." Unlike the visual-verify
+snippet (gated on the task opting into visual verification), a preamble is **unconditional**: present → it's
+appended to every prompt of that kind; absent → no output → byte-identical. Append-only (augments the generic
+instructions, never replaces them). Populate one or both.
+
 Customize behavior or the guard by adding a `custom/` file — **never by editing `loop.sh`** (an inline edit
 forfeits clean upgrades; see `custom/CLAUDE.md`).
 

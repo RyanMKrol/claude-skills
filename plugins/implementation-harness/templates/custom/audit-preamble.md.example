@@ -1,0 +1,12 @@
+# Project audit guidance — AUDITOR prompt preamble (example stub)
+
+Copy this file to `audit-preamble.md` (drop the `.example`) and REPLACE the body below with your project's
+standing rules for the independent AUDITOR. Its contents are injected into **every** auditor prompt —
+unconditionally, once the file exists. Absent → no output → identical to stock.
+
+Use it for always-applies verification rules the auditor must honor on every task.
+
+<!-- Replace everything below with your real rules. Example:
+Do your verification WITHOUT live paid-API calls — use the cached fixtures + scratch DB, same as the build.
+FAIL the audit if the diff introduces a live paid-API call on a hot path, or if a "## Done when" claim can
+only be evidenced by making one. -->

@@ -1,0 +1,12 @@
+# Project build guidance — BUILDER prompt preamble (example stub)
+
+Copy this file to `build-preamble.md` (drop the `.example`) and REPLACE the body below with your project's
+standing rules for the BUILDER. Its contents are injected into **every** builder prompt — unconditionally,
+once the file exists (a standing project rule, NOT gated on the task). Absent → no output → identical to stock.
+
+Use it for safety-critical, always-applies rules — things every build must respect regardless of the task.
+
+<!-- Replace everything below with your real rules. Example:
+NEVER make live paid-API calls (e.g. Gemini, Google Places) during a build or its verification — use the
+cached fixtures under `test/fixtures/` and the scratch DB. If a task genuinely cannot be built or verified
+without a real paid call, do NOT make it: record `failed:blocked <TASK> needs a live <api> call` for a human. -->
