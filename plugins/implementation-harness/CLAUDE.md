@@ -93,6 +93,12 @@ migrates a fork onto this by extracting inline edits into `custom/`). Rules when
   `on-<event>.sh.example` stub + a row in the `docs/HARNESS.md` §8.3 event table.** Hooks run as non-fatal
   children and must never fire on an error/prereq exit (`exit 3`); `templates/scripts/loop-extend.test.sh`
   covers the guard extension + the dispatcher.
+- **Any new `custom/` extension point MUST be added to the customization catalog** in
+  `skills/implementation-harness-customize/SKILL.md` §1 (name, files, a `since: <version>`, and a drafting
+  interview) in the same change. That catalog is the single source of truth the **customize** skill walks on
+  demand, that **create** walks in full, and that **upgrade** walks scoped to `--since <installed version>`
+  — so a feature missing a catalog row is invisible to users (never surfaced on create/upgrade). The
+  `since:` must be the version the feature ships in, or the upgrade "what's new for you" scoping is wrong.
 
 ## Reminders that interact with the above
 

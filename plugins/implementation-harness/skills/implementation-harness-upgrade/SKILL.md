@@ -272,6 +272,11 @@ user must always be able to see what diverged before approving.
   the version transition (`CUR_VERSION` → `REF_VERSION`).
 - **Do NOT commit.** Leave every change uncommitted so the user can review the diff and commit themselves
   (all changes are git-revertible). Remind them to `git add -A && git commit` (and push) when satisfied.
+- **Surface new customization features.** New plugin versions often add opt-in `custom/` extension points
+  the user has never seen. After re-stamping, **invoke `/implementation-harness-customize --since <CUR_VERSION>`**
+  (the version they upgraded FROM) to walk them through **just the features new since their install**,
+  one at a time, and set up the ones they want. (No new features since `CUR_VERSION` → it says so and exits.)
+  Skip this only if the user declines.
 
 ## ⚠️ Guardrails
 

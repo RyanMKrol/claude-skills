@@ -307,6 +307,13 @@ DRY_RUN=1 .harness/scripts/loop.sh         # preview the next task the loop woul
 .harness/scripts/supervise.sh              # leave running; re-runs the loop on a cadence
 ```
 
+**Then walk the customization features.** The harness ships several opt-in customization features — all in
+`.harness/custom/`, all upgrade-safe: project conventions, lifecycle hooks (deploy-on-drain, notify-on-block,
+…), a secret-guard denylist, visual-verification snippets, and build/audit prompt preambles. **Invoke
+`/implementation-harness-customize`** now (no argument = walk them all) to surface each feature one at a time
+and set up the ones the user wants — it activates each opt-in file and helps draft its content. If they'd
+rather not now, tell them they can run `/implementation-harness-customize` anytime.
+
 Remind the user:
 - CI now runs their real DoD commands (the placeholder that fails on purpose has been replaced).
 - A GitHub `origin` remote is required when `REQUIRE_CI=1`; without it the loop can't merge.

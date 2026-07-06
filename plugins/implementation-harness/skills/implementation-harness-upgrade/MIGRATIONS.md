@@ -32,6 +32,23 @@ Entry format:
 
 ---
 
+## 1.28.0 → 1.29.0 — customization walkthrough skill + surfaced on create/upgrade + stronger in-place red flag
+Users rarely discover the `custom/` extension points. Adds a feature-walkthrough skill (the canonical
+versioned catalog) that create runs in full and upgrade runs scoped to what's new since the install, and
+sharpens the "don't edit in place" warning. Mostly skill-side; the one `templates/` change is the warning.
+- mechanism: `harness-CLAUDE.md` — the "Customizing / forking" section is now a prominent **⚠️ danger
+  callout**: editing ANY plugin-owned `.harness/` file in place is a red flag that forfeits clean upgrades →
+  STOP + flag it + route to `custom/` (with a catalog table + a pointer to `/implementation-harness-customize`).
+  It loads whenever Claude works in `.harness/`, so it fires at edit time.
+- config: none.
+- manual attention: existing installs pick up the strengthened `.harness/CLAUDE.md` on their next upgrade
+  (normal mechanism refresh). The new skill + the create/upgrade wiring are plugin-side — they reach installs
+  as soon as the plugin is updated; nothing to apply per-install.
+- breaking: none.
+- (skill-side, no template change: new `implementation-harness-customize` skill owning the versioned catalog;
+  `create` §8 invokes it for all features; `upgrade` §5 invokes it `--since <CUR_VERSION>` for features new
+  since the install.)
+
 ## 1.27.0 → 1.28.0 — project build/audit prompt preambles (custom/ injection) + helper bugfix
 Adds a `custom/` extension point for **standing** project rules injected into *every* builder/auditor prompt
 (e.g. "never make live paid-API calls during verification; use cached fixtures + the scratch DB"). Follows

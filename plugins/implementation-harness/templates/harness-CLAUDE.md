@@ -5,27 +5,36 @@ tasks in `TASKS.json`. It keeps the harness's own authoring rules *with* the har
 with it and surface at the authoring moment. (Repo-wide conventions are in the root `CLAUDE.md`; the
 loop's design is in `docs/HARNESS.md` + `docs/designs/`.)
 
-## Customizing / forking the harness — put changes in `custom/`, never inline
+## ⚠️ STOP before editing any `.harness/` file in place — customize via `custom/` instead
 
-The harness's prose files are **plugin-owned** and refreshed by `/implementation-harness-upgrade`:
-`.harness/CLAUDE.md` (this file), `.harness/README.md`, and everything under `.harness/docs/`. **Do not
-edit them in place** — an inline edit collides with every future upgrade and drops the install into slow,
-manual per-file reconciliation.
+**This is the #1 way to wreck the harness's upgradeability — treat an in-place edit as a red flag.** The
+plugin owns almost everything under `.harness/`: `scripts/*` (including `loop.sh`), `.harness/CLAUDE.md`
+(this file), `README.md`, and everything under `docs/`. `/implementation-harness-upgrade` keeps these
+**byte-identical to the plugin** and refreshes them in place. The moment you hand-edit one of them, that file
+stops matching the reference, and **every future upgrade of it degrades into slow, error-prone manual
+reconciliation** — the exact "forked install that can never cleanly upgrade" trap the `custom/` overlay
+exists to prevent.
 
-Instead, every prose file has a **customization overlay** under `.harness/custom/` (mirroring the layout:
-`custom/CLAUDE.md`, `custom/docs/HARNESS.md`, …). Put project-specific additions there; the pristine file
-loads or points to its overlay, and upgrades never touch `custom/`. This file imports `custom/CLAUDE.md` at
-the bottom, so anything you add there is always in context.
+**So: do NOT edit a plugin-owned `.harness/` file in place. If you (or the owner) are about to — STOP and
+flag it loudly:** say plainly that hand-editing this file forfeits clean upgrades and forces painful manual
+reconciliation from here on, and route the change into `.harness/custom/` instead. Everything you'd
+realistically want to customize has a supported `custom/` home the upgrade **never** touches:
 
-**If you (or the owner) are about to edit a plugin-owned prose file directly, STOP and flag it** — move the
-change into the matching `custom/` file instead, so the install stays on a clean upgrade path.
+| You want to… | Do it in `custom/` (NOT by editing a plugin-owned file) |
+|---|---|
+| add project conventions / authoring rules | `custom/CLAUDE.md` (auto-loaded — this file imports it) |
+| run something on a loop event (deploy on drain, notify on block, …) | `custom/hooks/on-<event>.sh` |
+| block more secret paths from being pushed | `custom/sensitive-paths.txt` (append-only) |
+| add richer visual-verification guidance | `custom/visual-verify-{build,audit}.md` |
+| inject a standing rule into every build/audit (e.g. no live paid-API calls) | `custom/{build,audit}-preamble.md` |
+| add project notes to a shipped doc | the matching `custom/docs/…` overlay |
 
-`custom/` also carries two **behavior/config** extension points, so you needn't fork `loop.sh` either:
-lifecycle hooks (`custom/hooks/on-<event>.sh` — drain/idle, blocked, exhausted, integrated) and an
-append-only pre-push guard denylist (`custom/sensitive-paths.txt`). **Customize behavior or the guard by
-adding a `custom/` file, not by editing `loop.sh`** (see `docs/HARNESS.md` §8.3). The remaining exception is
-deeper script logic no hook covers (`harness.env` scalar knobs aside): flag it to upstream into the plugin
-rather than hand-editing a script — a hand-edited script can't be cleanly upgraded.
+Not sure which, or want a guided setup? Run **`/implementation-harness-customize`** — it walks these one at a
+time and drafts them with you. Full mechanics: `docs/HARNESS.md` §8.3.
+
+**The only genuine exception** is deeper `loop.sh`/script *logic* that no hook or `custom/` file can express
+(and `harness.env` scalar knobs, which are meant to be edited). Even then, don't hand-edit the script in
+place — **flag it to be upstreamed into the plugin**, because a hand-edited script can't be cleanly upgraded.
 
 ## Adding a backlog task → invoke the add-to-backlog skill
 
