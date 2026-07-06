@@ -1,5 +1,9 @@
 # HARNESS.md — the Ralph Loop autonomous build harness
 
+> **Customizing this file?** Don't edit it in place — it's plugin-owned and refreshed on upgrade. Put
+> project-specific notes in `custom/docs/HARNESS.md` (the overlay — upgrades never touch it). See
+> `.harness/custom/CLAUDE.md`.
+
 > **In one line:** a single, **sequential** loop that builds a `TASKS.json` backlog
 > **one fully-verified task at a time**, on a **pinned model**, with all memory in
 > the repo — optimised to **waste as few tokens as possible when a run is

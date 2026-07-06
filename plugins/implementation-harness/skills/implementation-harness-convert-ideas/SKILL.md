@@ -25,6 +25,21 @@ whole file, then execute in order.
   `.harness/tracking/TASKS.json` must exist. If any is missing, point the user at
   `/implementation-harness-create` first.
 - Require `jq` and `node` on PATH.
+- **Harness up to date? (soft nudge — NEVER blocks).** Convert-ideas is a high-traffic entry point, so it
+  doubles as the place to notice a stale install: if the plugin was updated but `/implementation-harness-upgrade`
+  never re-run, the project's `.harness/` lags behind. Compare the running plugin's version to the
+  installed marker:
+  ```bash
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
+  [ -f "$PLUGIN_ROOT/.claude-plugin/plugin.json" ] || PLUGIN_ROOT="${CLAUDE_SKILL_DIR}/../.."
+  PLUGIN_VER="$(jq -r .version "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null || echo '')"
+  HARNESS_VER="$(cat .harness/.harness-version 2>/dev/null || echo '')"
+  ```
+  If both parse and `HARNESS_VER` != `PLUGIN_VER` (or the marker is missing), print a one-line heads-up —
+  "your `.harness` is on `$HARNESS_VER`; the installed plugin ships `$PLUGIN_VER` — consider running
+  `/implementation-harness-upgrade` first (it won't touch your backlog, tasks, ideas, or config)" — then
+  **continue the sweep regardless**. This is a nudge, not a gate: do not stop, do not run the upgrade
+  yourself, and if either version fails to resolve just skip the check silently.
 - **Recovery check — do this BEFORE touching the current inbox.** An earlier sweep may have been
   interrupted (session ended mid-flight). Scan `.harness/.pending-tasks/` and
   `.harness/.pending-questions/`:

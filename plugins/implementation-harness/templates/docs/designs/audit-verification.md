@@ -1,5 +1,8 @@
 # Audit-gated Definition of Done (verification-aware calibration)
 
+> **Customizing?** Add project notes in `custom/docs/designs/audit-verification.md` (the overlay — upgrades
+> never touch it), not in this plugin-owned file. See `.harness/custom/CLAUDE.md`.
+
 How the harness keeps its difficulty calibration honest: a blocking audit gate makes "done" mean
 *intent met*, not just *the cheap model believes it's done*.
 

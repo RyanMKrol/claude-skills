@@ -1,5 +1,8 @@
 # The owner-overlay triad & the manual-fail signal — design
 
+> **Customizing?** Add project notes in `custom/docs/designs/manual-fail-signal.md` (the overlay — upgrades
+> never touch it), not in this plugin-owned file. See `.harness/custom/CLAUDE.md`.
+
 Difficulty auto-tuning (`difficulty-autotune.md`) and the audit gate (`audit-verification.md`) both
 assume the ledger's `blocked:false` rows are genuine successes. Sometimes they aren't: the sampled
 audit missed something, or `expectsTest`/CI simply can't check the thing that's wrong (a visual

@@ -1,5 +1,8 @@
 # Visual verification — design (optional, opt-in)
 
+> **Customizing?** Add project notes in `custom/docs/designs/visual-verification.md` (the overlay —
+> upgrades never touch it), not in this plugin-owned file. See `.harness/custom/CLAUDE.md`.
+
 Automated checks (typecheck, unit tests, build) can all pass while a change is still visibly broken —
 an element present in the DOM but never painted, a style that doesn't apply, a modal that never opens,
 a native screen that lays out wrong, a generated chart with the axes swapped. This was born from a

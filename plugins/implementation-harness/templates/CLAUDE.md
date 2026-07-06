@@ -80,8 +80,10 @@ hand-edits and multi-step flows that don't.)
 ### 5. Every change records its trade-offs & limitations
 
 - When a change introduces or reveals a design **trade-off**, **bottleneck**, or known
-  **limitation**, add a row to [`.harness/docs/LIMITATIONS.md`](./.harness/docs/LIMITATIONS.md) **in the same
-  commit** — what it is, *why* it was chosen, its **impact**, and *when to revisit*.
+  **limitation**, add a row to [`.harness/custom/docs/LIMITATIONS.md`](./.harness/custom/docs/LIMITATIONS.md)
+  **in the same commit** — what it is, *why* it was chosen, its **impact**, and *when to revisit*. (Record
+  it in the `custom/` **overlay**, not the plugin-owned `.harness/docs/LIMITATIONS.md`, which is refreshed
+  on harness upgrade — see `.harness/custom/CLAUDE.md`.)
 - That file is the single place to evaluate the design's compromises later without
   re-deriving them from the code. A capped scope, a hardcoded assumption, an "un-handled for
   now" — that's exactly what belongs there.

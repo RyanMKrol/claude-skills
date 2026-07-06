@@ -5,6 +5,24 @@ tasks in `TASKS.json`. It keeps the harness's own authoring rules *with* the har
 with it and surface at the authoring moment. (Repo-wide conventions are in the root `CLAUDE.md`; the
 loop's design is in `docs/HARNESS.md` + `docs/designs/`.)
 
+## Customizing / forking the harness — put changes in `custom/`, never inline
+
+The harness's prose files are **plugin-owned** and refreshed by `/implementation-harness-upgrade`:
+`.harness/CLAUDE.md` (this file), `.harness/README.md`, and everything under `.harness/docs/`. **Do not
+edit them in place** — an inline edit collides with every future upgrade and drops the install into slow,
+manual per-file reconciliation.
+
+Instead, every prose file has a **customization overlay** under `.harness/custom/` (mirroring the layout:
+`custom/CLAUDE.md`, `custom/docs/HARNESS.md`, …). Put project-specific additions there; the pristine file
+loads or points to its overlay, and upgrades never touch `custom/`. This file imports `custom/CLAUDE.md` at
+the bottom, so anything you add there is always in context.
+
+**If you (or the owner) are about to edit a plugin-owned prose file directly, STOP and flag it** — move the
+change into the matching `custom/` file instead, so the install stays on a clean upgrade path. The
+exceptions are **scripts** and **config** (`harness.env`, `facets.json`): those have no prose overlay —
+tune behavior through `harness.env`, and if a script genuinely needs changing, flag it to upstream into the
+plugin rather than hand-editing it (a hand-edited script can't be cleanly upgraded).
+
 ## Adding a backlog task → invoke the add-to-backlog skill
 
 To add a task to the backlog, invoke the **`implementation-harness-add-to-backlog`** skill. It is the **single
@@ -121,3 +139,8 @@ project bug), in this shape:
 Keep entries even after the fix ships — they're the record of *why* the current behavior exists,
 which saves the next debugging session from re-discovering the same failure mode. (No entries yet
 in a freshly-scaffolded project — this section is the template for adding them.)
+
+---
+
+<!-- Project-specific harness instructions live in the customization overlay below (upgrades never touch it). -->
+@custom/CLAUDE.md

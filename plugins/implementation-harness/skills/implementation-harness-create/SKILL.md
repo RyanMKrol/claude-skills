@@ -31,7 +31,7 @@ by context) and cache the path as `TPL`:
 TPL="${CLAUDE_PLUGIN_ROOT:-}/templates"
 [ -d "$TPL" ] || TPL="${CLAUDE_SKILL_DIR}/../../templates"
 TPL="$(cd "$TPL" && pwd)"   # normalize
-ls "$TPL"                    # sanity: expect config/ docs/ scripts/ tasks/ tracking/ worklog/ .github/ CLAUDE.md README.md gitignore
+ls "$TPL"                    # sanity: expect config/ custom/ docs/ scripts/ tasks/ tracking/ worklog/ .github/ CLAUDE.md README.md gitignore
 ```
 
 If `TPL` doesn't resolve to a dir containing `scripts/loop.sh`, stop and tell the user the
@@ -156,7 +156,7 @@ it to invoke the add-to-backlog skill).
 ```bash
 T="<target>"          # the REPO ROOT
 H="$T/.harness"       # the self-contained harness folder (everything but ci.yml lives here)
-mkdir -p "$H/config" "$H/dashboard" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$H/.pending-tasks" "$H/.pending-questions" "$T/.github/workflows"
+mkdir -p "$H/config" "$H/custom" "$H/dashboard" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$H/.pending-tasks" "$H/.pending-questions" "$T/.github/workflows"
 # Install the loop variant chosen in step 0 — BOTH install as .harness/scripts/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
   cp -p "$TPL/scripts/loop.in-place.sh" "$H/scripts/loop.sh"
@@ -172,8 +172,9 @@ cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + t
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/docs/"
 cp -p "$TPL/docs/designs/"*.md "$H/docs/designs/"
 cp -p "$TPL/tasks/"*.md "$H/tasks/"                    # per-task Markdown specs (## Do / ## Done when), one per example task — replace with yours in §6
-cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/
+cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — authoring mandate, loads when working in .harness/ (imports @custom/CLAUDE.md at the bottom)
 cp -p "$TPL/README.md" "$H/README.md"                  # .harness/README.md — the harness's own quick-start explainer (distinct from the repo-root README.md written in §5)
+cp -pR "$TPL/custom/." "$H/custom/"                    # customization overlay tree (mirrors the prose files; upgrades NEVER touch it — all project-specific prose edits go here, not in the pristine files)
 cp -p "$TPL/tracking/human-done.json" "$TPL/tracking/manual-fail.json" "$TPL/tracking/reviews.json" "$H/tracking/"   # owner-overlay files (loop reads, owner tooling writes) — seed empty
 cp -p "$TPL/tracking/IDEAS.md" "$H/tracking/IDEAS.md"   # committed ideas inbox — see implementation-harness-capture-idea / -convert-ideas
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
@@ -218,9 +219,10 @@ Build each from the corresponding template, substituting the interview answers. 
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen
   build-artifact lines, de-duplicated against any pre-existing `.gitignore` in the target. Write
   the result as `<target>/.gitignore`.
-- **`.harness/docs/HARNESS.md` §5** — *optional, confirm first.* Replace the generic example command shapes
-  in §5 with the project's real DoD commands so §5 and `ci.yml` match (the doc states "they must
-  match"). Targeted Edit, not a rewrite.
+- **`.harness/docs/HARNESS.md`** — leave it **pristine** (do NOT edit §5's example commands in place — an
+  inline edit to a plugin-owned prose file breaks the clean-upgrade path). The authoritative DoD commands
+  live in `.github/workflows/ci.yml` and `.harness/config/harness.env`; if the project wants its real
+  commands recorded in prose, add them to the overlay `.harness/custom/docs/HARNESS.md`, never here.
 - **`README.md`** — title = project name, opening = purpose, plus an initial implementation-status
   table seeded from the tasks you write in step 6. (Honor step-2 choice if a README existed —
   offer to inject a "Build status" section rather than overwrite.)
@@ -270,6 +272,8 @@ node "$T/.harness/dashboard/lib.test.js" >/dev/null 2>&1 || echo "FAIL: dashboar
 node --check "$T/.harness/scripts/consolidate-ideas.mjs" 2>/dev/null || echo "FAIL: consolidate-ideas.mjs has a syntax error"
 grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-questions' "$T/.gitignore" || echo "WARN: ideas-pipeline scratch not git-ignored"
 [ -f "$T/.harness/tracking/IDEAS.md" ] || echo "WARN: tracking/IDEAS.md inbox missing (should be a committed starter)"
+for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
+grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done
@@ -304,6 +308,10 @@ Remind the user:
 - CI now runs their real DoD commands (the placeholder that fails on purpose has been replaced).
 - A GitHub `origin` remote is required when `REQUIRE_CI=1`; without it the loop can't merge.
 - `docs/HARNESS.md` is the authoritative design; `CLAUDE.md` is the per-project conventions.
+- **Customize in `.harness/custom/`, not in place.** The harness's prose files (`.harness/CLAUDE.md`,
+  `README.md`, `docs/**`) are plugin-owned and refreshed on upgrade — put project-specific additions in the
+  matching file under `.harness/custom/` (it's imported/referenced by the pristine files and never touched
+  by upgrades). Editing a pristine file directly forfeits clean upgrades.
 - To grow the backlog later, run `/implementation-harness-add-to-backlog`.
 - `.harness/.harness-version` records the plugin version that produced this harness (commit it). When
   the plugin gains new features later, run `/implementation-harness-upgrade` to pull them into this

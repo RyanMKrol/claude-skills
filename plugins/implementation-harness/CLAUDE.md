@@ -61,9 +61,30 @@ The upgrade skill treats the three classes differently, so classify correctly:
   Terse ledger notes are fine — the diff speaks for itself.
 - **Config/schema** (the upgrade reconciles *additively*, never clobbering the user's values):
   `config/harness.env` (knobs), `config/facets.json` (schema/vocabulary). These NEED a precise `ACTION:` line.
-- **User data** (the upgrade NEVER touches): `tracking/*`, `tasks/*`, `worklog/*`, `ledgers/*`, and the
-  repo-root `CLAUDE.md` / `.gitignore` / `.github/workflows/ci.yml` / `README.md`. A change to one of these
-  templates can only be applied by hand — list it under **manual attention** so the upgrade surfaces it.
+- **User data** (the upgrade NEVER touches): `tracking/*`, `tasks/*`, `worklog/*`, `ledgers/*`,
+  **`custom/*`** (the prose overlay — see below), and the repo-root `CLAUDE.md` / `.gitignore` /
+  `.github/workflows/ci.yml` / `README.md`. A change to one of these templates can only be applied by hand
+  — list it under **manual attention** so the upgrade surfaces it.
+
+## The prose overlay (`custom/`) — every plugin-owned prose file needs a companion
+
+The plugin-owned **prose** files (`harness-CLAUDE.md`→`.harness/CLAUDE.md`, `README.md`, everything under
+`docs/**`) are mechanism — the upgrade overwrites them. To keep them cleanly upgradeable, consumers put
+their edits in a parallel **`templates/custom/`** overlay (mirroring the prose layout) instead of editing
+the pristine files in place; each pristine file carries an include pointer to its overlay
+(`.harness/CLAUDE.md` uses a real `@custom/CLAUDE.md` import; the docs use a reference line), and `custom/*`
+is user-data the upgrade never overwrites (the `implementation-harness-upgrade` §1b *standardize* path
+migrates a fork onto this by extracting inline edits into `custom/`). Rules when maintaining prose:
+
+- **Adding a new plugin-owned prose file MUST, in the same change, add its `custom/` overlay stub and its
+  include pointer** — otherwise the overlay tree is incomplete and a fresh/standardized install has no home
+  for customizations of that file. (Mirror the existing stubs; keep them non-empty so the `@import` never
+  targets an empty/missing file.)
+- **Don't personalize shipped prose in place** anywhere in `create` — that reintroduces the exact
+  byte-drift the overlay exists to prevent (the DoD commands live authoritatively in `ci.yml`/`harness.env`,
+  not in a personalized `docs/HARNESS.md`).
+- The overlay absorbs *additions* cleanly; it does **not** absorb in-place *edits to shipped lines* — those
+  remain a conflict the standardize path surfaces, not a thing the overlay solves.
 
 ## Reminders that interact with the above
 

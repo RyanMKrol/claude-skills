@@ -1,5 +1,8 @@
 # Implementation Harness
 
+> **Customizing?** Put project-specific notes in `custom/README.md` (the overlay — upgrades never touch
+> it), not in this plugin-owned file. See `.harness/custom/CLAUDE.md`.
+
 A generic **autonomous implementation harness**: a single, sequential shell loop that builds a
 `TASKS.json` backlog **one fully-verified task at a time**, using a fresh-context headless
 Claude (`claude -p`) per task, with **all durable memory in the repo**. It's optimised to

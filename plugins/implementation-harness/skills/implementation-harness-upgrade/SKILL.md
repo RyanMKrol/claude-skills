@@ -75,7 +75,9 @@ Treat the run as an **adoption** (a full-content reconciliation rather than a le
 these hold: there is no `.harness-version`; `loop.sh` has no `# harness-loop-variant:` header; canonical
 paths are missing but similarly-named files exist elsewhere under `.harness/`; or stage-3 diffs contain
 changes the selected ledger entries cannot explain. This is the normal shape of a harness that predates
-the plugin or was hand-maintained in parallel with it — it is not an error.
+the plugin or was hand-maintained in parallel with it — it is not an error. **When the divergence is in
+prose files (`CLAUDE.md`, `README.md`, `docs/**`), offer the §1b standardize path first** — for a fork
+that's usually a better fix than reconciling the same inline edits on every future upgrade.
 
 - **Confirm the heuristics.** The variant grep in stage 1 (`git worktree add` → worktree; else in-place —
   an in-place loop resets the primary checkout with `git reset --hard origin/...` / a `cold_reset`
@@ -114,6 +116,51 @@ the plugin or was hand-maintained in parallel with it — it is not an error.
   insert just the header line — a one-line, behavior-free edit), then stamp `.harness-version` per stage
   5. From then on the install upgrades by ledger walk like any other.
 
+## 1b. Standardize path — put a forked install on a clean PROSE-upgrade footing (offer when §1a fires)
+
+When §1a detects a fork/legacy install whose **prose** files (`.harness/CLAUDE.md`, `README.md`,
+`docs/**`) have diverged from the reference, the per-file reconcile in stages 3–4 will keep recurring on
+every future upgrade — inline edits to plugin-owned prose collide with each new version forever. Offer a
+one-time **standardize** as the recommended second path (the user picks; never force it):
+
+> "Your harness's prose files have local edits, so each upgrade needs a manual reconcile. I can
+> **standardize** them: move your customizations into the `.harness/custom/` overlay and restore the
+> pristine files, so they're byte-identical to the plugin and every future upgrade of them is clean. Or I
+> can continue the per-file reconcile (stages 3–4) and leave your edits in place. Which?"
+
+**Scope: prose only.** Standardize touches the plugin-owned markdown prose files and nothing else —
+scripts, `config/harness.env`, and `config/facets.json` stay on the normal adoption/additive flow (they
+have no prose overlay; a forked script is upstreamed or reconciled, not "standardized"). Say so, so nothing
+is over-promised.
+
+If the user takes standardize, do this (report first, apply on confirm — the stage-4 rules still hold),
+reusing §1a's three-way hunk classification:
+
+- **Ensure the overlay exists.** If `.harness/custom/` (or a given overlay file) is missing, scaffold from
+  the reference: `cp -pR "$TPL/custom/." "$H/custom/"` — but NEVER overwrite an overlay file that already
+  holds user content (copy only the missing ones).
+- **Per plugin-owned prose file** (`CLAUDE.md`←`harness-CLAUDE.md`, `README.md`, `docs/HARNESS.md`,
+  `docs/LIMITATIONS.md`, `docs/designs/*.md`), diff the installed file against its pristine reference and
+  split the hunks:
+  - **local-bespoke additions** (present in the target, absent from the reference, not explained by any
+    ledger entry — the owner's own notes/rules) → **append them to the matching `custom/<file>`** (append;
+    never clobber existing overlay content). This is the move that preserves the customization.
+  - **plugin-newer** hunks → taken automatically when you restore the pristine file (that's the goal).
+  - **conflict** (the owner edited a line the plugin also ships/changed — an EDIT, not an addition) → the
+    overlay can't hold an in-place edit; surface it (show both sides) and let the user choose *take
+    reference* / *keep mine* / *resolve by hand*. If they keep an in-place edit, that file will NOT be
+    byte-clean — say so plainly (it will still show a diff on the next upgrade).
+- **Restore the pristine file** on approval: `cp -p "$ref" "$target"` (this also re-installs the file's
+  `@custom/…` import / overlay pointer, since the reference carries it). For `.harness/CLAUDE.md`, confirm
+  the restored file ends with its `@custom/CLAUDE.md` import so the overlay actually loads.
+- **Root `CLAUDE.md` is the user's** (user-data, never auto-touched) — do NOT standardize it. If it holds
+  harness-specific customizations, you MAY **offer** to move those into `.harness/custom/CLAUDE.md` and
+  leave a pointer, but only on explicit confirmation; otherwise leave it entirely.
+
+After a standardize, the prose files are byte-identical to the reference — re-stamp `.harness-version`
+(stage 5) and note in the report that **future upgrades of these files are now clean ledger walks**, with
+the customizations living safely in `.harness/custom/`.
+
 ## 2. Select the relevant migration entries
 
 From `$LEDGER`, take the entries whose version transition falls in `(CUR_VERSION, REF_VERSION]`. If the
@@ -145,6 +192,9 @@ For each file, classify:
 - **identical** (`cmp -s` passes) → up to date, skip.
 - **missing in target** → a **new file** the reference adds (a new script/doc). Candidate to add. (In
   adoption mode this is a question, not a recommendation — it may be a deliberate removal; see §1a.)
+  Missing **`custom/` overlay stubs** are always add-candidates (they're scaffolding, not user content) —
+  an install predating the overlay won't have them, and the pristine prose files' `@custom/…`/pointer
+  references need them; offer to add them, and never treat a missing overlay as a deliberate removal.
 - **differs** → capture the unified diff (`diff -u "$target" "$ref"`) **and** the matching ledger note(s).
   Do NOT decide anything yet — this goes in the report for the user to adjudicate.
 
@@ -152,8 +202,12 @@ Also from the ledger: list any **renames/removals** (e.g. a doc renamed — the 
 target should be removed and the new one added) and any **breaking / MAJOR** items needing manual steps.
 
 **Never diff, list, or touch the pure user-data files:** `tracking/*` (TASKS.json, IDEAS.md,
-human-done/manual-fail/reviews.json), `tasks/*.md`, `worklog/*`, `ledgers/*.jsonl`, and the repo-root
-`CLAUDE.md`, `.gitignore`, `.github/workflows/ci.yml`, root `README.md`. These belong to the user.
+human-done/manual-fail/reviews.json), `tasks/*.md`, `worklog/*`, `ledgers/*.jsonl`, **`custom/*`** (the
+customization overlay — the user's own prose: never reconcile, diff-to-overwrite, or clobber an *existing*
+overlay file; the upgrade may only **add a missing overlay stub** from the reference — new-file scaffolding
+so an install predating the overlay gets a home for the pristine files' pointers — or **append** to it via
+the §1b standardize path), and the repo-root `CLAUDE.md`, `.gitignore`, `.github/workflows/ci.yml`, root
+`README.md`. These belong to the user.
 
 Emit a grouped report:
 - **Up to date:** N files.
@@ -215,7 +269,8 @@ user must always be able to see what diverged before approving.
 - **Additive-only for config.** New `harness.env` knobs get appended with template defaults; existing
   values are never rewritten. `facets.json` is left alone unless the ledger flags a required migration.
 - **User data is off-limits:** never read-to-modify or write `tracking/`, `tasks/`, `worklog/`,
-  `ledgers/`, or the repo-root `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`.
+  `ledgers/`, `custom/` (except the §1b standardize path, which only *appends* to it), or the repo-root
+  `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`.
 - **No auto-commit.** Leave the working tree dirty for the user to review.
 
 ## What this is NOT

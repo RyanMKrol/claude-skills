@@ -32,6 +32,32 @@ Entry format:
 
 ---
 
+## 1.22.0 → 1.23.0 — prose customization overlay (`custom/`) + standardize upgrade path + version nudge
+The big change is the **prose overlay**: plugin-owned prose files (`.harness/CLAUDE.md`, `README.md`,
+`docs/**`) stay pristine and reference a parallel `.harness/custom/` tree where consumers put their edits —
+so those files upgrade cleanly instead of drifting into per-file reconciles. Baked into fresh installs
+(templates + `create`, here) and migratable for existing forks via the upgrade skill's new §1b *standardize*
+path (skill-side — reaches existing installs automatically). The `convert-ideas` version-check nudge is
+also skill-side (no template change).
+- new files: `custom/CLAUDE.md`, `custom/README.md`, `custom/docs/HARNESS.md`, `custom/docs/LIMITATIONS.md`,
+  `custom/docs/designs/{audit-verification,difficulty-autotune,manual-fail-signal,visual-verification}.md`
+  — the overlay stub tree (mirrors the prose layout). **Add-if-missing on upgrade; NEVER overwrite an
+  existing overlay file — it's user content.** Without them the pristine files' `@custom/…`/pointer
+  references have no target.
+- mechanism: `harness-CLAUDE.md` — appends an `@custom/CLAUDE.md` import at the very bottom (auto-loads the
+  overlay when `.harness/CLAUDE.md` loads) and adds a "Customizing / forking the harness" section (put
+  changes in `custom/`, never inline; scripts/config are the exception).
+- mechanism: `README.md`, `docs/HARNESS.md`, `docs/LIMITATIONS.md`, `docs/designs/*.md` — each gains a
+  one-line pointer to its `custom/…` overlay near the top; `docs/LIMITATIONS.md` also redirects
+  golden-rule-5's "add a row" to `custom/docs/LIMITATIONS.md`.
+- config: none.
+- manual attention: existing installs adopt the overlay via the upgrade skill — add the missing `custom/`
+  stubs, take the pristine files' new pointer lines, and (for a fork) run the §1b **standardize** path to
+  move any inline prose edits into `custom/`. Repo-root `CLAUDE.md` is user-data: its golden-rule-5 now
+  points at `custom/docs/LIMITATIONS.md` for FRESH installs (via `create`); existing repos should update
+  that wording by hand if they want the overlay convention.
+- breaking: none.
+
 ## 1.21.0 → 1.22.0 — front-load clarification into the planning stage (DoD emphasis)
 (The behavioural change lives in the `convert-ideas` / `review-failed` skills — bias toward asking, a
 mandatory definition-of-done confirmation, and an `ideaSummary` shown before questions — which are skill

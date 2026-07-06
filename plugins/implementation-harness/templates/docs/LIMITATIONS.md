@@ -1,8 +1,12 @@
 # LIMITATIONS.md — trade-offs, bottlenecks & known limitations
 
+> **Add THIS project's limitations to the overlay, not here.** This file is plugin-owned and refreshed on
+> upgrade — the rows below are the *harness's own* trade-offs. Record your project's limitations in
+> `custom/docs/LIMITATIONS.md` (the overlay — upgrades never touch it). See `.harness/custom/CLAUDE.md`.
+
 The single place to evaluate the design's compromises later **without re-deriving them from
 the code**. Per `CLAUDE.md` golden rule 5, every change that introduces or reveals a
-trade-off, bottleneck, or known limitation **adds a row here in the same commit**.
+trade-off, bottleneck, or known limitation **adds a row** to `custom/docs/LIMITATIONS.md` in the same commit.
 
 Each entry: **what** it is · **why** we chose it · **impact** · **when to revisit**.
 

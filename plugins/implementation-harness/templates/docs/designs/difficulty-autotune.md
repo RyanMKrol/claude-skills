@@ -1,5 +1,8 @@
 # Difficulty auto-tuning — design
 
+> **Customizing?** Add project notes in `custom/docs/designs/difficulty-autotune.md` (the overlay —
+> upgrades never touch it), not in this plugin-owned file. See `.harness/custom/CLAUDE.md`.
+
 The harness builds each task with an AI agent at a chosen **difficulty** (which model + reasoning
 effort to try first). Instead of a one-shot human/LLM guess, a **self-tuning policy** learns, per
 *kind* of task, the cheapest setting that reliably works — saving cost and improving first-try
