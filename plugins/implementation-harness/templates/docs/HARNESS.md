@@ -143,6 +143,14 @@ up front, **you author that doc** — interactively, with Claude at `--effort ma
 `.harness/docs/designs/TNNN-*.md`, and the high-effort build pass implements from it. So `max` effort
 exists in the project but lives **out of band** (optional, human-driven), never in the loop.
 
+Because the loop builds blind from the spec on the policy-chosen (often weaker) model, **clarification is
+front-loaded into the authoring stage**, not the build. When ideas become tasks
+(`/implementation-harness-convert-ideas`) or a failed task is reviewed
+(`/implementation-harness-review-failed`), that is where a human confirms the **definition of done** and
+any open decision — while a strong model and a person are both in the room — so the unattended build pass
+inherits an unambiguous contract it can hit in one cold pass. Those planning skills deliberately bias
+*toward* asking; the loop, having no human to ask, deliberately does not.
+
 ### Bumping the base model (migration runbook)
 
 When a new model generation supersedes the one `config/facets.json`'s `.tiers.ladder` is pinned to,

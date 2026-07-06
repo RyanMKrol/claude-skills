@@ -32,6 +32,21 @@ Entry format:
 
 ---
 
+## 1.21.0 → 1.22.0 — front-load clarification into the planning stage (DoD emphasis)
+(The behavioural change lives in the `convert-ideas` / `review-failed` skills — bias toward asking, a
+mandatory definition-of-done confirmation, and an `ideaSummary` shown before questions — which are skill
+files, not `templates/`, so they reach existing installs automatically without an upgrade. The only
+`templates/` touch is the docs paragraph below.)
+- mechanism: `docs/HARNESS.md` — §5.1 ("Planning vs building") gains a paragraph stating that clarification
+  is front-loaded into the authoring stage (idea→task conversion, failed-task review), where a human
+  confirms the definition of done, so the unattended build pass inherits an unambiguous contract; the
+  planning skills bias toward asking, the loop does not.
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.19.0 → 1.21.0 — dashboard ops console: live "Now" strip, freshness, observed audit + failure health
 (1.20.0 was skill-only — the upgrade skill's adoption mode for legacy/hand-forked installs — no template
 changes, so no entry.)

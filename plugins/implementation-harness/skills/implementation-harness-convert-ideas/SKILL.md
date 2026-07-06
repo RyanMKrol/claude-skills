@@ -28,13 +28,16 @@ whole file, then execute in order.
 - **Recovery check — do this BEFORE touching the current inbox.** An earlier sweep may have been
   interrupted (session ended mid-flight). Scan `.harness/.pending-tasks/` and
   `.harness/.pending-questions/`:
-  - Leftover `.pending-tasks/*.json` files are COMPLETE (an agent finished shaping them) — they can
-    go straight to consolidation (§5) without re-running exploration. Tell the user you found them
-    and offer to consolidate now before starting a new sweep.
-  - Leftover `.pending-questions/*.json` files mean an agent was BLOCKED on a genuine open question
-    when the prior sweep ended. Re-surface those questions via `AskUserQuestion` now (§4's format),
-    then either resume that idea's shaping yourself (read the pending-questions file for the
-    context it captured) or re-launch a fresh agent for just that idea with the answer folded in.
+  - Leftover `.pending-tasks/*.json` files are drafts an agent finished shaping. A draft whose DoD is
+    already **confirmed** — i.e. it has NO sibling `.pending-questions/<slug>.json` with unresolved
+    questions — can go straight to consolidation (§5) without re-running exploration. Tell the user you
+    found them and offer to consolidate before starting a new sweep.
+  - Leftover `.pending-questions/*.json` files mean an idea still has questions the owner hasn't
+    answered — including the mandatory definition-of-done confirmation (§3 step 5), which is why a
+    sibling `.pending-tasks` draft must NOT be consolidated until they're resolved. Re-surface them via
+    `AskUserQuestion` now (§4's format — summarize each idea's `ideaSummary` first, then batch its
+    `questions`), then fold the answers into that idea's `.pending-tasks/<slug>.json` (resume its agent,
+    or edit the file yourself) before consolidating.
   - **Stale already-converted bullets.** A prior sweep may have consolidated tasks but died before its
     bullet-removal committed, leaving an inbox bullet whose task already exists. Skim
     `git log --oneline -15` for recent `consolidate-ideas`/backlog commits and the ~10 most recent
@@ -106,18 +109,35 @@ idea/cluster used in its scratch filenames):
 > 4. **Split a decision/unknown into its own `needs-human` unit** if the idea hinges on a human
 >    decision or an unknown that needs probing before the real work can be specified — a
 >    `needs-human` decision unit, plus a dependent buildable follow-up once it's answered.
-> 5. **Prefer a judgment call over manufacturing a question.** For a low-stakes, reasonable-default
->    decision (a naming choice, which of two obvious spots to put something), just DECIDE it, note the
->    call in your unit's `report`, and keep going — don't block the owner on it. Only escalate a
->    GENUINELY open question you cannot responsibly resolve (a real product/design decision, an
->    ambiguity where guessing wrong wastes a build). When you must: you do NOT have `AskUserQuestion`
->    (do not attempt to call it) — STOP shaping the affected unit and write
->    `.harness/.pending-questions/<SLUG>.json`:
->    `{ "slug": "<SLUG>", "question": "For idea <SLUG> (<short idea gist>): <the exact question>", "context": "<what you've found so far>", "ideaText": "<IDEA TEXT>" }`
->    — **the question MUST name which idea it's about** (several agents relay questions concurrently;
->    an unlabelled one is ambiguous). Then finish shaping whatever OTHER units from this idea don't
->    depend on the answer and write those to `.pending-tasks/<SLUG>.json` as normal (partial output is
->    fine — the coordinator relays your question and resumes/re-runs you once answered).
+> 5. **You are in the planning stage — bias TOWARD asking.** This is the one point where a human is
+>    reachable and a strong model is shaping the spec; a weaker, unattended builder later implements it
+>    blind, from the spec alone, with no chance to ask. Resolve ambiguity with the owner NOW rather than
+>    guessing — whenever a decision changes *what gets built* or *what "done" means*, surface it. Decide
+>    silently only the genuinely cosmetic/mechanical (a variable name, which of two equivalent spots),
+>    noting those in the unit's `report`. When in doubt, ask. You do NOT have `AskUserQuestion` (do not
+>    call it) — you relay through the coordinator by writing a questions file (below).
+>    - **Always confirm the definition of done (mandatory).** For every idea you author a task for, relay
+>      ≥1 question, and ≥1 MUST confirm the acceptance bar — restate the `specDoneWhen` you're proposing
+>      and ask the owner to confirm or adjust it ("propose + confirm"). Add any other build-changing
+>      decisions as further questions.
+>    - Write `.harness/.pending-questions/<SLUG>.json`:
+>      ```json
+>      { "slug": "<SLUG>", "ideaText": "<IDEA TEXT>",
+>        "ideaSummary": "ONE short plain-language paragraph — what this idea is, why, and what will change; the coordinator shows it to the owner BEFORE the questions so they know which idea is being discussed.",
+>        "context": "<what you've found so far>",
+>        "questions": [
+>          { "topic": "definition-of-done", "question": "I'm planning done-when to be: <the acceptance bar you drafted>. Does this match what you want, or should it differ?" },
+>          { "topic": "other", "question": "<another decision that changes what's built — include only if real>" }
+>        ] }
+>      ```
+>      `questions` MUST hold ≥1 entry and ≥1 with `topic: "definition-of-done"`. The file's
+>      `ideaSummary`/`ideaText` label which idea every question belongs to (several agents relay concurrently).
+>    - **Always write BOTH files.** Also write your best-draft `.pending-tasks/<SLUG>.json` (step 6): the
+>      DoD question *confirms* the bar you drafted, so shape the task fully and let the owner adjust it —
+>      don't block. Hold a unit OUT of pending-tasks only when it is genuinely un-shapeable until a
+>      `topic: "other"` answer lands (partial output is fine — the coordinator relays and resumes/re-runs you).
+>    - **Exemption:** if you conclude **no task is warranted** (`units: []`, step 6), skip the DoD
+>      question — nothing is being built; just record why in `report`.
 > 6. If you conclude **no task is actually warranted** (the idea is already done, is a non-issue, or on
 >    investigation doesn't hold up), still write `.harness/.pending-tasks/<SLUG>.json` but with
 >    `"units": []`, a `"report"` explaining why, AND the `ideaBullets` — so consolidation removes the
@@ -146,22 +166,29 @@ idea/cluster used in its scratch filenames):
 >    an existing task. Your final message should just confirm what you wrote — the coordinator
 >    reads the file, not your response text.
 
-## 4. Relay pending questions (multi-round — no cap)
+## 4. Relay pending questions — summarize each idea first (multi-round, no cap)
 
-Use durable files, not conversation memory — an agent's question and the owner's answer must survive a
-dropped session. After all agents finish, check `.harness/.pending-questions/*.json`. If any exist,
-read them all and batch them into **one** real `AskUserQuestion` call (don't ask one at a time; each
-question already names its idea). For each answer:
-- **resume that agent** via `SendMessage` (if still addressable) with the answer so it finishes its
-  `.pending-tasks/<slug>.json`, or **incorporate the answer yourself** and write that idea's
-  `.pending-tasks/<slug>.json` directly (same schema as §3 step 6) if the agent is gone.
-- **The answer may not fully settle it.** If it does, delete the `.pending-questions/<slug>.json`. If
-  the answer opens a genuinely NEW question, that idea's agent (or you) **overwrites the same
-  `.pending-questions/<slug>.json`** (same file, same schema) with the follow-up — then relay again.
-  **There is no cap on rounds** — loop §4 until every pending-questions file is resolved or deleted.
-- **If the owner defers or declines the idea entirely**, do NOT write a `.pending-tasks` file for it
-  and DELETE its pending-questions file — with no pending-tasks entry, consolidation won't touch its
-  bullet, so the idea simply **stays in the inbox** for a future sweep (nothing is authored, nothing removed).
+Use durable files, not conversation memory — questions and answers must survive a dropped session. Every
+idea an agent authored a task for left a `.harness/.pending-questions/<slug>.json` (§3 step 5), so this
+relay runs on essentially every sweep. Read them all, then:
+
+- **Summarize before asking.** First emit a short markdown recap — one line per idea: its `ideaSummary`
+  (and slug) — so the owner knows which idea each question is about before answering. Then make **one**
+  real `AskUserQuestion` call batching **every** question from **every** file (each file may carry
+  several — a definition-of-done confirmation plus other build-changing decisions). Give each question an
+  idea-naming header/label as a backstop.
+- **Fold each answer back to its `(slug, question)`.** For a `definition-of-done` answer: if the owner
+  adjusted the bar, update that idea's `.pending-tasks/<slug>.json` `specDoneWhen` (and any unit that
+  depends on it) — resume the idea's agent via `SendMessage` if still addressable, else edit the file
+  yourself; if they confirmed as-is, leave the draft. For a `topic: "other"` answer: fold it in the same
+  way, finishing any unit that was held pending it.
+- **The answer may open a NEW question.** If so, **append** it to the same file's `questions` array (keep
+  `ideaSummary` and the already-answered entries) and relay again. Delete a `.pending-questions/<slug>.json`
+  only once ALL its questions are resolved. **There is no cap on rounds** — loop §4 until every
+  pending-questions file is drained.
+- **If the owner defers or declines the idea entirely**, delete BOTH its `.pending-questions/<slug>.json`
+  AND its draft `.pending-tasks/<slug>.json` — with no pending-tasks entry, consolidation won't touch its
+  bullet, so the idea simply **stays in the inbox** for a future sweep (nothing authored, nothing removed).
 
 ## 5. Consolidate
 

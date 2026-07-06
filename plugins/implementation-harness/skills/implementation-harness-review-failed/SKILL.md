@@ -35,10 +35,14 @@ Read this whole file, then execute in order.
 
 Exactly like `implementation-harness-convert-ideas`'s pre-flight — a prior sweep may have been
 interrupted. `mkdir -p .harness/.pending-tasks .harness/.pending-questions`, then:
-- Leftover `.pending-tasks/*.json` are COMPLETE — go straight to Stage 3 (consolidate) before starting
-  anything new. Tell the user and offer to consolidate first.
-- Leftover `.pending-questions/*.json` mean an agent was BLOCKED on a question — re-surface them via
-  `AskUserQuestion` (Stage 2's format), fold the answers in (resume or re-launch that unit), then Stage 3.
+- Leftover `.pending-tasks/*.json` are drafts an agent finished shaping. A draft whose DoD is already
+  **confirmed** — no sibling `.pending-questions/<slug>.json` with unresolved questions — can go straight
+  to Stage 3 (consolidate). Tell the user and offer to consolidate first.
+- Leftover `.pending-questions/*.json` mean a review still has questions the owner hasn't answered —
+  including the mandatory definition-of-done confirmation (Stage 2 step 4b), so a sibling `.pending-tasks`
+  draft must NOT be consolidated until they're resolved. Re-surface them via `AskUserQuestion` (Stage 3's
+  format — summarize each review's `ideaSummary` first, then batch its `questions`), fold the answers into
+  that follow-up's `.pending-tasks/<slug>.json`, then Stage 3.
 - Both empty → proceed.
 
 Also require the harness (`.harness/docs/HARNESS.md`, `scripts/loop.sh`, `tracking/TASKS.json`) and
@@ -98,15 +102,17 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > a `## Done when` met technically but missing the real intent. Your follow-up must be **demonstrably
 > better at the specific thing that went wrong** — an identical-spec retry would just fail the same way.
 >
-> **3. Decide the outcome:**
+> **3. Decide the outcome. You are in the planning stage — bias TOWARD asking.** This review runs with a
+> human reachable (via the coordinator's relay); the eventual follow-up gets built by a weaker, unattended
+> builder from the spec alone, with no chance to ask. So resolve ambiguity with the owner now rather than
+> guessing — whenever a decision changes *what gets built* or *what "done" means*, surface it.
 > - **No follow-up needed** (already resolved elsewhere, or a stale/invalid signal — e.g. a framework
 >   bug since fixed, not a real defect): write `.harness/.pending-tasks/<SLUG>.json` with
->   `{ "units": [], "ideaBullets": [], "report": "<why nothing further is needed>" }`.
-> - **Genuine open question the owner must answer** before you can shape confidently (the ask itself was
->   ambiguous, or a real product/design decision is needed): write `.harness/.pending-questions/<SLUG>.json`
->   `{ "slug": "<SLUG>", "question": "For the review of <TNNN> (<original title>): <the exact question>", "context": "<what you found>", "ideaText": "<TNNN>: <original title>" }`,
->   and do not shape a task yet.
-> - **Confident enough to shape** (root cause and fix are clear from the evidence): go to step 4.
+>   `{ "units": [], "ideaBullets": [], "report": "<why nothing further is needed>" }`. No question needed —
+>   nothing is being built.
+> - **A follow-up IS warranted:** go to step 4 to shape it. You do NOT have `AskUserQuestion` — you relay
+>   through the coordinator, and for every follow-up you author you MUST (step 4b) confirm its definition
+>   of done with the owner, plus surface any other decision that changes what gets built.
 >
 > **4. Shape the follow-up — no lock, no git, no `TASKS.json` edit.** Write
 > `.harness/.pending-tasks/<SLUG>.json` in this exact shape (the same one
@@ -146,14 +152,36 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >   synthetic string (review agents have no real idea bullet) that keeps the file byte-compatible with
 >   the consolidation script; it will not match anything in `IDEAS.md` (that's expected — see Stage 3).
 >
+> **4b. Confirm the definition of done with the owner (mandatory for every follow-up you author).** Also
+> write `.harness/.pending-questions/<SLUG>.json` — the DoD question *confirms* the `specDoneWhen` you
+> drafted, so shape the task fully and let the owner adjust it; don't block on it:
+> ```json
+> { "slug": "<SLUG>", "ideaText": "<TNNN>: <original title>",
+>   "ideaSummary": "ONE short plain-language paragraph — what <TNNN> was, the root cause you found, and the follow-up you're proposing; the coordinator shows it to the owner BEFORE the questions so they know which review is being discussed.",
+>   "context": "<what you found>",
+>   "questions": [
+>     { "topic": "definition-of-done", "question": "For the re-attempt of <TNNN>, I'm planning done-when to be: <the acceptance bar you drafted>. Does this match, or should it differ?" },
+>     { "topic": "other", "question": "<another decision that changes what's built — include only if real>" }
+>   ] }
+> ```
+> `questions` MUST hold ≥1 entry and ≥1 with `topic: "definition-of-done"`. Hold a unit OUT of your
+> pending-tasks file only when it is genuinely un-shapeable until a `topic: "other"` answer lands.
+>
 > **5. Report back**: the root cause you found, which step-3 outcome you reached, the slug you used, and
-> what you wrote (or didn't). The coordinator reads your file, not your prose.
+> what you wrote (both files). The coordinator reads your files, not your prose.
 
-## Stage 3 — relay questions, then consolidate
+## Stage 3 — relay questions (summarize each review first), then consolidate
 
-If any `.pending-questions/*.json` exist, batch them into ONE `AskUserQuestion` (each prefixed with
-which `<TNNN>` it concerns), then fold each answer in — resume the agent via `SendMessage`, or write
-that task's `.pending-tasks/<slug>.json` yourself. Delete each pending-questions file once answered.
+Every authored follow-up left a `.pending-questions/<slug>.json` (Stage 2 step 4b), so this relay runs on
+essentially every sweep. Read them all, then **summarize before asking**: first emit a short markdown
+recap — one line per review: its `ideaSummary` (and the `<TNNN>` it concerns) — then make ONE
+`AskUserQuestion` batching **every** question from **every** file (each may carry several — a
+definition-of-done confirmation plus other build-changing decisions), each with a `<TNNN>`-naming
+header/label. Fold each answer back to its `(slug, question)`: for a `definition-of-done` answer, update
+that follow-up's `.pending-tasks/<slug>.json` `specDoneWhen` if the owner adjusted it (resume the agent
+via `SendMessage`, or edit the file yourself), else leave the draft; for a `topic: "other"` answer, fold
+it in the same way. If an answer opens a NEW question, **append** it to the same file's `questions` array
+and relay again (no cap); delete a `.pending-questions/<slug>.json` only once ALL its questions resolve.
 
 Then run the consolidation (the ONLY step that touches git):
 

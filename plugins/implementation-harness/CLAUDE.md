@@ -3,7 +3,33 @@
 This is the **maintainer** guide for the `implementation-harness` plugin. The repo-root
 `../../CLAUDE.md` still applies (most importantly: **bump `.claude-plugin/plugin.json`'s `version` in the
 same commit as any plugin change** — the cache only re-installs on a version change). This file adds the
-one rule specific to this plugin.
+rules specific to this plugin.
+
+## ⚠️ Front-load clarification into the planning stage (design principle — do not erode)
+
+This plugin has a deliberate division of labour, and it drives how the skills are written:
+
+- **The build loop is unattended and runs on the policy-chosen (often weaker) model.** It has no human
+  at the keyboard, cannot ask anything, and builds each task **from the spec alone** — when it hits a
+  real unknown it records `failed:blocked` for a human, it does not clarify (see
+  `templates/docs/HARNESS.md` §3 / §5.1).
+- **The planning stage is where a human IS present and a strong model is shaping the spec** — the
+  idea→task conversion (`implementation-harness-convert-ideas`) and the failed-task review
+  (`implementation-harness-review-failed`). This is the ONLY cheap place to resolve ambiguity, and a
+  spec that is wrong or under-specified here silently wastes a whole downstream build.
+
+**Therefore the planning-stage skills MUST bias toward asking**, not away: surface any decision that
+changes what gets built, and **always confirm the definition of done** with the owner (propose the
+acceptance bar, ask them to confirm/adjust) rather than deciding it silently.
+`implementation-harness-capture-idea` is the intentional exception — it is zero-ceremony and deliberately
+**defers** all questions to the `convert-ideas` sweep, which is exactly why conversion is where the
+questioning must concentrate.
+
+**Re-assert guard.** If a change would *reduce* planning-stage questioning — adding "prefer a reasonable
+default", "don't block/pester the owner", raising the bar for what counts as worth asking, or removing a
+mandatory confirmation like the definition-of-done check — **STOP and re-assert this principle to the
+user, making explicit that the change contradicts the plugin's design.** Do not make such a change
+silently; if the user still wants it after that, it must be a deliberate, informed choice.
 
 ## ⚠️ Every change under `templates/` MUST update the migration ledger (non-negotiable)
 
