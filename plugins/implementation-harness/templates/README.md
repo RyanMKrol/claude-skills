@@ -155,8 +155,8 @@ header title also spins for as long as that same lock check says the loop is act
 The header also carries two ways to tell dashboards apart when you have several open (e.g. multiple
 projects, or multiple harness-driven repos): an optional project title — set `.harness/custom/dashboard-title.txt`
 (see the customization walkthrough) and it shows next to the gear icon and in the browser tab — and a
-background-color picker (10 preset light/bright swatches, top right — no open-ended color input) that's
-a client-only preference saved per-browser via `localStorage`.
+theme picker (4 bold, hue-distinct dark themes — Amber, Ink, Forest, Plum — top right, no open-ended
+color input) that's a client-only preference saved per-browser via `localStorage`.
 
 It re-reads everything from disk on every request — no daemon; the Internals tab memoises its per-facet
 `jq` work on the ledger mtimes so the 5s refresh is cheap.

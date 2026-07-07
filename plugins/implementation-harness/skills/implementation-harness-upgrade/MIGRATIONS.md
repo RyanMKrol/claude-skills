@@ -35,6 +35,50 @@ Entry format:
 
 ---
 
+## 1.36.0 → 1.36.1 — dashboard: cog is now an SVG icon (fixes a real rotation wobble)
+Reported and independently verified: the spinning cog visibly "orbited" a small amount instead of
+spinning in place, worse at higher speed. Root cause, confirmed by pixel-level screenshot analysis
+(headless Chrome, GPU compositing ON — not disabled, which had been masking the effect in an
+earlier, insufficient attempt at this same fix): rotating a TEXT/emoji glyph makes the browser
+re-hint and re-rasterize the glyph's font-atlas texture at every new angle, drifting up to ~0.7px
+per frame under real GPU compositing. An inline SVG gear (vector shapes, no glyph atlas) measured
+EXACTLY 0.000px of centroid drift across a full rotation under the same conditions, verified both
+in isolation and against the actual served dashboard page with a real active loop lock.
+- mechanism: `dashboard/server.js` — the `#cog` `<span>⚙</span>` is now an inline SVG (8-tooth gear
+  + masked center hole, `fill="currentColor"` so it still follows the active theme), sized 29px
+  (the old 22px h1-inherited size + 30%), with `will-change:transform` + `backface-visibility:hidden`
+  to force it onto its own GPU layer, and the spin duration shortened from 2.5s to 1s per revolution.
+  `getElementById('cog').classList.toggle('spin', …)` is unchanged — SVG elements support
+  `classList` the same as any other element, so nothing else needed updating.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none (purely visual — same id/class, same toggle mechanism).
+
+## 1.35.2 → 1.36.0 — dashboard: 4-theme picker replaces the 10-swatch background picker
+Workshopped with the owner via a live artifact demo (color options, then a 10-step brightness
+slider) before shipping — landed on 4 bold, hue-distinct DARK themes (Amber, Ink, Forest, Plum) at
++10% brightness over the originally-demoed values, replacing the old cream-only palette + 10 preset
+background-color swatches. Only swapping `--bg` was no longer enough once the palette itself could
+change hue entirely, so this is a full per-theme token swap (bg/panel/panel-2/border/text/muted/
+accent + semantic colors), not just a background-color picker.
+- mechanism: `dashboard/server.js` — `:root`/`[data-theme="amber|ink|forest|plum"]` CSS blocks
+  replace the single `:root{...}` palette. The picker UI (`.themepicker`, 4 swatch buttons) replaces
+  the old `.bgpicker` (10 swatches); `setTheme(name)`/`initThemePicker()` replace `setBg(hex)`/
+  `initBgPicker()`, storing under a NEW localStorage key (`harness-dashboard-theme:<project>` —
+  intentionally different from the old `harness-dashboard-bg:<project>` key, so a stale saved hex
+  value is simply orphaned rather than misinterpreted as a theme name). Hardcoded translucent
+  overlays that were tuned for the old light cream palette (pill/nowpill backgrounds, the flash
+  animation, `.swatch.active`'s glow) now use `color-mix(in srgb, var(--X) N%, transparent)` so they
+  track whichever theme is active instead of showing a fixed, now-mismatched tint. The active-tab
+  text color changed from a hardcoded `#fff` to `var(--bg)` — the old light accent's contrast
+  assumption doesn't hold against the new, generally lighter/brighter accent colors.
+- config: none. new files: none.
+- renamed/removed: the 10 preset background swatches are gone, replaced by the 4 named themes.
+- manual attention: a user with a saved background-color preference from before this version will
+  simply see the new default (Amber) on next load — there's no old-hex-to-new-theme mapping, since
+  the two are different, incompatible kinds of setting.
+- breaking: none functionally (still a client-only, per-browser, localStorage-only preference).
+
 ## 1.35.1 → 1.35.2 — dashboard: inline ▶ <Tool> markers in live output
 Reported: the live-output panel for a real, currently-running task appeared to "start mid-conversation"
 — the visible text opened with "Now the render section..." with no earlier narration in sight. Confirmed

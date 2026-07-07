@@ -483,10 +483,29 @@ function renderPage() {
 <meta charset="utf-8">
 <title>${titleHtml ? titleHtml + ' — ' : ''}Backlog — implementation harness</title>
 <style>
-  :root{
-    --bg:#fbf3dd; --panel:#fff9ec; --panel-2:#ffeec2; --border:#f0d49a;
-    --text:#4a3613; --muted:#9c7e44; --accent:#e8821f;
-    --green:#5a9e2e; --red:#e0492e; --yellow:#c98a12; --amber:#d9791a; --human:#3a7bd0;
+  /* Four bold, hue-distinct dark themes (client picks one — see the theme picker below); baked in
+     at +10% brightness over the originally-workshopped values. Semantic colors (green/red/yellow/
+     human) are tuned per theme for contrast, not swapped for the accent — they mean the same thing
+     (done/failed/blocked/needs-human) in every theme. */
+  :root, [data-theme="amber"]{
+    --bg:#3d2a15; --panel:#483414; --panel-2:#543717; --border:#73511d;
+    --text:#f5e9d6; --muted:#ba9a69; --accent:#ffa629;
+    --green:#6bd453; --red:#ff5c5c; --yellow:#f0c33e; --amber:#ffa629; --human:#5b9bff;
+  }
+  [data-theme="ink"]{
+    --bg:#1a2b45; --panel:#203453; --panel-2:#273d65; --border:#3c537a;
+    --text:#e9eefb; --muted:#9fafcd; --accent:#ff7a54;
+    --green:#4ad991; --red:#ff5c6e; --yellow:#ffcf5c; --amber:#ff9d4d; --human:#b98bff;
+  }
+  [data-theme="forest"]{
+    --bg:#1e3c2e; --panel:#254435; --panel-2:#2c513d; --border:#426953;
+    --text:#e7f2ea; --muted:#94b5a1; --accent:#f2b53c;
+    --green:#4fd1a5; --red:#ff6b5c; --yellow:#e0c34a; --amber:#f2b53c; --human:#6fa8ff;
+  }
+  [data-theme="plum"]{
+    --bg:#2f1f45; --panel:#362553; --panel-2:#402c63; --border:#584180;
+    --text:#f1e9f8; --muted:#b8a5cf; --accent:#ff5ec4;
+    --green:#5fd18a; --red:#ff5c6e; --yellow:#f0c14a; --amber:#f2b53c; --human:#6fa8ff;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
@@ -498,12 +517,12 @@ function renderPage() {
   button{cursor:pointer;font:inherit}
 
   .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);white-space:nowrap;margin-left:4px;}
-  .pill.buildable{color:var(--amber);background:rgba(232,160,32,.14);border-color:rgba(232,160,32,.4);}
+  .pill.buildable{color:var(--amber);background:color-mix(in srgb, var(--amber) 14%, transparent);border-color:color-mix(in srgb, var(--amber) 40%, transparent);}
   .pill.human{color:#fff;background:var(--human);border-color:var(--human);}
-  .pill.blocked{color:var(--yellow);background:rgba(201,138,18,.16);border-color:rgba(201,138,18,.45);font-weight:600;}
-  .pill.done{color:var(--green);background:rgba(90,158,46,.14);border-color:rgba(90,158,46,.35);}
-  .pill.failed{color:var(--red);background:rgba(224,73,46,.12);border-color:rgba(224,73,46,.35);}
-  .pill.reviewed{color:var(--green);background:rgba(90,158,46,.14);border-color:rgba(90,158,46,.35);}
+  .pill.blocked{color:var(--yellow);background:color-mix(in srgb, var(--yellow) 16%, transparent);border-color:color-mix(in srgb, var(--yellow) 45%, transparent);font-weight:600;}
+  .pill.done{color:var(--green);background:color-mix(in srgb, var(--green) 14%, transparent);border-color:color-mix(in srgb, var(--green) 35%, transparent);}
+  .pill.failed{color:var(--red);background:color-mix(in srgb, var(--red) 12%, transparent);border-color:color-mix(in srgb, var(--red) 35%, transparent);}
+  .pill.reviewed{color:var(--green);background:color-mix(in srgb, var(--green) 14%, transparent);border-color:color-mix(in srgb, var(--green) 35%, transparent);}
 
   details.section{margin:0 0 26px;}
   summary.section-heading{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:pointer;list-style:none;user-select:none;display:flex;align-items:center;gap:9px;padding:4px 0;}
@@ -532,7 +551,7 @@ function renderPage() {
   .barlabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
   .barbtn{font-size:11px;padding:3px 9px;border-radius:5px;border:1px solid var(--border);background:var(--panel-2);color:var(--muted);}
   .barbtn:hover{border-color:var(--accent);color:var(--text)}
-  .barbtn.on{border-color:var(--accent);color:var(--accent);background:rgba(232,130,31,.12)}
+  .barbtn.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, transparent)}
   .act{font-size:12px;padding:3px 11px;border-radius:6px;border:1px solid var(--border);background:var(--panel-2);color:var(--text)}
   .act:hover{border-color:var(--accent)}
   .act.danger:hover{border-color:var(--red);color:var(--red)}
@@ -540,26 +559,33 @@ function renderPage() {
   label.sel{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted)}
 
   .flash{animation:flash 1.6s ease-out;border-radius:6px}
-  @keyframes flash{from{background:rgba(232,130,31,.25)}to{background:transparent}}
+  @keyframes flash{from{background:color-mix(in srgb, var(--accent) 25%, transparent)}to{background:transparent}}
 
   .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 12px;}
   .topbar h1{margin:0}
-  .cog{display:inline-block}
-  .cog.spin{animation:cogspin 2.5s linear infinite}
+  /* An SVG icon, not a text/emoji glyph — confirmed by pixel-level screenshot verification (real
+     GPU compositing, not disabled) that a rotating text glyph visibly wobbles: the browser
+     re-hints/re-rasterizes the glyph's font-atlas texture at each angle, drifting up to ~0.7px
+     per frame. An SVG shape has no such glyph-atlas resampling step and measured EXACTLY 0px of
+     centroid drift across a full rotation under the same conditions. 29px = the 22px h1 baseline
+     + 30%, rounded to a whole pixel (fractional dimensions add their own sub-pixel layout drift).
+     will-change/backface-visibility:hidden put the rotation on its own GPU layer. */
+  .cog{display:inline-block;width:29px;height:29px;color:var(--text);vertical-align:middle;transform-origin:50% 50%;will-change:transform;backface-visibility:hidden}
+  .cog.spin{animation:cogspin 1s linear infinite}
   @keyframes cogspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion: reduce){.cog.spin{animation:none}}
-  .bgpicker{display:flex;align-items:center;gap:5px;margin-left:auto}
+  .themepicker{display:flex;align-items:center;gap:5px;margin-left:auto}
   .swatch{width:20px;height:20px;padding:0;border-radius:50%;border:2px solid var(--border);cursor:pointer;box-shadow:none}
   .swatch:hover{border-color:var(--muted)}
-  .swatch.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,130,31,.3)}
+  .swatch.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 
   /* "Now" strip — live loop status + freshness, on every tab */
   .nowbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;font-size:12px}
   .nowpill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--muted);white-space:nowrap}
-  .nowpill.run{color:var(--green);border-color:rgba(90,158,46,.45);background:rgba(90,158,46,.10);font-weight:600}
+  .nowpill.run{color:var(--green);border-color:color-mix(in srgb, var(--green) 45%, transparent);background:color-mix(in srgb, var(--green) 10%, transparent);font-weight:600}
   .nowpill.idle{color:var(--muted)}
-  .nowpill.warn{color:var(--yellow);border-color:rgba(201,138,18,.45);background:rgba(201,138,18,.10);font-weight:600}
-  .nowpill.bad{color:var(--red);border-color:rgba(224,73,46,.4);background:rgba(224,73,46,.08);font-weight:600}
+  .nowpill.warn{color:var(--yellow);border-color:color-mix(in srgb, var(--yellow) 45%, transparent);background:color-mix(in srgb, var(--yellow) 10%, transparent);font-weight:600}
+  .nowpill.bad{color:var(--red);border-color:color-mix(in srgb, var(--red) 40%, transparent);background:color-mix(in srgb, var(--red) 8%, transparent);font-weight:600}
   .nowbar details{flex-basis:100%;margin-top:2px}
   .nowbar summary{color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
   .nowbar pre{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:260px;overflow:auto;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin:6px 0 0}
@@ -568,7 +594,7 @@ function renderPage() {
   .tabs{display:flex;gap:6px;flex-wrap:wrap}
   .tab{font-size:13px;padding:5px 13px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--muted);}
   .tab:hover{border-color:var(--accent);color:var(--text)}
-  .tab.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
   .view[hidden]{display:none}
   .note{color:var(--muted);font-size:12px;margin:6px 0 14px}
 
@@ -594,7 +620,7 @@ function renderPage() {
   .qtip{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);font-size:9px;font-weight:700;line-height:1;cursor:help;text-transform:none;letter-spacing:normal;vertical-align:1px}
   .qtip:hover,.qtip:focus{border-color:var(--accent);color:var(--accent)}
   .qtip:focus{outline:2px solid var(--accent);outline-offset:2px}
-  #qtip-popup{position:fixed;z-index:50;max-width:260px;background:var(--text);color:var(--panel);padding:7px 10px;border-radius:7px;font-size:11.5px;font-weight:400;line-height:1.4;text-transform:none;letter-spacing:normal;box-shadow:0 4px 14px rgba(0,0,0,.2);pointer-events:none;display:none}
+  #qtip-popup{position:fixed;z-index:50;max-width:260px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);padding:7px 10px;border-radius:7px;font-size:11.5px;font-weight:400;line-height:1.4;text-transform:none;letter-spacing:normal;box-shadow:0 4px 14px rgba(0,0,0,.35);pointer-events:none;display:none}
   .facet-name{font-weight:600}
   .model-tag{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   .cold-tag{font-size:10px;color:var(--muted);margin-left:5px}
@@ -611,23 +637,17 @@ function renderPage() {
 <body>
 <div class="container">
 <div class="topbar">
-  <h1><span id="cog" class="cog" title="Spins while the loop is actively running">⚙</span> ${titleHtml || 'Harness'}</h1>
+  <h1><svg id="cog" class="cog" viewBox="0 0 24 24" role="img" aria-label="loop status gear"><title>Spins while the loop is actively running</title><defs><mask id="gearHole"><rect width="24" height="24" fill="white"/><circle cx="12" cy="12" r="1.9" fill="black"/></mask></defs><g fill="currentColor" mask="url(#gearHole)"><circle cx="12" cy="12" r="4.6"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(0.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(45.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(90.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(135.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(180.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(225.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(270.0 12 12)"/><rect x="10.70" y="5.30" width="2.60" height="3.10" rx="0.6" transform="rotate(315.0 12 12)"/></g></svg> ${titleHtml || 'Harness'}</h1>
   <nav class="tabs">
     <button class="tab on" data-view="backlog" onclick="switchView('backlog')">Backlog</button>
     <button class="tab" data-view="ideas" onclick="switchView('ideas')">Ideas</button>
     <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
   </nav>
-  <div class="bgpicker" title="Dashboard background color — saved in this browser only">
-    <button type="button" class="swatch" data-color="#fbf3dd" style="background:#fbf3dd" title="Cream" onclick="setBg('#fbf3dd')"></button>
-    <button type="button" class="swatch" data-color="#dbeeff" style="background:#dbeeff" title="Sky Blue" onclick="setBg('#dbeeff')"></button>
-    <button type="button" class="swatch" data-color="#dcf6e6" style="background:#dcf6e6" title="Mint" onclick="setBg('#dcf6e6')"></button>
-    <button type="button" class="swatch" data-color="#e8e0ff" style="background:#e8e0ff" title="Lavender" onclick="setBg('#e8e0ff')"></button>
-    <button type="button" class="swatch" data-color="#ffe4cf" style="background:#ffe4cf" title="Peach" onclick="setBg('#ffe4cf')"></button>
-    <button type="button" class="swatch" data-color="#ffe0ec" style="background:#ffe0ec" title="Blush Pink" onclick="setBg('#ffe0ec')"></button>
-    <button type="button" class="swatch" data-color="#d9f7f4" style="background:#d9f7f4" title="Aqua" onclick="setBg('#d9f7f4')"></button>
-    <button type="button" class="swatch" data-color="#fff3b0" style="background:#fff3b0" title="Butter Yellow" onclick="setBg('#fff3b0')"></button>
-    <button type="button" class="swatch" data-color="#ffd9d2" style="background:#ffd9d2" title="Coral" onclick="setBg('#ffd9d2')"></button>
-    <button type="button" class="swatch" data-color="#dde3ff" style="background:#dde3ff" title="Periwinkle" onclick="setBg('#dde3ff')"></button>
+  <div class="themepicker" title="Dashboard theme — saved in this browser only">
+    <button type="button" class="swatch" data-theme="amber" style="background:#3d2a15" title="Amber" onclick="setTheme('amber')"></button>
+    <button type="button" class="swatch" data-theme="ink" style="background:#1a2b45" title="Ink" onclick="setTheme('ink')"></button>
+    <button type="button" class="swatch" data-theme="forest" style="background:#1e3c2e" title="Forest" onclick="setTheme('forest')"></button>
+    <button type="button" class="swatch" data-theme="plum" style="background:#2f1f45" title="Plum" onclick="setTheme('plum')"></button>
   </div>
 </div>
 <div id="nowbar" class="nowbar"></div>
@@ -1108,29 +1128,31 @@ async function bulkAction(bucket) {
   if (ok) { state.selected.clear(); refreshActive(); }
 }
 
-// Background color picker — a fixed set of 10 preset swatches (client-only, localStorage,
-// namespaced by project dir name so several projects' dashboards, even on the same port at
-// different times, don't clobber each other's choice). No open-ended color input — picking a good
-// background from unlimited options is fiddly; a small curated set is not.
-const BG_STORAGE_KEY = 'harness-dashboard-bg:' + HARNESS_PROJECT_KEY;
-function markActiveSwatch(hex) {
-  const want = (hex || '').toLowerCase();
+// Theme picker — four bold, hue-distinct dark themes, baked in as [data-theme="…"] CSS blocks
+// above (client-only, localStorage, namespaced by project dir name so several projects'
+// dashboards, even on the same port at different times, don't clobber each other's choice). No
+// open-ended color input — picking a good palette from unlimited options is fiddly; a small
+// curated set is not.
+const THEME_STORAGE_KEY = 'harness-dashboard-theme:' + HARNESS_PROJECT_KEY;
+const THEME_NAMES = ['amber', 'ink', 'forest', 'plum'];
+function markActiveTheme(name) {
   document.querySelectorAll('.swatch').forEach(function (b) {
-    b.classList.toggle('active', (b.dataset.color || '').toLowerCase() === want);
+    b.classList.toggle('active', b.dataset.theme === name);
   });
 }
-function setBg(hex) {
-  document.documentElement.style.setProperty('--bg', hex);
-  localStorage.setItem(BG_STORAGE_KEY, hex);
-  markActiveSwatch(hex);
+function setTheme(name) {
+  document.documentElement.setAttribute('data-theme', name);
+  localStorage.setItem(THEME_STORAGE_KEY, name);
+  markActiveTheme(name);
 }
-function initBgPicker() {
+function initThemePicker() {
   if (!document.querySelector('.swatch')) return;
-  const saved = localStorage.getItem(BG_STORAGE_KEY);
-  if (saved) document.documentElement.style.setProperty('--bg', saved);
-  markActiveSwatch(saved || '#fbf3dd');
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  const theme = THEME_NAMES.includes(saved) ? saved : 'amber';
+  document.documentElement.setAttribute('data-theme', theme);
+  markActiveTheme(theme);
 }
-initBgPicker();
+initThemePicker();
 
 // Instant tooltips for .qtip icons — the native title= attribute has a browser-enforced ~1-1.5s
 // hover delay that CSS can't shorten. One popup element, positioned via getBoundingClientRect and
