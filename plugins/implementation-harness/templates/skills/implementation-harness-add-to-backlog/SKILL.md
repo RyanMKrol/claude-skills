@@ -23,7 +23,7 @@ but are never silently altered during an append.)
 ## 1. Pre-flight
 
 - Require the harness: `tracking/TASKS.json`, `.harness/docs/HARNESS.md`, and `.harness/scripts/loop.sh` must exist in the
-  project. If any is missing, stop and point the user at `/implementation-harness-create` first.
+  project. If any is missing, stop and point the user at `implementation-harness:implementation-harness-create` first.
   (Either loop variant — worktree or in-place — installs as `.harness/scripts/loop.sh` and keeps
   `tracking/TASKS.json` at the same fixed path, so this skill is identical for both.)
 - Require `jq` (the loop and this skill use it). If absent, tell the user to `brew install jq`.

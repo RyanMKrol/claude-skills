@@ -9,7 +9,7 @@ loop's design is in `docs/HARNESS.md` + `docs/designs/`.)
 
 **This is the #1 way to wreck the harness's upgradeability — treat an in-place edit as a red flag.** The
 plugin owns almost everything under `.harness/`: `scripts/*` (including `loop.sh`), `.harness/CLAUDE.md`
-(this file), `README.md`, and everything under `docs/`. `/implementation-harness-upgrade` keeps these
+(this file), `README.md`, and everything under `docs/`. `implementation-harness:implementation-harness-upgrade` keeps these
 **byte-identical to the plugin** and refreshes them in place. The moment you hand-edit one of them, that file
 stops matching the reference, and **every future upgrade of it degrades into slow, error-prone manual
 reconciliation** — the exact "forked install that can never cleanly upgrade" trap the `custom/` overlay
@@ -30,8 +30,8 @@ realistically want to customize has a supported `custom/` home the upgrade **nev
 | label the dashboard so it's distinguishable from other projects' | `custom/dashboard-title.txt` |
 | add project notes to a shipped doc | the matching `custom/docs/…` overlay |
 
-Not sure which, or want a guided setup? Run **`/implementation-harness-customize`** — it walks these one at a
-time and drafts them with you. Full mechanics: `docs/HARNESS.md` §8.3.
+Not sure which, or want a guided setup? Run **`implementation-harness:implementation-harness-customize`** —
+it walks these one at a time and drafts them with you. Full mechanics: `docs/HARNESS.md` §8.3.
 
 **The only genuine exception** is deeper `loop.sh`/script *logic* that no hook or `custom/` file can express
 (and `harness.env` scalar knobs, which are meant to be edited). Even then, don't hand-edit the script in

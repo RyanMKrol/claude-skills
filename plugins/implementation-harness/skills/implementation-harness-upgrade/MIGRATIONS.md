@@ -13,6 +13,9 @@ apply config changes additively. **Newest entry first.**
 - **Mechanism files** (all `scripts/*`, `dashboard/*.js`, `docs/**`, `harness-CLAUDE.md`→`.harness/CLAUDE.md`,
   `README.md`→`.harness/README.md`) — the skill content-diffs these against the reference regardless of the
   ledger; the notes here just explain *what* the diff is so the user can tell a shipped change from a local edit.
+- **Project-local operational skills** (as of 1.32.0: `templates/skills/implementation-harness-*/SKILL.md` →
+  `$T/.claude/skills/implementation-harness-*/SKILL.md`, at the project ROOT, not under `.harness/`) — same
+  content-diff treatment as mechanism files, kept as a separate table since the target path differs.
 - **Config/schema files** (`config/harness.env`, `config/facets.json`) — the `ACTION:` lines are load-bearing:
   they tell the skill exactly which knobs to add (with defaults) while preserving the user's values.
 - **User-data files** (`tracking/*`, `tasks/*`, `worklog/*`, `ledgers/*`, root `CLAUDE.md`/`.gitignore`/`ci.yml`)
@@ -31,6 +34,51 @@ Entry format:
 ```
 
 ---
+
+## 1.31.0 → 1.32.0 — six operational skills become project-local (fix global/version-skew + namespacing)
+Six skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `loop-recover`, `pre-loop-checkin`,
+`review-failed`) read/write a SPECIFIC project's versioned `.harness/` mechanism files, but were
+registered globally (plugin-scoped) — so a global plugin update could silently outrun a project's
+still-un-upgraded `.harness/` (e.g. `convert-ideas`' pending-tasks schema vs `consolidate-ideas.mjs`,
+the exact `ideaBullets`→`ideaIds` drift from 1.31.0). Moves them to project-local skills, scaffolded
+by `create` into `.claude/skills/implementation-harness-<name>/SKILL.md` at the repo root and kept in
+sync by `upgrade`'s existing mechanism-file reconciliation, so they can never drift ahead of the
+project's own `.harness/`. `create`/`customize`/`upgrade` stay global (they're what you run to FIX a
+version mismatch, so global is correct for them).
+
+Also fixes a confirmed, pre-existing doc bug: every doc taught a bare `/implementation-harness-<name>`
+invocation for ALL nine skills, but plugin-registered skills always need the `implementation-harness:`
+colon prefix — this never worked for create/customize/upgrade. Docs now correctly show the colon form
+for those three; the six operational skills' existing bare-form docs were already correct (Claude Code
+project-local skills invoke bare) and are unchanged.
+
+- mechanism: `skills/implementation-harness-{add-to-backlog,capture-idea,convert-ideas,loop-recover,
+  pre-loop-checkin,review-failed}/` moved to `templates/skills/implementation-harness-<name>/SKILL.md`
+  (no longer plugin-registered — Claude Code stops discovering them globally). `convert-ideas/SKILL.md`
+  §0 also drops its dead "harness up to date?" plugin-version nudge (relied on `CLAUDE_PLUGIN_ROOT`,
+  which isn't set for a project-local skill; the drift it guarded against is now structurally prevented
+  by this same change).
+- mechanism: `skills/implementation-harness-create/SKILL.md` — new §4b scaffolds the six as
+  `.claude/skills/implementation-harness-<name>/SKILL.md` at the target repo root; new validation-gate
+  checks (frontmatter `name:` + existence for the six; regression guard that create/customize/upgrade are
+  NOT scaffolded project-locally; warns if the target's own `.gitignore` blanket-ignores `.claude/`).
+- mechanism: `skills/implementation-harness-upgrade/SKILL.md` — new stage-3 mechanism-file table for the
+  six `.claude/skills/implementation-harness-<name>/SKILL.md` files (target at `$T/.claude/skills/`, NOT
+  under `$H`); an install missing all six is always a straightforward add-candidate, never a "deliberate
+  removal" question (even in §1a adoption mode) — it's a wholesale new category, not an ambiguous removal.
+- new files: for any install upgrading from before this version, all six
+  `.claude/skills/implementation-harness-<name>/SKILL.md` files (offered as add-candidates per above).
+- renamed/removed: `skills/implementation-harness-{add-to-backlog,capture-idea,convert-ideas,
+  loop-recover,pre-loop-checkin,review-failed}/SKILL.md` (plugin-registered) → `.claude/skills/
+  implementation-harness-<name>/SKILL.md` (project-local, scaffolded/synced copy). The plugin-registered
+  copies are gone; only `create`, `customize`, `upgrade` remain plugin-registered.
+- manual attention: doc fixes for the colon-form invocation of create/customize/upgrade across
+  `README.md`, `templates/harness-CLAUDE.md`, `templates/custom/CLAUDE.md`, and cross-references inside
+  the skill files themselves — informational, not auto-appliable by the upgrade skill.
+- breaking: **yes** — until an existing install runs this upgrade, its `.claude/skills/` directory does
+  not exist, so the six operational skills are NOT invocable in that project at all (they were previously
+  reachable globally via the plugin; that global registration is now gone). Running
+  `implementation-harness:implementation-harness-upgrade` once restores them as project-local skills.
 
 ## 1.30.0 → 1.31.0 — ideas inbox: Markdown → JSONL (title/description fields, dashboard cards)
 The ideas inbox was a hand-edited markdown numbered-bullet list, matched by ~60 lines of fuzzy

@@ -58,7 +58,7 @@ Glob the target for: `.harness/scripts/loop.sh`, `.harness/docs/HARNESS.md`, `CL
 - **Harness already present** (`.harness/scripts/loop.sh` or `.harness/docs/HARNESS.md` exists) →
   this is **not** a fresh scaffold. For a version-aware upgrade — reconcile the installed harness
   against the bundled reference, refreshing plugin-owned files and adding new `harness.env` knobs while
-  preserving the user's data and edits — **recommend the `implementation-harness-upgrade` skill**
+  preserving the user's data and edits — **recommend the `implementation-harness:implementation-harness-upgrade` skill**
   instead (it reports first and asks before every change). Only if the user explicitly wants a one-off
   re-scaffold of specific files here, offer (a) refresh the verbatim files from templates, (b)
   re-personalize specific files, (c) abort — doing only what's chosen, never blasting over personalized
@@ -196,6 +196,30 @@ jq -r .version "$TPL/../.claude-plugin/plugin.json" > "$H/.harness-version"   # 
   a one-time fit at setup. Keep it small (≈4–8 values). The harness self-evolves the layers over time
   via the poor-fit gate, so don't over-think it — just make it roughly match the repo today.
 
+## 4b. Scaffold the project-local operational skills
+
+Six of the harness's skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `loop-recover`,
+`pre-loop-checkin`, `review-failed`) read/write THIS project's versioned `.harness/` mechanism files
+(e.g. `scripts/consolidate-ideas.mjs`, `config/facets.json`'s schema), so they are shipped as
+**project-local** skills — scaffolded here, at the repo root (`$T`, NOT under `$H`), and kept in sync
+later by `implementation-harness-upgrade`'s mechanism-file reconciliation. This is deliberate: it
+means their logic can never drift ahead of what THIS project's `.harness/` actually understands, the
+way a globally-installed skill could if the plugin updated on the user's machine but this project
+hadn't run `implementation-harness:implementation-harness-upgrade` yet. `create`/`customize`/`upgrade` themselves stay
+global/plugin-registered (they're the tools you run to fix a version mismatch, not tools that assume
+one) — do **not** copy them here.
+
+Project-local skills under `.claude/skills/<name>/SKILL.md` invoke with a **bare** `/<name>` (no
+plugin-name colon prefix) — a distinct Claude Code mechanism from plugin-registered skills.
+
+```bash
+mkdir -p "$T/.claude/skills"
+for s in add-to-backlog capture-idea convert-ideas loop-recover pre-loop-checkin review-failed; do
+  mkdir -p "$T/.claude/skills/implementation-harness-$s"
+  cp -p "$TPL/skills/implementation-harness-$s/SKILL.md" "$T/.claude/skills/implementation-harness-$s/SKILL.md"
+done
+```
+
 ## 5. Write the personalized files
 
 Build each from the corresponding template, substituting the interview answers. Prefer targeted
@@ -277,6 +301,15 @@ grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
 for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done
+for s in add-to-backlog capture-idea convert-ideas loop-recover pre-loop-checkin review-failed; do
+  f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
+  test -f "$f" || echo "FAIL: project-local skill implementation-harness-$s missing at .claude/skills/"
+  grep -q "^name: implementation-harness-$s\$" "$f" || echo "FAIL: $f frontmatter name mismatch or missing"
+done
+for s in create customize upgrade; do
+  [ -e "$T/.claude/skills/implementation-harness-$s" ] && echo "FAIL: implementation-harness-$s must stay global-only, not scaffolded to .claude/skills/"
+done
+grep -qE '^\.claude/?$|^\.claude/\*\*?$' "$T/.gitignore" 2>/dev/null && echo "WARN: target .gitignore blanket-ignores .claude/ — the scaffolded .claude/skills/implementation-harness-* files won't be committed; add a negation (e.g. '!.claude/skills/')"
 grep -q '.harness/worklog/.result' "$T/.gitignore" && grep -q '.harness/worklog/STATUS.md' "$T/.gitignore" && grep -q '.harness/worklog/.failures.buf' "$T/.gitignore" || echo "WARN: loop scratch not git-ignored"
 jq empty "$T/.harness/tracking/TASKS.json" || echo "FAIL: TASKS.json is not valid JSON"
 for sp in $(jq -r '.tasks[].spec // empty' "$T/.harness/tracking/TASKS.json"); do test -f "$T/$sp" || echo "FAIL: spec file $sp (referenced by a task) is missing"; done
@@ -307,12 +340,20 @@ DRY_RUN=1 .harness/scripts/loop.sh         # preview the next task the loop woul
 .harness/scripts/supervise.sh              # leave running; re-runs the loop on a cadence
 ```
 
+Also tell the user: six skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `loop-recover`,
+`pre-loop-checkin`, `review-failed`) were just scaffolded as **project-local** skills under
+`.claude/skills/` — invoke them bare, e.g. `/implementation-harness-convert-ideas` (no plugin-name
+prefix). Commit `.claude/skills/` along with the rest of the harness — it travels with the repo and
+is kept in sync by `implementation-harness:implementation-harness-upgrade`. If this session doesn't
+recognize them yet, a fresh Claude Code session in this project will pick them up.
+
 **Then walk the customization features.** The harness ships several opt-in customization features — all in
 `.harness/custom/`, all upgrade-safe: project conventions, lifecycle hooks (deploy-on-drain, notify-on-block,
 …), a secret-guard denylist, visual-verification snippets, and build/audit prompt preambles. **Invoke
-`/implementation-harness-customize`** now (no argument = walk them all) to surface each feature one at a time
-and set up the ones the user wants — it activates each opt-in file and helps draft its content. If they'd
-rather not now, tell them they can run `/implementation-harness-customize` anytime.
+`implementation-harness:implementation-harness-customize`** now (no argument = walk them all) to surface
+each feature one at a time and set up the ones the user wants — it activates each opt-in file and helps
+draft its content. If they'd rather not now, tell them they can run
+`implementation-harness:implementation-harness-customize` anytime.
 
 Remind the user:
 - CI now runs their real DoD commands (the placeholder that fails on purpose has been replaced).
@@ -324,5 +365,5 @@ Remind the user:
   by upgrades). Editing a pristine file directly forfeits clean upgrades.
 - To grow the backlog later, run `/implementation-harness-add-to-backlog`.
 - `.harness/.harness-version` records the plugin version that produced this harness (commit it). When
-  the plugin gains new features later, run `/implementation-harness-upgrade` to pull them into this
+  the plugin gains new features later, run `implementation-harness:implementation-harness-upgrade` to pull them into this
   install without losing your customizations.

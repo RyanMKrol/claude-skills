@@ -46,7 +46,7 @@ interrupted. `mkdir -p .harness/.pending-tasks .harness/.pending-questions`, the
 - Both empty → proceed.
 
 Also require the harness (`.harness/docs/HARNESS.md`, `scripts/loop.sh`, `tracking/TASKS.json`) and
-`jq` + `node` on PATH; if anything is missing, point the user at `/implementation-harness-create`.
+`jq` + `node` on PATH; if anything is missing, point the user at `implementation-harness:implementation-harness-create`.
 
 ## Stage 1 — build the worklist
 

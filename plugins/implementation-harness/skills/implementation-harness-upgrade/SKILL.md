@@ -9,7 +9,7 @@ description: >-
   worklog, ledgers, or the user's config values. Also ADOPTS legacy or hand-forked installs (no version
   marker, hand-maintained since install, or a pre-plugin hand-ported harness) — classifying each
   difference as plugin-newer vs local-bespoke vs conflict before anything is overwritten. Requires a
-  harness already scaffolded (use implementation-harness-create for a fresh install).
+  harness already scaffolded (use implementation-harness:implementation-harness-create for a fresh install).
 argument-hint: "[optional: path to the project or its .harness — defaults to cwd]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -47,9 +47,11 @@ change safely* (especially the additive `harness.env` instructions and any file 
 
 ## 1. Locate + validate the target; detect variant and installed version
 
-- **Target** = the skill argument if given, else the current working directory. Let `H="<target>/.harness"`.
+- **Target** = the skill argument if given, else the current working directory. Let `T="<target>"`
+  (the repo root — mirrors `create`'s `$T`, needed since the six project-local skills in §3 live at
+  `$T/.claude/skills/`, not under `$H`) and `H="$T/.harness"`.
 - Require `H/scripts/loop.sh` to exist. If not, this project has no harness — tell the user to run
-  `implementation-harness-create` instead, and stop.
+  `implementation-harness:implementation-harness-create` instead, and stop.
 - **Detect the loop variant** the target installed (both variants install as `H/scripts/loop.sh`, so you
   must know which reference to diff against):
 
@@ -106,7 +108,8 @@ that's usually a better fix than reconciling the same inline edits on every futu
 - **A missing mechanism file may be a deliberate removal, not a gap.** (Real example: an install that
   drives all owner actions through its dashboard removed the `mark-*.sh` CLIs on purpose.) In adoption
   mode, present missing files as a question — "the reference ships X; your install doesn't have it —
-  add it, or was it removed deliberately?" — never as an automatic "new files to add".
+  add it, or was it removed deliberately?" — never as an automatic "new files to add". (Exception: the
+  six `.claude/skills/implementation-harness-*` files — see §3, always a straightforward add-candidate.)
 - **Facet vocabularies belong to the project.** `facets.json`'s `layer`/`workType`/`risk` word lists are
   user config, tailored and self-evolving per project (one real install uses `api / dashboard-logic / db /
   job / service / ui`, not the template's generic set). NEVER "correct" vocabulary toward the template.
@@ -226,6 +229,18 @@ its template source and compare bytes (`cmp -s A B` → identical):
 | `CLAUDE.md` | `harness-CLAUDE.md` |
 | `README.md` | `README.md` |
 
+**Project-local operational skills (plugin-owned; live at `$T/.claude/skills/`, NOT under `$H` — six
+skills delisted from the global plugin as of 1.32.0; kept in sync here instead):**
+
+| Target (under `$T/.claude/skills/`) | Reference (under `$TPL/skills/`) |
+|---|---|
+| `implementation-harness-add-to-backlog/SKILL.md` | `implementation-harness-add-to-backlog/SKILL.md` |
+| `implementation-harness-capture-idea/SKILL.md` | `implementation-harness-capture-idea/SKILL.md` |
+| `implementation-harness-convert-ideas/SKILL.md` | `implementation-harness-convert-ideas/SKILL.md` |
+| `implementation-harness-loop-recover/SKILL.md` | `implementation-harness-loop-recover/SKILL.md` |
+| `implementation-harness-pre-loop-checkin/SKILL.md` | `implementation-harness-pre-loop-checkin/SKILL.md` |
+| `implementation-harness-review-failed/SKILL.md` | `implementation-harness-review-failed/SKILL.md` |
+
 **Config/schema files (reconcile *additively* only — never overwrite the user's values):**
 `config/harness.env` (new knobs), `config/facets.json` (schema/vocabulary changes the ledger calls out).
 
@@ -241,6 +256,13 @@ For each file, classify:
   `custom/sensitive-paths.txt` (that's their content).
 - **differs** → capture the unified diff (`diff -u "$target" "$ref"`) **and** the matching ledger note(s).
   Do NOT decide anything yet — this goes in the report for the user to adjudicate.
+- **Exception — the six project-local operational skill files above are never a "deliberate removal"
+  question, even in adoption mode (§1a).** An install with no `.claude/skills/implementation-harness-*`
+  at all predates 1.32.0 wholesale (before that version they were global and the project never needed
+  local copies) — this is a new category being introduced, not an ambiguous per-file removal the owner
+  might have made on purpose. Always present all six as **straightforward add-candidates**, proactively
+  closing the gap where an old install otherwise loses access to these six now-delisted global skills
+  until it upgrades.
 
 Also from the ledger: list any **renames/removals** (e.g. a doc renamed — the old path present in the
 target should be removed and the new one added) and any **breaking / MAJOR** items needing manual steps.
@@ -299,6 +321,10 @@ user must always be able to see what diverged before approving.
   for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
   node "$H/dashboard/lib.test.js"                 # the dashboard bucket tests
   for j in "$H"/config/facets.json "$H"/tracking/*.json; do jq empty "$j" || echo "BAD JSON: $j"; done
+  for s in add-to-backlog capture-idea convert-ideas loop-recover pre-loop-checkin review-failed; do
+    f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
+    [ -f "$f" ] && grep -q "^name: implementation-harness-$s\$" "$f" || echo "WARN: project-local skill $s missing or malformed after upgrade"
+  done
   ```
   If anything fails, report it prominently — the upgrade left the harness in a broken state and the user
   should revert (all changes are uncommitted).
@@ -307,7 +333,7 @@ user must always be able to see what diverged before approving.
 - **Do NOT commit.** Leave every change uncommitted so the user can review the diff and commit themselves
   (all changes are git-revertible). Remind them to `git add -A && git commit` (and push) when satisfied.
 - **Surface new customization features.** New plugin versions often add opt-in `custom/` extension points
-  the user has never seen. After re-stamping, **invoke `/implementation-harness-customize --since <CUR_VERSION>`**
+  the user has never seen. After re-stamping, **invoke `implementation-harness:implementation-harness-customize --since <CUR_VERSION>`**
   (the version they upgraded FROM) to walk them through **just the features new since their install**,
   one at a time, and set up the ones they want. (No new features since `CUR_VERSION` → it says so and exits.)
   Skip this only if the user declines.
@@ -326,7 +352,7 @@ user must always be able to see what diverged before approving.
 ## What this is NOT
 
 - Not a fresh install — if there's no `.harness/scripts/loop.sh`, send the user to
-  `implementation-harness-create`.
+  `implementation-harness:implementation-harness-create`.
 - Not a re-personalization — it does not re-run the setup interview or rewrite the user's DoD commands,
   model tiers, or facet layers. It carries plugin changes forward and preserves personalization.
 - Not a backlog tool — it never touches tasks, worklog, ledgers, or reviews.

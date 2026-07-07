@@ -37,7 +37,7 @@ Each line is one JSON object:
 ## Steps
 
 1. **Require the harness.** `.harness/docs/HARNESS.md` must exist. If missing, stop and tell the
-   user to run `/implementation-harness-create` first.
+   user to run `implementation-harness:implementation-harness-create` first.
 2. **Ensure the inbox exists.** If `.harness/tracking/IDEAS.jsonl` doesn't exist yet, create it empty
    (JSONL has no header/comment convention — just start appending lines). This file is committed (it
    travels with the repo), so a converted idea's row is removed by
