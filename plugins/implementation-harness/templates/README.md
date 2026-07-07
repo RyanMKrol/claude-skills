@@ -142,8 +142,11 @@ including a ⚠ stale-lock warning after an interrupt), the current task/phase/r
 *genuinely* live output (the loop invokes `claude` with `--output-format stream-json`, so each updates
 incrementally as it's generated rather than dumping everything at once when the process exits — build
 and audit are separate files precisely so the audit starting doesn't blank out the builder's still-fresh
-output, and vice versa; a `▶ running <Tool>…` pill shows whichever phase is currently active when a tool
-call is in flight with no response text after it yet), and a freshness badge
+output, and vice versa; every tool call gets an inline `▶ <Tool>` marker in order, so a long silent
+stretch of reading/running things with no narration in between reads as an actual sequence of tool
+calls rather than looking like the panel started mid-conversation; a `▶ running <Tool>…` pill shows
+whichever phase is currently active when a tool call is in flight with no response text after it
+yet), and a freshness badge
 ("origin seen Xm ago" / "local ≠ origin") — the dashboard renders LOCAL files, so this surfaces when
 nothing has fetched recently. Set `HARNESS_DASHBOARD_FETCH_SECONDS` (harness.env) to have the dashboard
 `git fetch` on an interval itself (fetch-only; it never touches the working tree). The ⚙ next to the

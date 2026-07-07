@@ -35,6 +35,24 @@ Entry format:
 
 ---
 
+## 1.35.1 → 1.35.2 — dashboard: inline ▶ <Tool> markers in live output
+Reported: the live-output panel for a real, currently-running task appeared to "start mid-conversation"
+— the visible text opened with "Now the render section..." with no earlier narration in sight. Confirmed
+against the real transcript: not a truncation bug — the raw stream genuinely went through 600+ lines of
+pure thinking + tool_use with ZERO narration text before the first "text" content block, and since
+thinking/tool_use content was otherwise invisible in the reconstruction, a long silent stretch of real
+work looked identical to a gap at the start.
+- mechanism: `dashboard/lib.js` — `liveOutputFromJsonl()` now inserts an inline `▶ <ToolName>` marker
+  line, in order, for every tool call (not just tracking the single currently-running one for the
+  `▶ running <Tool>…` pill, which is unchanged). A silent stretch now reads as an actual sequence of
+  tool calls instead of a gap. `dashboard/lib.test.js` covers a long silent-stretch fixture; two
+  existing tests that included a tool call mid-narration had their expected text updated to include
+  the new marker (intentional behavior change, not a regression).
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none (the live-output text now contains extra marker lines it didn't before — cosmetic
+  only, nothing parses this text downstream).
+
 ## 1.35.0 → 1.35.1 — dashboard: "implemented manually" pill for done tasks with no ledger row
 Reported: not every done task showed the 1.34.2 model pill. Root cause confirmed: a task marked done
 via the human-done overlay (`isTerminalDone()`'s second path — a needs-human gate, or any task an
