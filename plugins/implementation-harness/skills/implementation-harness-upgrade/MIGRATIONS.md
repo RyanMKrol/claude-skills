@@ -35,6 +35,32 @@ Entry format:
 
 ---
 
+## 1.34.3 → 1.35.0 — separate build vs audit live output (was: audit silently wiped the build's)
+`run_claude()` was one shared function used for BOTH the builder and auditor invocations, always
+writing to the same fixed filename. Since `tee` truncates that file the instant a new invocation
+starts, the very first byte of the auditor's output wiped out the builder's still-fresh output before
+a human had a chance to read it — reported after noticing the live-output panel appeared to "reset"
+whenever the audit phase began.
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — `run_claude()` gains a 4th required
+  argument, `<phase: build|audit>`, and writes to `.claude-out.<phase>.jsonl` / `.claude-out.<phase>`
+  instead of the old fixed `.claude-out.jsonl` / `.claude-out`. Both call sites (build loop, audit
+  loop) now pass their phase explicitly; the `rl_reset_wait`/`rl_banner` calls in both retry-wait
+  loops, and the audit's `cp … $id.audit.md` copy, were updated to the matching phase-specific path —
+  logic unchanged, only the path each already used.
+- mechanism: `dashboard/server.js` — `claudeOutTail()` (renamed internally to `claudeOutTailFor(phase)`
+  + a thin `claudeOutTail()` wrapper calling it for both) now returns `{build, audit}` instead of a
+  single result; `GET /api/activity` exposes `build`/`audit` instead of `logTail`/`toolNow`. The "Now"
+  strip renders two independent collapsible panels ("live output — build" / "live output — audit"),
+  each with its own persisted open/closed state; the `▶ running <Tool>…` pill follows whichever phase
+  the heartbeat says is currently active.
+- config: none.
+- new files: `worklog/.claude-out.{build,audit}[.jsonl]` are created by the loop at runtime (not
+  shipped) — `templates/gitignore`'s `.claude-out` entry widened to a glob (`.claude-out*`) covering
+  every phase variant instead of the two old exact names.
+- manual attention: none.
+- breaking: none (an un-upgraded install simply has no `.claude-out.{build,audit}` files yet, so both
+  panels degrade to showing nothing until the loop is upgraded and runs at least once).
+
 ## 1.34.2 → 1.34.3 — dashboard: line breaks between narration rounds in live output
 Reported (and confirmed against a real, live transcript): the live-output tail read as one unbroken
 wall of text — e.g. "I'll start by reading the files.Now let me make the fix.Now let's run the

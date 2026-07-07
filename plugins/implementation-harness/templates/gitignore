@@ -1,7 +1,6 @@
 # Transient loop scratch (last-iteration verdict) + the generated status board.
 .harness/worklog/.result
-.harness/worklog/.claude-out
-.harness/worklog/.claude-out.jsonl
+.harness/worklog/.claude-out*   # per-phase live-output files: .claude-out.{build,audit}[.jsonl]
 .harness/worklog/.failures.buf
 .harness/worklog/.current.json
 .harness/worklog/STATUS.md

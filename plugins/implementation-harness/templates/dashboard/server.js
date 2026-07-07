@@ -300,18 +300,18 @@ function lockState() {
   return { held: true, pid, alive };
 }
 
-// claudeOutTail() — the builder/auditor's live output, reconstructed from whichever worklog was
-// touched most recently (the worktree variant writes inside the loop worktree,
+// claudeOutTailFor(phase) — the builder's or auditor's live output, reconstructed from whichever
+// worklog was touched most recently (the worktree variant writes inside the loop worktree,
 // ../<name>-loop/.harness/worklog/; the in-place variant writes in the primary checkout). Since
 // loop.sh/loop.in-place.sh invoke claude with --output-format stream-json, the raw transcript lives
-// in `.claude-out.jsonl` (streamed incrementally — see run_claude()); `.claude-out` is that same
-// invocation's plain-text reconstruction, kept for installs that haven't upgraded loop.sh yet (an old
-// loop.sh only ever writes `.claude-out`, so this falls back to it automatically — no `.jsonl` sibling
-// ever gets created for such an install, so it's simply never a candidate).
-function claudeOutTail() {
+// in `.claude-out.<phase>.jsonl` (streamed incrementally — see run_claude()); `.claude-out.<phase>`
+// is that same invocation's plain-text reconstruction. Build and audit are SEPARATE files precisely
+// so one doesn't truncate the other — before this, both phases shared one filename, so the moment
+// the audit started, its first byte wiped out the builder's still-fresh output via `tee`.
+function claudeOutTailFor(phase) {
   const dirs = [WORKLOG_DIR, path.join(path.dirname(ROOT), `${NAME}-loop`, '.harness', 'worklog')];
   const candidates = [];
-  for (const d of dirs) { candidates.push(path.join(d, '.claude-out.jsonl'), path.join(d, '.claude-out')); }
+  for (const d of dirs) { candidates.push(path.join(d, `.claude-out.${phase}.jsonl`), path.join(d, `.claude-out.${phase}`)); }
   let best = null, bestM = 0;
   for (const p of candidates) {
     try { const m = fs.statSync(p).mtimeMs; if (m > bestM) { bestM = m; best = p; } } catch (_err) { /* absent */ }
@@ -325,6 +325,11 @@ function claudeOutTail() {
   }
   const lines = text.split('\n');
   return { text: lines.slice(-40).join('\n').slice(-8000), tool: null };
+}
+
+// claudeOutTail() — both phases' live output, each independent (see claudeOutTailFor above).
+function claudeOutTail() {
+  return { build: claudeOutTailFor('build'), audit: claudeOutTailFor('audit') };
 }
 
 // freshness() — how stale is what this dashboard renders? Age of the last `git fetch` (FETCH_HEAD
@@ -355,8 +360,8 @@ function activityState() {
   return {
     lock: lockState(),
     current: readJson(HEARTBEAT_PATH, null),
-    logTail: live.text,
-    toolNow: live.tool,
+    build: live.build,
+    audit: live.audit,
     freshness: freshness(),
     fetchEverySec: parseInt(envKnob('HARNESS_DASHBOARD_FETCH_SECONDS', '0'), 10) || 0,
   };
@@ -634,7 +639,7 @@ function renderPage() {
 </div>
 <script>
 const HARNESS_PROJECT_KEY = ${JSON.stringify(NAME)};
-const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, openIdeas: new Set(), lastIdeasData: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: false };
+const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, openIdeas: new Set(), lastIdeasData: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: { build: false, audit: false } };
 
 function switchView(name) {
   state.activeView = name;
@@ -673,6 +678,24 @@ function ago(sec) {
 // renderNow(data) — the live status strip: what the loop is doing RIGHT NOW (from its lock +
 // worklog/.current.json heartbeat), how fresh the rendered data is vs origin, and a collapsible
 // tail of the builder's live output.
+// nowLogDetails(phase, info, cur) — one collapsible live-output panel for a single phase (build or
+// audit). Build and audit are rendered as two INDEPENDENT panels (not one shared one) because they
+// now come from two independent files — see claudeOutTailFor() — so the audit starting no longer
+// blanks out the builder's still-fresh output, and vice versa.
+function nowLogDetails(phase, info, cur) {
+  if (!info || !info.text) return '';
+  const id = 'now-log-' + phase;
+  const open = state.nowLogOpen[phase];
+  const activeTask = cur && cur.task && (cur.phase || '').toLowerCase().indexOf(phase === 'audit' ? 'audit' : 'build') !== -1;
+  const label = 'live output — ' + phase + (activeTask ? ' (' + esc(cur.task) + ')' : '');
+  return \`<details id="\${id}" ontoggle="onNowLogToggle('\${phase}', this)"\${open ? ' open' : ''}>
+    <summary>\${label}</summary>
+    <pre id="\${id}-pre">\${esc(info.text)}</pre>
+  </details>\`;
+}
+
+function onNowLogToggle(phase, el) { state.nowLogOpen[phase] = el.open; }
+
 function renderNow(data) {
   const el = document.getElementById('nowbar');
   const lock = data.lock || {}, cur = data.current, fr = data.freshness || {};
@@ -692,8 +715,12 @@ function renderNow(data) {
   } else {
     h += '<span class="nowpill idle">◼ loop idle</span>';
   }
-  if (lock.held && lock.alive && data.toolNow) {
-    h += '<span class="nowpill run" title="From the live output stream — the tool call most recently started, with no response text after it yet">▶ running ' + esc(data.toolNow) + '…</span>';
+  // Which phase is CURRENTLY active drives the tool pill — the heartbeat's own phase (e.g.
+  // "auditing") decides between the build and audit live-output streams' tool field.
+  const activePhase = (cur && /audit/i.test(cur.phase || '')) ? 'audit' : 'build';
+  const activeTool = data[activePhase] && data[activePhase].tool;
+  if (lock.held && lock.alive && activeTool) {
+    h += '<span class="nowpill run" title="From the live output stream — the tool call most recently started, with no response text after it yet">▶ running ' + esc(activeTool) + '…</span>';
   }
   if (fr.known && !fr.inSync) {
     h += '<span class="nowpill bad" title="The local checkout this dashboard reads is not on the same commit as origin/' + esc(fr.mainBranch || 'main') + ' — what you see may be stale or ahead.">local ≠ origin/' + esc(fr.mainBranch || 'main') + '</span>';
@@ -701,14 +728,13 @@ function renderNow(data) {
   const fetchCls = (fr.lastFetchSec == null || fr.lastFetchSec > 900) ? 'nowpill warn' : 'nowpill idle';
   const fetchNote = data.fetchEverySec > 0 ? ' (auto-fetch ' + data.fetchEverySec + 's)' : '';
   h += '<span class="' + fetchCls + '" title="Age of the last git fetch — the dashboard renders LOCAL files, so origin changes are invisible until something fetches. Set HARNESS_DASHBOARD_FETCH_SECONDS to have the dashboard fetch itself.">origin seen: ' + ago(fr.lastFetchSec) + fetchNote + '</span>';
-  if (data.logTail) {
-    h += '<details id="now-log" ontoggle="state.nowLogOpen=this.open"' + (state.nowLogOpen ? ' open' : '') + '>'
-       + '<summary>live output (' + (cur && cur.task ? esc(cur.task) : 'last run') + ')</summary>'
-       + '<pre id="now-log-pre">' + esc(data.logTail) + '</pre></details>';
-  }
+  h += nowLogDetails('build', data.build, cur);
+  h += nowLogDetails('audit', data.audit, cur);
   el.innerHTML = h;
-  const pre = document.getElementById('now-log-pre');
-  if (pre && state.nowLogOpen) pre.scrollTop = pre.scrollHeight;
+  ['build', 'audit'].forEach(function (phase) {
+    const pre = document.getElementById('now-log-' + phase + '-pre');
+    if (pre && state.nowLogOpen[phase]) pre.scrollTop = pre.scrollHeight;
+  });
 }
 
 async function refreshBacklog() {

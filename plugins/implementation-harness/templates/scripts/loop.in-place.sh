@@ -649,16 +649,21 @@ rl_reset_wait() {
   fi
 }
 
-# run_claude <model> <effort> <prompt> → 0 ok | 10 rate-limited | other = failure
+# run_claude <model> <effort> <prompt> <phase: build|audit> → 0 ok | 10 rate-limited | other = failure
 #
 # Invokes claude in --output-format stream-json mode (--verbose is MANDATORY for stream-json in
 # --print mode — the CLI refuses to start without it) so output arrives incrementally instead of one
 # buffered dump at process exit (plain -p mode never streams to a pipe — confirmed empirically: a
 # 500-word response sat at a flat byte count for the entire generation, then landed in a single write
-# right as the process exited). The raw event stream goes to `.claude-out.jsonl` (what the dashboard
-# tails live); `.claude-out` itself is reconstructed via jq into PLAIN TEXT and keeps its EXACT prior
-# meaning — every existing consumer (RL_HARD_RE/RL_RE below, rl_reset_wait's reset-time parsing, the
-# audit's PASS/FAIL grep, the worklog .audit.md copy) reads it unchanged.
+# right as the process exited). The raw event stream goes to `.claude-out.<phase>.jsonl` (what the
+# dashboard tails live, per phase); `.claude-out.<phase>` itself is reconstructed via jq into PLAIN
+# TEXT and keeps its role from before phase-separation — every existing consumer (RL_HARD_RE/RL_RE
+# below, rl_reset_wait's reset-time parsing, the audit's PASS/FAIL grep, the worklog .audit.md copy)
+# just needed its path updated to the phase-specific file, not its logic.
+#
+# `<phase>` is load-bearing, not cosmetic: build and audit used to share ONE fixed filename, so the
+# very first byte of the audit's output truncated (via `tee`) the builder's still-fresh output before
+# a human ever saw it. Per-phase files mean both stay readable independently until their own NEXT run.
 #
 # The jq extraction MUST be `-R … | fromjson? | …`, not the naive `select(...)` on parsed JSON input:
 # `2>&1` means an occasional non-JSON stderr line can land mid-stream, and plain `jq 'select(...)'`
@@ -666,9 +671,9 @@ rl_reset_wait() {
 # of the invocation (confirmed empirically). `-R` (read each line as a raw string) + `fromjson?` (the
 # `?` turns a parse failure into `empty` for just that line) skips a bad line and keeps going.
 run_claude() {
-  local model="$1" effort="$2" pr="$3"
-  local raw="$WORKLOG/.claude-out.jsonl"   # raw stream events — dashboard's live tail
-  local out="$WORKLOG/.claude-out"          # reassembled plain text — unchanged meaning
+  local model="$1" effort="$2" pr="$3" phase="$4"
+  local raw="$WORKLOG/.claude-out.${phase}.jsonl"   # raw stream events — dashboard's live tail
+  local out="$WORKLOG/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
   set +e
   ( cd "$ROOT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" \
@@ -898,15 +903,15 @@ audit_gate() {
     # `return`s, so a bare `; arc=$?` would let a nonzero return KILL loop.sh right here (before arc
     # is ever captured) instead of triggering the auditor rate-limit backoff below. The `||` keeps
     # the call in an AND-OR list, which `set -e` never aborts on.
-    arc=0; set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")" || arc=$?; set -e
+    arc=0; set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")" audit || arc=$?; set -e
     if [ "$arc" = 10 ]; then
-      rlpoll="$(rl_reset_wait "$WORKLOG/.claude-out" || true)"; rlpoll="${rlpoll:-$RL_POLL}"
-      rl_banner "$rlpoll" "$WORKLOG/.claude-out" "(this is the AUDIT step, not the build — NOT an audit fail)"
+      rlpoll="$(rl_reset_wait "$WORKLOG/.claude-out.audit" || true)"; rlpoll="${rlpoll:-$RL_POLL}"
+      rl_banner "$rlpoll" "$WORKLOG/.claude-out.audit" "(this is the AUDIT step, not the build — NOT an audit fail)"
       sleep "$rlpoll"; continue
     fi
     break
   done
-  cp "$WORKLOG/.claude-out" "$out" 2>/dev/null || true
+  cp "$WORKLOG/.claude-out.audit" "$out" 2>/dev/null || true
   verdict="$(grep -oiE '\b(PASS|FAIL)\b' "$out" 2>/dev/null | head -1 | tr '[:lower:]' '[:upper:]')"
   if [ "$verdict" = "PASS" ]; then cur_verification="audited"; log "audit: PASS for $id (reasons → $out)"; return 0; fi
   log "audit: FAIL for $id (verdict='${verdict:-none}', reasons → $out)"; return 1
@@ -1031,18 +1036,18 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     # `return`s, so a bare `; rc=$?` would let a nonzero return KILL loop.sh right here (before rc is
     # ever captured) instead of triggering the reset-aware backoff below. The `||` keeps the call in
     # an AND-OR list, which `set -e` never aborts on.
-    rc=0; set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task")" || rc=$?; set -e
+    rc=0; set +e; run_claude "$tmodel" "$teffort" "$(prompt "$task")" build || rc=$?; set -e
     if [ "$rc" = 10 ]; then
       if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         run_hook exhausted rate-limit; board; exit 5
       fi
-      rlwait="$(rl_reset_wait "$WORKLOG/.claude-out" || true)"
+      rlwait="$(rl_reset_wait "$WORKLOG/.claude-out.build" || true)"
       if [ -n "$rlwait" ]; then
-        rl_banner "$rlwait" "$WORKLOG/.claude-out" "(that's the reported reset + a $(_hms "$RL_BUFFER") cushion; waited $(_hms "$rl_waited") so far)"
+        rl_banner "$rlwait" "$WORKLOG/.claude-out.build" "(that's the reported reset + a $(_hms "$RL_BUFFER") cushion; waited $(_hms "$rl_waited") so far)"
       else
         rlwait="$rl_sleep"
-        rl_banner "$rlwait" "$WORKLOG/.claude-out" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
+        rl_banner "$rlwait" "$WORKLOG/.claude-out.build" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
         rl_sleep=$(( rl_sleep * 2 )); [ "$rl_sleep" -gt "$RL_EXP_MAX" ] && rl_sleep="$RL_EXP_MAX"
       fi
       heartbeat rate-limited
