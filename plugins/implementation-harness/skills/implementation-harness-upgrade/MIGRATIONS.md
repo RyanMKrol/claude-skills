@@ -35,6 +35,28 @@ Entry format:
 
 ---
 
+## 1.32.3 → 1.33.0 — dashboard polish: preset color swatches, expand-all ideas, header tooltips
+Three small UI improvements, all in `dashboard/server.js`, none touching any endpoint or data shape:
+- The background-color picker is now 10 curated light/bright preset swatches (cream, sky blue, mint,
+  lavender, peach, blush pink, aqua, butter yellow, coral, periwinkle) instead of a native
+  open-ended `<input type="color">` — picking a good background from unlimited options was fiddly;
+  a small curated set isn't. Same `localStorage` persistence/namespacing as before.
+- The Ideas tab gained an "Expand all" / "Collapse all" button (flips label based on current state)
+  so unfurling every idea no longer means clicking each caret one at a time.
+- Every column header in the Internals tab's per-facet calibration table now carries a hover
+  tooltip explaining what it means (two columns already had one; the rest — Facet, Start model,
+  Builds, ✓, ✗, ⚠ fails — didn't).
+- mechanism: `dashboard/server.js` — swapped `.bgpicker`'s `<input type="color">` + "Reset" button
+  for 10 `<button class="swatch">` elements (`setBg()`/`markActiveSwatch()` replace
+  `initBgPicker()`'s input-listener + `resetBg()`); `renderIdeas()` gained a bar with a
+  `toggleAllIdeas()` button; the per-facet `<table>`'s `<thead>` gained `title=` attributes on the
+  six previously-untitled `<th>`s.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none (a saved custom hex from the old open-ended picker, if it doesn't match one of the
+  10 presets, still applies visually via the stored `--bg` value — it just won't show any swatch as
+  active until the user picks one of the 10).
+
 ## 1.32.2 → 1.32.3 — dashboard: fix a broken-page bug in the Ideas tab's onclick escaping
 `renderIdea()` (added in 1.31.0's ideas-inbox migration) built its onclick attribute with a
 single-backslash-escaped quote (`'...onclick="toggleIdea(\'' + key + '\')">'`). Since the whole

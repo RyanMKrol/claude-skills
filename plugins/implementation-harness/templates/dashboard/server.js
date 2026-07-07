@@ -508,8 +508,10 @@ function renderPage() {
   .cog.spin{animation:cogspin 2.5s linear infinite}
   @keyframes cogspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion: reduce){.cog.spin{animation:none}}
-  .bgpicker{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--muted)}
-  .bgpicker input[type=color]{width:26px;height:26px;padding:0;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer}
+  .bgpicker{display:flex;align-items:center;gap:5px;margin-left:auto}
+  .swatch{width:20px;height:20px;padding:0;border-radius:50%;border:2px solid var(--border);cursor:pointer;box-shadow:none}
+  .swatch:hover{border-color:var(--muted)}
+  .swatch.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,130,31,.3)}
 
   /* "Now" strip — live loop status + freshness, on every tab */
   .nowbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;font-size:12px}
@@ -572,9 +574,16 @@ function renderPage() {
     <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
   </nav>
   <div class="bgpicker" title="Dashboard background color — saved in this browser only">
-    <label for="bgpicker-input">🎨</label>
-    <input type="color" id="bgpicker-input" aria-label="Dashboard background color">
-    <button type="button" class="barbtn" onclick="resetBg()">Reset</button>
+    <button type="button" class="swatch" data-color="#fbf3dd" style="background:#fbf3dd" title="Cream" onclick="setBg('#fbf3dd')"></button>
+    <button type="button" class="swatch" data-color="#dbeeff" style="background:#dbeeff" title="Sky Blue" onclick="setBg('#dbeeff')"></button>
+    <button type="button" class="swatch" data-color="#dcf6e6" style="background:#dcf6e6" title="Mint" onclick="setBg('#dcf6e6')"></button>
+    <button type="button" class="swatch" data-color="#e8e0ff" style="background:#e8e0ff" title="Lavender" onclick="setBg('#e8e0ff')"></button>
+    <button type="button" class="swatch" data-color="#ffe4cf" style="background:#ffe4cf" title="Peach" onclick="setBg('#ffe4cf')"></button>
+    <button type="button" class="swatch" data-color="#ffe0ec" style="background:#ffe0ec" title="Blush Pink" onclick="setBg('#ffe0ec')"></button>
+    <button type="button" class="swatch" data-color="#d9f7f4" style="background:#d9f7f4" title="Aqua" onclick="setBg('#d9f7f4')"></button>
+    <button type="button" class="swatch" data-color="#fff3b0" style="background:#fff3b0" title="Butter Yellow" onclick="setBg('#fff3b0')"></button>
+    <button type="button" class="swatch" data-color="#ffd9d2" style="background:#ffd9d2" title="Coral" onclick="setBg('#ffd9d2')"></button>
+    <button type="button" class="swatch" data-color="#dde3ff" style="background:#dde3ff" title="Periwinkle" onclick="setBg('#dde3ff')"></button>
   </div>
 </div>
 <div id="nowbar" class="nowbar"></div>
@@ -701,7 +710,20 @@ function renderIdeas(data) {
     el.innerHTML = '<p class="note">No ideas captured yet — add one with <span class="mono">/implementation-harness-capture-idea</span>, then sweep them into tasks with <span class="mono">/implementation-harness-convert-ideas</span>.</p>';
     return;
   }
-  el.innerHTML = '<div class="panel">' + ideas.map(renderIdea).join('') + '</div>';
+  const allOpen = ideas.every(function (i) { return state.openIdeas.has('idea-' + i.id); });
+  const bar = '<div class="bar"><button class="barbtn" onclick="toggleAllIdeas()">' + (allOpen ? 'Collapse all' : 'Expand all') + '</button></div>';
+  el.innerHTML = bar + '<div class="panel">' + ideas.map(renderIdea).join('') + '</div>';
+}
+
+// toggleAllIdeas() — one button to unfurl (or re-collapse) every idea at once, instead of clicking
+// each caret individually. Flips based on whether every idea is CURRENTLY open (so the button always
+// reads as the action it's about to take, not a fixed label).
+function toggleAllIdeas() {
+  const ideas = (state.lastIdeasData && state.lastIdeasData.ideas) || [];
+  const allOpen = ideas.length > 0 && ideas.every(function (i) { return state.openIdeas.has('idea-' + i.id); });
+  if (allOpen) state.openIdeas.clear();
+  else ideas.forEach(function (i) { state.openIdeas.add('idea-' + i.id); });
+  renderIdeas(state.lastIdeasData);
 }
 
 // renderIdea(idea) — one collapsed one-line row (id + title + captured date) by default; expands to
@@ -752,7 +774,16 @@ function renderHarness(data) {
   if (!cells.length) {
     h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
   } else {
-    h += '<table class="ftable"><thead><tr><th>Facet</th><th>Start model</th><th class="num" title="The sampling probability the policy will use for the NEXT build in this cell">Audit (policy)</th><th class="num" title="What actually happened: audited successes / all successes recorded in the ledger">Audited (observed)</th><th class="num">Builds</th><th class="num">✓</th><th class="num">✗</th><th class="num">⚠ fails</th></tr></thead><tbody>';
+    h += '<table class="ftable"><thead><tr>'
+       + '<th title="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">Facet</th>'
+       + '<th title="The model/effort the policy would pick to START a task in this cell right now (it only escalates from here on real failure). \\'cold\\' = no build history yet, using the cold-start prior.">Start model</th>'
+       + '<th class="num" title="The sampling probability the policy will use for the NEXT build in this cell">Audit (policy)</th>'
+       + '<th class="num" title="What actually happened: audited successes / all successes recorded in the ledger">Audited (observed)</th>'
+       + '<th class="num" title="Total tasks in this cell that reached a terminal outcome (success or blocked), per the outcomes ledger.">Builds</th>'
+       + '<th class="num" title="Successful builds in this cell that the owner did NOT overturn.">✓</th>'
+       + '<th class="num" title="Builds the owner overturned as a false success, or that the loop itself gave up on (blocked).">✗</th>'
+       + '<th class="num" title="Failed attempts recorded before a task in this cell eventually succeeded or was blocked — see Failure health below for a kind breakdown.">⚠ fails</th>'
+       + '</tr></thead><tbody>';
     for (const c of cells) {
       const model = c.chosenModel ? esc(c.chosenModel) + ' / ' + esc(c.chosenEffort) : '—';
       const cold = (c.chosenModel && !c.hasHistory) ? '<span class="cold-tag">cold</span>' : '';
@@ -1000,25 +1031,27 @@ async function bulkAction(bucket) {
   if (ok) { state.selected.clear(); refreshActive(); }
 }
 
-// Background color picker — client-only (localStorage, namespaced by project dir name so several
-// projects' dashboards, even on the same port at different times, don't clobber each other's choice).
+// Background color picker — a fixed set of 10 preset swatches (client-only, localStorage,
+// namespaced by project dir name so several projects' dashboards, even on the same port at
+// different times, don't clobber each other's choice). No open-ended color input — picking a good
+// background from unlimited options is fiddly; a small curated set is not.
 const BG_STORAGE_KEY = 'harness-dashboard-bg:' + HARNESS_PROJECT_KEY;
-function initBgPicker() {
-  const input = document.getElementById('bgpicker-input');
-  if (!input) return;
-  const saved = localStorage.getItem(BG_STORAGE_KEY);
-  if (saved) document.documentElement.style.setProperty('--bg', saved);
-  input.value = saved || getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#fbf3dd';
-  input.addEventListener('input', function () {
-    document.documentElement.style.setProperty('--bg', input.value);
-    localStorage.setItem(BG_STORAGE_KEY, input.value);
+function markActiveSwatch(hex) {
+  const want = (hex || '').toLowerCase();
+  document.querySelectorAll('.swatch').forEach(function (b) {
+    b.classList.toggle('active', (b.dataset.color || '').toLowerCase() === want);
   });
 }
-function resetBg() {
-  localStorage.removeItem(BG_STORAGE_KEY);
-  document.documentElement.style.removeProperty('--bg');
-  const input = document.getElementById('bgpicker-input');
-  if (input) input.value = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#fbf3dd';
+function setBg(hex) {
+  document.documentElement.style.setProperty('--bg', hex);
+  localStorage.setItem(BG_STORAGE_KEY, hex);
+  markActiveSwatch(hex);
+}
+function initBgPicker() {
+  if (!document.querySelector('.swatch')) return;
+  const saved = localStorage.getItem(BG_STORAGE_KEY);
+  if (saved) document.documentElement.style.setProperty('--bg', saved);
+  markActiveSwatch(saved || '#fbf3dd');
 }
 initBgPicker();
 
