@@ -121,6 +121,8 @@ deliberately *not* parallel).
 
 - **Backlog** — the live task buckets (ready / waiting / needs-you / done) with per-task detail (spec,
   worklog, audit log) and buttons that call the same `mark-*.sh` scripts a human would run by hand.
+  Each done task also shows the model/effort that actually completed it (`finalModel`/`finalEffort`
+  from `ledgers/outcomes.jsonl` — the tier that succeeded, after any escalation).
 - **Ideas** — `tracking/IDEAS.jsonl` rendered as a one-line-per-idea list (id, title, captured date);
   click a row to expand its full description (rendered markdown), so the inbox is scannable without
   opening the file or wading through every idea's full text at once. An "Expand all"/"Collapse all"

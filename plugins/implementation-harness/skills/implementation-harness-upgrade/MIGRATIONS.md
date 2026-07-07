@@ -35,6 +35,19 @@ Entry format:
 
 ---
 
+## 1.34.1 → 1.34.2 — dashboard: show which model completed each done task
+`ledgers/outcomes.jsonl` already recorded `finalModel`/`finalEffort` per task (the tier that actually
+succeeded, after any escalation — distinct from `startModel`/`startEffort`, the cold-start floor it
+began at), but nothing in the dashboard surfaced it per-task — only aggregated at the facet-cell level
+on the Internals tab. The Backlog tab's Done bucket now shows it directly.
+- mechanism: `dashboard/server.js` — new `buildOutcomesByTask()` (mirrors `buildFailures()`'s
+  append-order-wins aggregation) attaches `task.completedWith = {model, effort}` in `loadState()`;
+  the Done bucket's pill row gains a `model-tag`-styled pill (e.g. `claude-sonnet-5/medium`) when
+  present, with a tooltip naming its source.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.34.0 → 1.34.1 — dashboard: instant Internals tooltips (was: ~1-1.5s native hover delay)
 The Internals tab's per-facet calibration headers used the native `title=` attribute for their "?"
 tooltips (1.33.1) — but a native tooltip has a browser-enforced hover delay before it appears, which

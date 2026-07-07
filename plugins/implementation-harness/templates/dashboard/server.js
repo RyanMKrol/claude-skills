@@ -109,9 +109,23 @@ function buildFailures() {
   return out;
 }
 
+// buildOutcomesByTask() — { <taskId>: <latest ledgers/outcomes.jsonl row for that id> }, so a done
+// task can show which model/effort actually completed it (finalModel/finalEffort — the tier that
+// succeeded, after any escalation, as opposed to startModel/startEffort which is just the cold-start
+// floor it began at). Rows are append-order → last wins (a task id should only ever get one terminal
+// row, but this stays robust if that ever changes). Robust to a missing/garbled ledger (returns {}).
+function buildOutcomesByTask() {
+  const out = {};
+  for (const row of parseJsonl(readText(OUTCOMES_PATH))) {
+    if (row && row.id) out[row.id] = row;
+  }
+  return out;
+}
+
 function loadState() {
   const tasksJson = readJson(TASKS_PATH, { tasks: [] });
   const failures = buildFailures();
+  const outcomesByTask = buildOutcomesByTask();
   const overlays = {
     humanDone: readJson(OVERLAY_PATHS.humanDone, {}),
     manualFail: readJson(OVERLAY_PATHS.manualFail, {}),
@@ -126,6 +140,11 @@ function loadState() {
       // Attach failed-attempt history to NON-done tasks (a done task's past soft-fails aren't
       // interesting; a still-open task with failures is the signal worth surfacing).
       if (!task.failed && failures[task.id]) task.buildFailures = failures[task.id];
+      // Which model/effort actually completed this task, once it has a terminal outcome.
+      const oc = outcomesByTask[task.id];
+      if (oc && (oc.finalModel || oc.finalEffort)) {
+        task.completedWith = { model: oc.finalModel || null, effort: oc.finalEffort || null };
+      }
     }
   }
   return {
@@ -870,6 +889,11 @@ function pillsFor(task, bucketName) {
   } else if (bucketName === 'done') {
     pills += task.reviewed ? '<span class="pill reviewed">👁 reviewed</span>' : '<span class="pill">not reviewed</span>';
     pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill done">✓ done</span>';
+    if (task.completedWith) {
+      const cw = task.completedWith;
+      const label = esc(cw.model || '?') + (cw.effort ? '/' + esc(cw.effort) : '');
+      pills += '<span class="pill model-tag" title="The model/effort that completed this task, from ledgers/outcomes.jsonl">' + label + '</span>';
+    }
   }
   pills += failPill(task, bucketName);
   return pills;
