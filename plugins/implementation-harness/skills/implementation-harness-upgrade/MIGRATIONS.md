@@ -35,6 +35,18 @@ Entry format:
 
 ---
 
+## 1.32.1 → 1.32.2 — dashboard: spinning cog while the loop is actively running
+Pure visual polish: the ⚙ next to "Harness" now spins (CSS animation, `prefers-reduced-motion`
+respected) whenever the "Now" strip's own lock check reports the loop as running
+(`lock.held && lock.alive` — the same condition that already drives the "▶ loop running" pill), so
+it's idle-still whenever the loop isn't.
+- mechanism: `dashboard/server.js` — the `<h1>`'s ⚙ is now `<span id="cog" class="cog">`; new
+  `.cog`/`.cog.spin`/`@keyframes cogspin` CSS; `renderNow()` toggles the `spin` class from the same
+  lock-state data it already renders the strip from. No new endpoint, no new data.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.32.0 → 1.32.1 — convert-ideas: self-contained questions + fix the "one call" batching bug
 Owners reported that mid-sweep `AskUserQuestion` prompts were hard to place — a question like "For Unit
 A... Match what you want?" carries no restatement of which idea it's about, only a ≤12-char header chip

@@ -504,6 +504,10 @@ function renderPage() {
 
   .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 12px;}
   .topbar h1{margin:0}
+  .cog{display:inline-block}
+  .cog.spin{animation:cogspin 2.5s linear infinite}
+  @keyframes cogspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.cog.spin{animation:none}}
   .bgpicker{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--muted)}
   .bgpicker input[type=color]{width:26px;height:26px;padding:0;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer}
 
@@ -561,7 +565,7 @@ function renderPage() {
 <body>
 <div class="container">
 <div class="topbar">
-  <h1>⚙ ${titleHtml || 'Harness'}</h1>
+  <h1><span id="cog" class="cog" title="Spins while the loop is actively running">⚙</span> ${titleHtml || 'Harness'}</h1>
   <nav class="tabs">
     <button class="tab on" data-view="backlog" onclick="switchView('backlog')">Backlog</button>
     <button class="tab" data-view="ideas" onclick="switchView('ideas')">Ideas</button>
@@ -630,6 +634,8 @@ function ago(sec) {
 function renderNow(data) {
   const el = document.getElementById('nowbar');
   const lock = data.lock || {}, cur = data.current, fr = data.freshness || {};
+  const cog = document.getElementById('cog');
+  if (cog) cog.classList.toggle('spin', !!(lock.held && lock.alive));
   let h = '';
   if (lock.held && lock.alive) {
     if (cur && cur.task) {
