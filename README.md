@@ -7,7 +7,7 @@ for skills and plugins I use, so they can be shared and installed anywhere.
 
 ```
 /plugin marketplace add RyanMKrol/claude-skills
-/plugin install ralph-harness@claude-skills
+/plugin install implementation-harness@claude-skills
 ```
 
 (During local development you can point at a checkout instead:
@@ -17,15 +17,17 @@ for skills and plugins I use, so they can be shared and installed anywhere.
 
 | Plugin | What it does |
 |---|---|
-| [`ralph-harness`](./plugins/ralph-harness) | Scaffolds the Ralph-style single-loop, CI-gated autonomous build harness into any project and authors its task backlog, via two interview skills. The backlog is a `TASKS.json` file with **per-task model selection** and **automatic escalation** to a stronger model on repeated failure. |
+| [`implementation-harness`](./plugins/implementation-harness) | Scaffolds a Ralph-style single-loop, CI-gated `TASKS.json` implementation harness into a project's self-contained `.harness/` folder, authors its backlog, and operates it via skills — data-driven difficulty auto-tuning, a portable dashboard, an ideas-to-tasks pipeline, and an upgrade skill that reconciles an existing install with newer plugin versions. See the [plugin's own README](./plugins/implementation-harness/README.md) for the full skill list and design. |
 
 ## Layout
 
 ```
 claude-skills/
-├── .claude-plugin/marketplace.json   ← the marketplace manifest (lists the plugins below)
+├── .claude-plugin/marketplace.json          ← the marketplace manifest (lists the plugins below)
 └── plugins/
-    └── ralph-harness/                ← one plugin (its own .claude-plugin/plugin.json + skills + templates)
+    └── implementation-harness/              ← one plugin (its own .claude-plugin/plugin.json)
+        ├── skills/                          ← 3 global skills (create, customize, upgrade)
+        └── templates/skills/                ← 6 skills scaffolded project-locally by `create`
 ```
 
 Each plugin is self-contained under `plugins/<name>/`. To add a new plugin, drop it under
