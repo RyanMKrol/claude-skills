@@ -35,6 +35,22 @@ Entry format:
 
 ---
 
+## 1.34.0 → 1.34.1 — dashboard: instant Internals tooltips (was: ~1-1.5s native hover delay)
+The Internals tab's per-facet calibration headers used the native `title=` attribute for their "?"
+tooltips (1.33.1) — but a native tooltip has a browser-enforced hover delay before it appears, which
+isn't a real "permanent, obvious" affordance if it feels sluggish to use.
+- mechanism: `dashboard/server.js` — the eight `<th>` `<span class="qtip" title="...">` icons are now
+  `data-tip="..."` + `tabindex="0"`; a new `initQtips()` renders one reusable popup element (appended
+  to `document.body`, positioned via `getBoundingClientRect()` and clamped to the viewport) shown/hidden
+  through event delegation on `document` (`mouseover`/`mouseout`/`focusin`/`focusout`), so it keeps
+  working across the Internals tab's periodic re-renders and appears immediately, not after a delay.
+  Positioning via a body-level popup (rather than a CSS `::after` pinned to the icon) was deliberate:
+  the `.ftable` has `overflow:hidden` for its rounded corners, which would clip a same-ancestor tooltip
+  for header cells near the table's edges.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.33.1 → 1.34.0 — genuinely live builder/auditor output (was: one buffered dump at exit)
 Diagnosed a real bug (not just a display glitch): the dashboard's "live output" tail and the builder/
 auditor's plain terminal output both only ever showed content once, at the very end of a `claude -p`

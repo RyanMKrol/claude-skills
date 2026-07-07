@@ -562,7 +562,9 @@ function renderPage() {
   .ftable td{padding:7px 10px;border-bottom:1px solid var(--border)} .ftable tr:last-child td{border-bottom:none}
   .ftable td.num,.ftable th.num{text-align:right;font-variant-numeric:tabular-nums}
   .qtip{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);font-size:9px;font-weight:700;line-height:1;cursor:help;text-transform:none;letter-spacing:normal;vertical-align:1px}
-  .qtip:hover{border-color:var(--accent);color:var(--accent)}
+  .qtip:hover,.qtip:focus{border-color:var(--accent);color:var(--accent)}
+  .qtip:focus{outline:2px solid var(--accent);outline-offset:2px}
+  #qtip-popup{position:fixed;z-index:50;max-width:260px;background:var(--text);color:var(--panel);padding:7px 10px;border-radius:7px;font-size:11.5px;font-weight:400;line-height:1.4;text-transform:none;letter-spacing:normal;box-shadow:0 4px 14px rgba(0,0,0,.2);pointer-events:none;display:none}
   .facet-name{font-weight:600}
   .model-tag{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   .cold-tag{font-size:10px;color:var(--muted);margin-left:5px}
@@ -790,14 +792,14 @@ function renderHarness(data) {
     h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
   } else {
     h += '<table class="ftable"><thead><tr>'
-       + '<th>Facet <span class="qtip" title="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">?</span></th>'
-       + '<th>Start model <span class="qtip" title="The model/effort the policy would pick to START a task in this cell right now (it only escalates from here on real failure). \\'cold\\' = no build history yet, using the cold-start prior.">?</span></th>'
-       + '<th class="num">Audit (policy) <span class="qtip" title="The sampling probability the policy will use for the NEXT build in this cell">?</span></th>'
-       + '<th class="num">Audited (observed) <span class="qtip" title="What actually happened: audited successes / all successes recorded in the ledger">?</span></th>'
-       + '<th class="num">Builds <span class="qtip" title="Total tasks in this cell that reached a terminal outcome (success or blocked), per the outcomes ledger.">?</span></th>'
-       + '<th class="num">✓ <span class="qtip" title="Successful builds in this cell that the owner did NOT overturn.">?</span></th>'
-       + '<th class="num">✗ <span class="qtip" title="Builds the owner overturned as a false success, or that the loop itself gave up on (blocked).">?</span></th>'
-       + '<th class="num">⚠ fails <span class="qtip" title="Failed attempts recorded before a task in this cell eventually succeeded or was blocked — see Failure health below for a kind breakdown.">?</span></th>'
+       + '<th>Facet <span class="qtip" tabindex="0" data-tip="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">?</span></th>'
+       + '<th>Start model <span class="qtip" tabindex="0" data-tip="The model/effort the policy would pick to START a task in this cell right now (it only escalates from here on real failure). \\'cold\\' = no build history yet, using the cold-start prior.">?</span></th>'
+       + '<th class="num">Audit (policy) <span class="qtip" tabindex="0" data-tip="The sampling probability the policy will use for the NEXT build in this cell">?</span></th>'
+       + '<th class="num">Audited (observed) <span class="qtip" tabindex="0" data-tip="What actually happened: audited successes / all successes recorded in the ledger">?</span></th>'
+       + '<th class="num">Builds <span class="qtip" tabindex="0" data-tip="Total tasks in this cell that reached a terminal outcome (success or blocked), per the outcomes ledger.">?</span></th>'
+       + '<th class="num">✓ <span class="qtip" tabindex="0" data-tip="Successful builds in this cell that the owner did NOT overturn.">?</span></th>'
+       + '<th class="num">✗ <span class="qtip" tabindex="0" data-tip="Builds the owner overturned as a false success, or that the loop itself gave up on (blocked).">?</span></th>'
+       + '<th class="num">⚠ fails <span class="qtip" tabindex="0" data-tip="Failed attempts recorded before a task in this cell eventually succeeded or was blocked — see Failure health below for a kind breakdown.">?</span></th>'
        + '</tr></thead><tbody>';
     for (const c of cells) {
       const model = c.chosenModel ? esc(c.chosenModel) + ' / ' + esc(c.chosenEffort) : '—';
@@ -1069,6 +1071,40 @@ function initBgPicker() {
   markActiveSwatch(saved || '#fbf3dd');
 }
 initBgPicker();
+
+// Instant tooltips for .qtip icons — the native title= attribute has a browser-enforced ~1-1.5s
+// hover delay that CSS can't shorten. One popup element, positioned via getBoundingClientRect and
+// clamped to the viewport (so it's never clipped by a table's own overflow:hidden, unlike a
+// CSS-only ::after pinned to the icon would be), shown/hidden via event delegation on document so
+// it keeps working across re-renders (the Internals tab rebuilds its innerHTML on every poll).
+function initQtips() {
+  let popup = document.getElementById('qtip-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'qtip-popup';
+    document.body.appendChild(popup);
+  }
+  function show(el) {
+    const tip = el.getAttribute('data-tip');
+    if (!tip) return;
+    popup.textContent = tip;
+    popup.style.display = 'block';
+    const r = el.getBoundingClientRect();
+    const pr = popup.getBoundingClientRect();
+    let left = r.left + r.width / 2 - pr.width / 2;
+    left = Math.max(6, Math.min(left, window.innerWidth - pr.width - 6));
+    let top = r.bottom + 7;
+    if (top + pr.height > window.innerHeight - 6) top = r.top - pr.height - 7;
+    popup.style.left = left + 'px';
+    popup.style.top = top + 'px';
+  }
+  function hide() { popup.style.display = 'none'; }
+  document.addEventListener('mouseover', function (e) { const q = e.target.closest('.qtip'); if (q) show(q); });
+  document.addEventListener('mouseout', function (e) { const q = e.target.closest('.qtip'); if (q) hide(); });
+  document.addEventListener('focusin', function (e) { const q = e.target.closest('.qtip'); if (q) show(q); });
+  document.addEventListener('focusout', function (e) { const q = e.target.closest('.qtip'); if (q) hide(); });
+}
+initQtips();
 
 refreshActive();
 setInterval(refreshActive, 5000);   // one poll → the active view (each keeps its own change-guard)
