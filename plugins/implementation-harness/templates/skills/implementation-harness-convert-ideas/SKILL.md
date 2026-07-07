@@ -131,12 +131,18 @@ this idea/cluster used in its scratch filenames):
 >        "ideaSummary": "ONE short plain-language paragraph — what this idea is, why, and what will change; the coordinator shows it to the owner BEFORE the questions so they know which idea is being discussed.",
 >        "context": "<what you've found so far>",
 >        "questions": [
->          { "topic": "definition-of-done", "question": "I'm planning done-when to be: <the acceptance bar you drafted>. Does this match what you want, or should it differ?" },
->          { "topic": "other", "question": "<another decision that changes what's built — include only if real>" }
+>          { "topic": "definition-of-done", "question": "For idea #<N> (<one-sentence restatement of what this idea is, drawn from ideaSummary>): I'm planning done-when to be: <the acceptance bar you drafted>. Does this match what you want, or should it differ?" },
+>          { "topic": "other", "question": "For idea #<N> (<same one-sentence restatement>): <another decision that changes what's built — include only if real>" }
 >        ] }
 >      ```
->      `questions` MUST hold ≥1 entry and ≥1 with `topic: "definition-of-done"`. The file's
->      `ideaSummary`/`ideaIds` label which idea every question belongs to (several agents relay concurrently).
+>      `questions` MUST hold ≥1 entry and ≥1 with `topic: "definition-of-done"`. **Every `question` string
+>      must open with a one-sentence, self-contained restatement of which idea it's about** — "For idea
+>      #<N> (<one-sentence gist of the idea>): ..." — a full sentence, not just a couple of words; with
+>      several ideas in flight there isn't always enough distinguishing signal in a short phrase. Don't
+>      rely on the file's `ideaSummary` or a header chip alone: the coordinator batches questions in
+>      groups of ≤4 across possibly several calls (§4), so a given question may be read well after its
+>      idea's one-time upfront recap has scrolled out of view — each question has to carry its own
+>      context, not borrow it from something shown earlier.
 >    - **Always write BOTH files.** Also write your best-draft `.pending-tasks/<SLUG>.json` (step 6): the
 >      DoD question *confirms* the bar you drafted, so shape the task fully and let the owner adjust it —
 >      don't block. Hold a unit OUT of pending-tasks only when it is genuinely un-shapeable until a
@@ -171,17 +177,24 @@ this idea/cluster used in its scratch filenames):
 >    an existing task. Your final message should just confirm what you wrote — the coordinator
 >    reads the file, not your response text.
 
-## 4. Relay pending questions — summarize each idea first (multi-round, no cap)
+## 4. Relay pending questions — every question self-contained (multi-round, batched ≤4/call)
 
 Use durable files, not conversation memory — questions and answers must survive a dropped session. Every
 idea an agent authored a task for left a `.harness/.pending-questions/<slug>.json` (§3 step 5), so this
 relay runs on essentially every sweep. Read them all, then:
 
-- **Summarize before asking.** First emit a short markdown recap — one line per idea: its `ideaSummary`
-  (and slug) — so the owner knows which idea each question is about before answering. Then make **one**
-  real `AskUserQuestion` call batching **every** question from **every** file (each file may carry
-  several — a definition-of-done confirmation plus other build-changing decisions). Give each question an
-  idea-naming header/label as a backstop.
+- **Summarize before asking, but don't rely on it.** First emit a short markdown recap — one line per
+  idea: its `ideaSummary` (and slug) — so the owner has the full list up front. This recap is a courtesy
+  overview, **not** the question's only source of context: every individual question also opens with its
+  own one-sentence restatement (§3 step 5), because the recap can scroll out of view long before a later
+  question is actually answered.
+- **Batch in groups of ≤4 — `AskUserQuestion` hard-caps a single call at 4 questions.** Gather every
+  question from every pending-questions file, then split into calls of at most 4. Keep one idea's own
+  questions together within the same call where possible (don't split a single idea's DoD confirmation
+  from its "other" question across two calls). More than 4 questions total means multiple sequential
+  `AskUserQuestion` calls — that's expected, not an error; never try to cram everything into "one" call.
+  Give each question an idea-naming header/label too (still useful as a quick visual scan, just not
+  load-bearing on its own anymore).
 - **Fold each answer back to its `(slug, question)`.** For a `definition-of-done` answer: if the owner
   adjusted the bar, update that idea's `.pending-tasks/<slug>.json` `specDoneWhen` (and any unit that
   depends on it) — resume the idea's agent via `SendMessage` if still addressable, else edit the file

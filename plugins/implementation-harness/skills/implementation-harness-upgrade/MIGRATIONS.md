@@ -35,6 +35,27 @@ Entry format:
 
 ---
 
+## 1.32.0 → 1.32.1 — convert-ideas: self-contained questions + fix the "one call" batching bug
+Owners reported that mid-sweep `AskUserQuestion` prompts were hard to place — a question like "For Unit
+A... Match what you want?" carries no restatement of which idea it's about, only a ≤12-char header chip
+and a one-time recap shown before potentially many questions. Checked the `AskUserQuestion` schema
+directly: there is no length limit on the `question` text (only structural caps — max 4 questions per
+call, 2–4 options per question) — so nothing stopped the skill from writing richer questions; the
+instructions just didn't ask for it. Also found a real bug alongside it: §4 said to batch "every question
+from every file" into **one** `AskUserQuestion` call, which is impossible once a sweep has more than 4
+questions total.
+- mechanism: `templates/skills/implementation-harness-convert-ideas/SKILL.md` — §3 step 5's
+  pending-questions schema now requires every `question` string to open with a one-sentence,
+  self-contained restatement of which idea it's about ("For idea #&lt;N&gt; (&lt;one-sentence gist&gt;): ...") —
+  a full sentence, not a short phrase, since several ideas may be in flight with similar-sounding gists.
+  §4 now instructs batching in groups of ≤4 (the tool's actual cap) across possibly several sequential
+  calls, keeping one idea's questions together within a batch, instead of the previous (infeasible) "one
+  call" instruction. The upfront markdown recap stays but is now explicitly a courtesy, not the
+  question's only source of context.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none (prompt-only change; no schema/data migration).
+- breaking: none.
+
 ## 1.31.0 → 1.32.0 — six operational skills become project-local (fix global/version-skew + namespacing)
 Six skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `loop-recover`, `pre-loop-checkin`,
 `review-failed`) read/write a SPECIFIC project's versioned `.harness/` mechanism files, but were
