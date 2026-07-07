@@ -35,6 +35,21 @@ Entry format:
 
 ---
 
+## 1.35.0 → 1.35.1 — dashboard: "implemented manually" pill for done tasks with no ledger row
+Reported: not every done task showed the 1.34.2 model pill. Root cause confirmed: a task marked done
+via the human-done overlay (`isTerminalDone()`'s second path — a needs-human gate, or any task an
+owner completes by hand via `mark-done.sh`) never goes through `run_claude()`/`record_outcome()`, so
+it has no `ledgers/outcomes.jsonl` row at all — that's not a gap, it's a distinct, equally real
+answer to "who completed this."
+- mechanism: `dashboard/server.js` — `loadState()` now falls back to `overlays.humanDone[task.id]`
+  when a done task has no outcome row, attaching `task.completedWith = {human: true}`; the Done
+  bucket's pill renders "🧑 implemented manually" for that shape instead of a model tag. A task with
+  neither an outcome row nor a human-done record (a legacy install predating the outcomes ledger)
+  still shows no pill — that case is genuinely unknown, not asserted as either.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.34.3 → 1.35.0 — separate build vs audit live output (was: audit silently wiped the build's)
 `run_claude()` was one shared function used for BOTH the builder and auditor invocations, always
 writing to the same fixed filename. Since `tee` truncates that file the instant a new invocation

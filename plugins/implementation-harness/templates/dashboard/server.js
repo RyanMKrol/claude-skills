@@ -140,10 +140,16 @@ function loadState() {
       // Attach failed-attempt history to NON-done tasks (a done task's past soft-fails aren't
       // interesting; a still-open task with failures is the signal worth surfacing).
       if (!task.failed && failures[task.id]) task.buildFailures = failures[task.id];
-      // Which model/effort actually completed this task, once it has a terminal outcome.
+      // Which model/effort actually completed this task, once it has a terminal outcome. A task
+      // marked done via the human-done overlay (a needs-human gate, or any task completed by hand)
+      // never goes through run_claude()/record_outcome(), so it has no ledger row at all — that's
+      // not a gap to leave blank, it's a distinct, equally real "who completed this" answer.
       const oc = outcomesByTask[task.id];
       if (oc && (oc.finalModel || oc.finalEffort)) {
         task.completedWith = { model: oc.finalModel || null, effort: oc.finalEffort || null };
+      } else {
+        const hd = overlays.humanDone[task.id];
+        if (hd && hd.done === true) task.completedWith = { human: true };
       }
     }
   }
@@ -917,8 +923,12 @@ function pillsFor(task, bucketName) {
     pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill done">✓ done</span>';
     if (task.completedWith) {
       const cw = task.completedWith;
-      const label = esc(cw.model || '?') + (cw.effort ? '/' + esc(cw.effort) : '');
-      pills += '<span class="pill model-tag" title="The model/effort that completed this task, from ledgers/outcomes.jsonl">' + label + '</span>';
+      if (cw.human) {
+        pills += '<span class="pill" title="No ledgers/outcomes.jsonl row for this task — it was marked done via the human-done overlay (a needs-human gate, or a task completed by hand), not built by the loop.">🧑 implemented manually</span>';
+      } else {
+        const label = esc(cw.model || '?') + (cw.effort ? '/' + esc(cw.effort) : '');
+        pills += '<span class="pill model-tag" title="The model/effort that completed this task, from ledgers/outcomes.jsonl">' + label + '</span>';
+      }
     }
   }
   pills += failPill(task, bucketName);
