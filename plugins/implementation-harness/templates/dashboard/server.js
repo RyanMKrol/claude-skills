@@ -15,7 +15,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
-const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, ideasFromJsonl } = require('./lib');
+const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, ideasFromJsonl, liveOutputFromJsonl } = require('./lib');
 
 const HARNESS_DIR = path.join(__dirname, '..');
 const ROOT = path.join(HARNESS_DIR, '..');
@@ -281,23 +281,31 @@ function lockState() {
   return { held: true, pid, alive };
 }
 
-// claudeOutTail() — the last ~40 lines of the builder/auditor's live output. The worktree variant
-// writes it inside the loop worktree (../<name>-loop/.harness/worklog/), the in-place variant in the
-// primary checkout — read whichever was touched most recently.
+// claudeOutTail() — the builder/auditor's live output, reconstructed from whichever worklog was
+// touched most recently (the worktree variant writes inside the loop worktree,
+// ../<name>-loop/.harness/worklog/; the in-place variant writes in the primary checkout). Since
+// loop.sh/loop.in-place.sh invoke claude with --output-format stream-json, the raw transcript lives
+// in `.claude-out.jsonl` (streamed incrementally — see run_claude()); `.claude-out` is that same
+// invocation's plain-text reconstruction, kept for installs that haven't upgraded loop.sh yet (an old
+// loop.sh only ever writes `.claude-out`, so this falls back to it automatically — no `.jsonl` sibling
+// ever gets created for such an install, so it's simply never a candidate).
 function claudeOutTail() {
-  const candidates = [
-    path.join(WORKLOG_DIR, '.claude-out'),
-    path.join(path.dirname(ROOT), `${NAME}-loop`, '.harness', 'worklog', '.claude-out'),
-  ];
+  const dirs = [WORKLOG_DIR, path.join(path.dirname(ROOT), `${NAME}-loop`, '.harness', 'worklog')];
+  const candidates = [];
+  for (const d of dirs) { candidates.push(path.join(d, '.claude-out.jsonl'), path.join(d, '.claude-out')); }
   let best = null, bestM = 0;
   for (const p of candidates) {
     try { const m = fs.statSync(p).mtimeMs; if (m > bestM) { bestM = m; best = p; } } catch (_err) { /* absent */ }
   }
-  if (!best) return null;
+  if (!best) return { text: null, tool: null };
   const text = readText(best);
-  if (!text) return null;
+  if (!text) return { text: null, tool: null };
+  if (best.endsWith('.jsonl')) {
+    const live = liveOutputFromJsonl(text);
+    return { text: live.text ? live.text.slice(-8000) : null, tool: live.tool };
+  }
   const lines = text.split('\n');
-  return lines.slice(-40).join('\n').slice(-8000);
+  return { text: lines.slice(-40).join('\n').slice(-8000), tool: null };
 }
 
 // freshness() — how stale is what this dashboard renders? Age of the last `git fetch` (FETCH_HEAD
@@ -324,10 +332,12 @@ function freshness() {
 }
 
 function activityState() {
+  const live = claudeOutTail();
   return {
     lock: lockState(),
     current: readJson(HEARTBEAT_PATH, null),
-    logTail: claudeOutTail(),
+    logTail: live.text,
+    toolNow: live.tool,
     freshness: freshness(),
     fetchEverySec: parseInt(envKnob('HARNESS_DASHBOARD_FETCH_SECONDS', '0'), 10) || 0,
   };
@@ -660,6 +670,9 @@ function renderNow(data) {
     h += '<span class="nowpill warn" title="The lock dir exists but its PID is dead — a loop was interrupted. Run the loop-recover skill.">⚠ stale lock (PID ' + esc(String(lock.pid || '?')) + ' dead) — run loop-recover</span>';
   } else {
     h += '<span class="nowpill idle">◼ loop idle</span>';
+  }
+  if (lock.held && lock.alive && data.toolNow) {
+    h += '<span class="nowpill run" title="From the live output stream — the tool call most recently started, with no response text after it yet">▶ running ' + esc(data.toolNow) + '…</span>';
   }
   if (fr.known && !fr.inSync) {
     h += '<span class="nowpill bad" title="The local checkout this dashboard reads is not on the same commit as origin/' + esc(fr.mainBranch || 'main') + ' — what you see may be stale or ahead.">local ≠ origin/' + esc(fr.mainBranch || 'main') + '</span>';

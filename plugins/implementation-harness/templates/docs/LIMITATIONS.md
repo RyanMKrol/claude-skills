@@ -109,6 +109,13 @@ already in the scripts; what's listed is the part that stays true for operators 
   the fixtures used the same wrong field names, then crashed on first live run. A task whose
   `Done when` only cites its own new tests is weaker evidence than one verified against real data or
   an independent audit.
+- **Rate-limit detection (`RL_HARD_RE`/`RL_RE`) still regex-matches the CLI's English prose, not the
+  structured `rate_limit_event` (`rate_limit_info: {status, resetsAt, rateLimitType, …}`) that
+  `--output-format stream-json` also emits on every invocation.** `resetsAt` is a plain Unix
+  timestamp — it would let `rl_reset_wait()` drop most of its fragile prose-parsing (absolute clock
+  time, relative duration, ISO-8601, all hand-rolled regex) entirely. Not done yet because it needs
+  its own dedicated verification against a REAL rate-limit-hit payload (this repo's testing only ever
+  observed `"status":"allowed"`); revisit as a follow-up once that's practical to test safely.
 
 ---
 

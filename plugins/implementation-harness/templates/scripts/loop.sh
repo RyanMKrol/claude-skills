@@ -801,10 +801,32 @@ rl_reset_wait() {
 }
 
 # run_claude <model> <effort> <prompt> → 0 ok | 10 rate/usage-limited | other = failure
+#
+# Invokes claude in --output-format stream-json mode (--verbose is MANDATORY for stream-json in
+# --print mode — the CLI refuses to start without it) so output arrives incrementally instead of one
+# buffered dump at process exit (plain -p mode never streams to a pipe — confirmed empirically: a
+# 500-word response sat at a flat byte count for the entire generation, then landed in a single write
+# right as the process exited). The raw event stream goes to `.claude-out.jsonl` (what the dashboard
+# tails live); `.claude-out` itself is reconstructed via jq into PLAIN TEXT and keeps its EXACT prior
+# meaning — every existing consumer (RL_HARD_RE/RL_RE below, rl_reset_wait's reset-time parsing, the
+# audit's PASS/FAIL grep, the worklog .audit.md copy) reads it unchanged.
+#
+# The jq extraction MUST be `-R … | fromjson? | …`, not the naive `select(...)` on parsed JSON input:
+# `2>&1` means an occasional non-JSON stderr line can land mid-stream, and plain `jq 'select(...)'`
+# treats one parse error as fatal — SILENTLY DROPPING every text_delta after that point for the rest
+# of the invocation (confirmed empirically). `-R` (read each line as a raw string) + `fromjson?` (the
+# `?` turns a parse failure into `empty` for just that line) skips a bad line and keeps going.
 run_claude() {
-  local model="$1" effort="$2" pr="$3" out="$LOOP_WT/.harness/worklog/.claude-out" rc
+  local model="$1" effort="$2" pr="$3"
+  local raw="$LOOP_WT/.harness/worklog/.claude-out.jsonl"   # raw stream events — dashboard's live tail
+  local out="$LOOP_WT/.harness/worklog/.claude-out"          # reassembled plain text — unchanged meaning
+  local rc
   set +e
-  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" "${FLAGS[@]}" ) 2>&1 | tee "$out"
+  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" \
+      --output-format stream-json --include-partial-messages --verbose "${FLAGS[@]}" ) 2>&1 \
+    | tee "$raw" \
+    | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \
+    > "$out"
   rc=${PIPESTATUS[0]}
   set -e
   # Limit detection: RL_HARD_RE signals a limit regardless of exit code (the CLI often prints the

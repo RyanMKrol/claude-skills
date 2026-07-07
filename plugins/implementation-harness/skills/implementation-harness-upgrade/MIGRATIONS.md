@@ -35,6 +35,44 @@ Entry format:
 
 ---
 
+## 1.33.1 → 1.34.0 — genuinely live builder/auditor output (was: one buffered dump at exit)
+Diagnosed a real bug (not just a display glitch): the dashboard's "live output" tail and the builder/
+auditor's plain terminal output both only ever showed content once, at the very end of a `claude -p`
+invocation — confirmed empirically (a 500-word test response sat at a flat byte count for the entire
+generation, then landed in a single write the instant the process exited). Root cause: plain `-p` mode
+never streams to a pipe — it computes the whole response, then writes it once. Fixed per Anthropic's
+own docs: `--output-format stream-json --include-partial-messages` (`--verbose` is mandatory alongside
+it — the CLI refuses to start without it).
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — `run_claude()` now invokes claude with
+  the streaming flags. The raw event stream goes to a NEW file, `worklog/.claude-out.jsonl` (what the
+  dashboard tails live); `worklog/.claude-out` itself is reconstructed from that stream via
+  `jq -Rrj 'fromjson? | select(...) | .event.delta.text'` into PLAIN TEXT and keeps its EXACT prior
+  meaning and every existing consumer unchanged — `RL_HARD_RE`/`RL_RE` rate-limit detection,
+  `rl_reset_wait()`'s reset-time parsing, the audit's PASS/FAIL verdict grep, the `.audit.md` worklog
+  copy. The `-R … | fromjson?` shape (not a plain `select(...)` on parsed JSON) is load-bearing: `2>&1`
+  means an occasional non-JSON stderr line can land mid-stream, and naive `jq 'select(...)'` treats one
+  parse error as fatal — silently dropping every later chunk for the rest of the invocation (confirmed
+  empirically with a planted bad line). Also confirmed empirically: a rate-limit phrase split across
+  two streamed chunks is invisible to a per-line `grep` against the raw stream — reconstructing plain
+  text first (as above) is what makes the existing detection reliable again, not incidental.
+- mechanism: `dashboard/lib.js` — new `liveOutputFromJsonl(text)` (parses the raw stream, concatenates
+  `text_delta` text, and reports the name of a tool call that's started but has no response text after
+  it yet — surfaced as a `▶ running <Tool>…` pill). `dashboard/server.js` — `claudeOutTail()` now picks
+  the freshest of FOUR candidates (`.claude-out.jsonl` / `.claude-out` × primary checkout / loop
+  worktree) instead of two, parsing whichever wins based on its extension; an install that hasn't
+  upgraded `loop.sh` yet never produces a `.jsonl` file, so this degrades automatically to the old
+  two-candidate plain-text behavior. `GET /api/activity` gains a `toolNow` field alongside `logTail`.
+  `dashboard/lib.test.js` covers concatenation, the mid-tool-call state, garbled-line tolerance, and
+  empty input.
+- new files: `worklog/.claude-out.jsonl` is created by the loop at runtime (not shipped) — added to
+  `templates/gitignore` alongside the existing `.claude-out` entry.
+- config: none.
+- manual attention: `docs/LIMITATIONS.md` — new field note: rate-limit detection still regex-matches
+  prose rather than the structured `rate_limit_info.resetsAt` timestamp the same stream also emits on
+  every invocation (a good follow-up, deliberately NOT done here — it needs its own verification
+  against a real rate-limit-hit payload, which this round of testing never triggered).
+- breaking: none (an un-upgraded install keeps working exactly as before; this only adds a capability).
+
 ## 1.33.0 → 1.33.1 — dashboard: visible "?" tooltip icons on Internals table headers
 The per-facet calibration table's column headers had `title=` tooltips (added in 1.33.0), but a
 plain native tooltip on the header text gives no visual hint that hovering does anything — nothing
