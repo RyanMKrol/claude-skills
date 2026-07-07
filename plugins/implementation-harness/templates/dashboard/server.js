@@ -712,17 +712,17 @@ function renderIdea(idea) {
   const open = state.openIdeas.has(key);
   const when = idea.capturedAt ? '<span class="pill">' + esc(String(idea.capturedAt).slice(0, 10)) + '</span>' : '';
   const detail = open
-    ? '<div class="expand" onclick="event.stopPropagation()"><div class="md-body">' + idea.descriptionHtml + '</div></div>'
+    ? \`<div class="expand" onclick="event.stopPropagation()"><div class="md-body">\${idea.descriptionHtml}</div></div>\`
     : '';
-  return '<div class="taskrow" id="' + key + '">'
-    + '<div class="row" onclick="toggleIdea(\'' + key + '\')">'
-    + '<span class="caret">' + (open ? '▾' : '▸') + '</span>'
-    + '<span class="tid mono">#' + esc(String(idea.id)) + '</span>'
-    + '<span class="title">' + esc(idea.title) + '</span>'
-    + when
-    + '</div>'
-    + detail
-    + '</div>';
+  return \`<div class="taskrow" id="\${key}">
+    <div class="row" onclick="toggleIdea('\${key}')">
+      <span class="caret">\${open ? '▾' : '▸'}</span>
+      <span class="tid mono">#\${esc(String(idea.id))}</span>
+      <span class="title">\${esc(idea.title)}</span>
+      \${when}
+    </div>
+    \${detail}
+  </div>\`;
 }
 
 function toggleIdea(key) {

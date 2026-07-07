@@ -35,6 +35,26 @@ Entry format:
 
 ---
 
+## 1.32.2 → 1.32.3 — dashboard: fix a broken-page bug in the Ideas tab's onclick escaping
+`renderIdea()` (added in 1.31.0's ideas-inbox migration) built its onclick attribute with a
+single-backslash-escaped quote (`'...onclick="toggleIdea(\'' + key + '\')">'`). Since the whole
+dashboard page is itself one giant server-side template literal, Node's own parsing silently
+consumes that `\'` at render time and drops the backslash — so the SERVED script contains a bare,
+unescaped quote instead, which breaks the entire `<script>` block's syntax. A syntax error anywhere
+in a `<script>` tag prevents ALL of it from running, so every function on the page (`switchView`,
+`resetBg`, everything) ended up undefined — not just the Ideas tab. Confirmed by extracting the
+actual served `<script>` content and running it through `node --check`: it failed before this fix,
+passes after.
+- mechanism: `dashboard/server.js` — `renderIdea()` rewritten to use the same nested
+  escaped-backtick template-literal convention the rest of the file already uses correctly (e.g.
+  `renderTask`), instead of string concatenation with escaped quotes — avoids the exact
+  double-escaping trap that caused this.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none (this is a straight regression fix — any install on 1.31.0, 1.32.0, 1.32.1, or
+  1.32.2 has a dashboard whose Ideas tab silently breaks the WHOLE page's client-side JS the moment
+  any idea exists in `tracking/IDEAS.jsonl`; upgrading picks up the fix).
+
 ## 1.32.1 → 1.32.2 — dashboard: spinning cog while the loop is actively running
 Pure visual polish: the ⚙ next to "Harness" now spins (CSS animation, `prefers-reduced-motion`
 respected) whenever the "Now" strip's own lock check reports the loop as running
