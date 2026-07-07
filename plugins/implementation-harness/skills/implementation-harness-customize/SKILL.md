@@ -76,6 +76,13 @@ what `create`/`upgrade`/this skill all walk — see the maintainer `CLAUDE.md`).
    - *Draft:* ask for always-applies rules every build/audit must respect. Copy the matching `.example` →
      real and write them. Populate one or both.
 
+6. **Dashboard title** — `custom/dashboard-title.txt` · since **1.30.0**
+   - *What:* a short project label shown in the dashboard's header and browser tab, so several open
+     dashboards (multiple projects, or multiple harness-driven repos) are easy to tell apart at a glance.
+   - *Draft:* ask for a short project name/label. Copy `dashboard-title.txt.example` → `dashboard-title.txt`
+     and write one line (blank lines and `#`-comments are ignored; the first remaining line wins — keep it
+     short, it's the browser tab title too).
+
 > Also note (not a `custom/` file): the `INTEGRATE_HOOK` and `VISUAL_VERIFY_HOOK` commands live in
 > `config/harness.env` and are normally set during `create`'s interview. Mention them if relevant, but this
 > walkthrough is about the `custom/` overlay.

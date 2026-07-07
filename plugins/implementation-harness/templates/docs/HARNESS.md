@@ -536,6 +536,13 @@ snippet (gated on the task opting into visual verification), a preamble is **unc
 appended to every prompt of that kind; absent → no output → byte-identical. Append-only (augments the generic
 instructions, never replaces them). Populate one or both.
 
+**Dashboard title — `custom/dashboard-title.txt`.** An optional short project label the dashboard shows next
+to its gear icon and in the browser tab, read by `dashboard/server.js` (not the loop). Blank lines and
+`#`-comments are ignored; the first remaining line wins. Absent → the dashboard just shows "Harness" — useful
+mainly when several harness dashboards are open at once and need to be told apart. (The dashboard's own
+background-color picker, in the same header, is a client-only preference — saved per-browser via
+`localStorage`, not a `custom/` file.)
+
 Customize behavior or the guard by adding a `custom/` file — **never by editing `loop.sh`** (an inline edit
 forfeits clean upgrades; see `custom/CLAUDE.md`).
 

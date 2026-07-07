@@ -135,6 +135,11 @@ including a ⚠ stale-lock warning after an interrupt), the current task/phase/r
 nothing has fetched recently. Set `HARNESS_DASHBOARD_FETCH_SECONDS` (harness.env) to have the dashboard
 `git fetch` on an interval itself (fetch-only; it never touches the working tree).
 
+The header also carries two ways to tell dashboards apart when you have several open (e.g. multiple
+projects, or multiple harness-driven repos): an optional project title — set `.harness/custom/dashboard-title.txt`
+(see the customization walkthrough) and it shows next to the gear icon and in the browser tab — and a
+background-color picker (🎨, top right) that's a client-only preference saved per-browser via `localStorage`.
+
 It re-reads everything from disk on every request — no daemon; the Internals tab memoises its per-facet
 `jq` work on the ledger mtimes so the 5s refresh is cheap.
 

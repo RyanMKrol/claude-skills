@@ -27,6 +27,7 @@ realistically want to customize has a supported `custom/` home the upgrade **nev
 | block more secret paths from being pushed | `custom/sensitive-paths.txt` (append-only) |
 | add richer visual-verification guidance | `custom/visual-verify-{build,audit}.md` |
 | inject a standing rule into every build/audit (e.g. no live paid-API calls) | `custom/{build,audit}-preamble.md` |
+| label the dashboard so it's distinguishable from other projects' | `custom/dashboard-title.txt` |
 | add project notes to a shipped doc | the matching `custom/docs/…` overlay |
 
 Not sure which, or want a guided setup? Run **`/implementation-harness-customize`** — it walks these one at a

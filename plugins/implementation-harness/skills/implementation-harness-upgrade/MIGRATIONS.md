@@ -32,6 +32,23 @@ Entry format:
 
 ---
 
+## 1.29.0 → 1.30.0 — dashboard project title (custom/) + client-side background color picker
+Multiple projects (or multiple harness-driven repos) running the dashboard look identical, making tabs hard
+to tell apart. Adds an opt-in `custom/` overlay for a short project label shown in the header + browser tab,
+plus a purely client-side background-color picker for further visual differentiation.
+- new files: `custom/dashboard-title.txt.example` — overlay stub (blank/`#`-comment lines ignored; first
+  remaining line is the title). **Add-if-missing on upgrade; NEVER overwrite a user's real
+  `dashboard-title.txt`.** The whole-tree `custom/` copy lands it on fresh installs.
+- mechanism: `dashboard/server.js` — reads `custom/dashboard-title.txt` (if present) and uses it for the
+  `<title>` and header `<h1>`; absent → unchanged ("Harness"/"Backlog — implementation harness"). Also adds
+  a 🎨 color-picker control in the header that sets the `--bg` CSS variable and persists it to the browser's
+  `localStorage`, namespaced by the project directory name — purely a rendering preference, no new file and
+  nothing written to the repo.
+- docs: `docs/HARNESS.md` §8.3, `harness-CLAUDE.md`'s custom/ table, and `README.md`'s dashboard section
+  document both. `implementation-harness-customize` catalog gains a matching entry (skill-side).
+- config: none.
+- breaking: none.
+
 ## 1.28.0 → 1.29.0 — customization walkthrough skill + surfaced on create/upgrade + stronger in-place red flag
 Users rarely discover the `custom/` extension points. Adds a feature-walkthrough skill (the canonical
 versioned catalog) that create runs in full and upgrade runs scoped to what's new since the install, and

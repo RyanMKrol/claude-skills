@@ -31,6 +31,7 @@ const SCRIPTS_DIR = path.join(HARNESS_DIR, 'scripts');
 const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.md');
 const FACETS_PATH = path.join(HARNESS_DIR, 'config', 'facets.json');
 const HARNESS_ENV_PATH = path.join(HARNESS_DIR, 'config', 'harness.env');
+const DASHBOARD_TITLE_PATH = path.join(HARNESS_DIR, 'custom', 'dashboard-title.txt');
 const OUTCOMES_PATH = path.join(LEDGERS_DIR, 'outcomes.jsonl');
 const FAILURES_PATH = path.join(LEDGERS_DIR, 'failures.jsonl');
 const POLICY_JQ = path.join(SCRIPTS_DIR, 'policy.jq');
@@ -50,6 +51,24 @@ function readText(p) {
   } catch (_err) {
     return null;
   }
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// customDashboardTitle() — an optional project label from custom/dashboard-title.txt (opt-in overlay,
+// like the other custom/ extension points): blank lines and #-comments ignored, first remaining line
+// wins. Lets a project distinguish its dashboard's header + browser tab when several are open at once.
+function customDashboardTitle() {
+  const text = readText(DASHBOARD_TITLE_PATH);
+  if (!text) return null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    return line;
+  }
+  return null;
 }
 
 // blockedIds() — scan worklog/*.md for the literal string "failed:blocked", mirroring the loop's
@@ -416,11 +435,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 function renderPage() {
+  const customTitle = customDashboardTitle();
+  const titleHtml = customTitle ? escHtml(customTitle) : null;
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Backlog — implementation harness</title>
+<title>${titleHtml ? titleHtml + ' — ' : ''}Backlog — implementation harness</title>
 <style>
   :root{
     --bg:#fbf3dd; --panel:#fff9ec; --panel-2:#ffeec2; --border:#f0d49a;
@@ -482,6 +503,8 @@ function renderPage() {
 
   .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 12px;}
   .topbar h1{margin:0}
+  .bgpicker{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--muted)}
+  .bgpicker input[type=color]{width:26px;height:26px;padding:0;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer}
 
   /* "Now" strip — live loop status + freshness, on every tab */
   .nowbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;font-size:12px}
@@ -537,12 +560,17 @@ function renderPage() {
 <body>
 <div class="container">
 <div class="topbar">
-  <h1>⚙ Harness</h1>
+  <h1>⚙ ${titleHtml || 'Harness'}</h1>
   <nav class="tabs">
     <button class="tab on" data-view="backlog" onclick="switchView('backlog')">Backlog</button>
     <button class="tab" data-view="ideas" onclick="switchView('ideas')">Ideas</button>
     <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
   </nav>
+  <div class="bgpicker" title="Dashboard background color — saved in this browser only">
+    <label for="bgpicker-input">🎨</label>
+    <input type="color" id="bgpicker-input" aria-label="Dashboard background color">
+    <button type="button" class="barbtn" onclick="resetBg()">Reset</button>
+  </div>
 </div>
 <div id="nowbar" class="nowbar"></div>
 <div id="view-backlog" class="view">
@@ -557,6 +585,7 @@ function renderPage() {
 </div>
 </div>
 <script>
+const HARNESS_PROJECT_KEY = ${JSON.stringify(NAME)};
 const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: false };
 
 function switchView(name) {
@@ -931,6 +960,28 @@ async function bulkAction(bucket) {
   if (bucket === 'done') ok = await post('/api/mark-reviewed', { ids });
   if (ok) { state.selected.clear(); refreshActive(); }
 }
+
+// Background color picker — client-only (localStorage, namespaced by project dir name so several
+// projects' dashboards, even on the same port at different times, don't clobber each other's choice).
+const BG_STORAGE_KEY = 'harness-dashboard-bg:' + HARNESS_PROJECT_KEY;
+function initBgPicker() {
+  const input = document.getElementById('bgpicker-input');
+  if (!input) return;
+  const saved = localStorage.getItem(BG_STORAGE_KEY);
+  if (saved) document.documentElement.style.setProperty('--bg', saved);
+  input.value = saved || getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#fbf3dd';
+  input.addEventListener('input', function () {
+    document.documentElement.style.setProperty('--bg', input.value);
+    localStorage.setItem(BG_STORAGE_KEY, input.value);
+  });
+}
+function resetBg() {
+  localStorage.removeItem(BG_STORAGE_KEY);
+  document.documentElement.style.removeProperty('--bg');
+  const input = document.getElementById('bgpicker-input');
+  if (input) input.value = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#fbf3dd';
+}
+initBgPicker();
 
 refreshActive();
 setInterval(refreshActive, 5000);   // one poll → the active view (each keeps its own change-guard)
