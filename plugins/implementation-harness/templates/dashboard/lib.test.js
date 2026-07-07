@@ -331,6 +331,28 @@ test('liveOutputFromJsonl reports the currently-running tool until text resumes'
   assert.strictEqual(r.text, "I'll check that. Done.");
 });
 
+test('liveOutputFromJsonl separates distinct text blocks with a newline (each narration round is its own block in the real stream, with no separator of its own)', () => {
+  const lines = [
+    { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+    { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: "I'll start by reading the files." } } },
+    { type: 'stream_event', event: { type: 'content_block_stop' } },
+    { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', name: 'Read' } } },
+    { type: 'stream_event', event: { type: 'content_block_stop' } },
+    { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+    { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Now let me make the fix.' } } },
+    { type: 'stream_event', event: { type: 'content_block_stop' } },
+  ].map((r) => JSON.stringify(r)).join('\n');
+  assert.strictEqual(liveOutputFromJsonl(lines).text, "I'll start by reading the files.\nNow let me make the fix.");
+});
+
+test('liveOutputFromJsonl does not add a leading newline before the very first text block', () => {
+  const lines = [
+    { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+    { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'First.' } } },
+  ].map((r) => JSON.stringify(r)).join('\n');
+  assert.strictEqual(liveOutputFromJsonl(lines).text, 'First.');
+});
+
 test('liveOutputFromJsonl skips a garbled line and keeps concatenating (mirrors parseJsonl tolerance)', () => {
   const lines = [
     JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'before ' } } }),

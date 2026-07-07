@@ -35,6 +35,21 @@ Entry format:
 
 ---
 
+## 1.34.2 → 1.34.3 — dashboard: line breaks between narration rounds in live output
+Reported (and confirmed against a real, live transcript): the live-output tail read as one unbroken
+wall of text — e.g. "I'll start by reading the files.Now let me make the fix.Now let's run the
+tests." with no space between sentences. Root cause: each short round of narration ("I'll do X.",
+before/after a tool call) arrives as its OWN "text" content block in the stream — confirmed by
+inspecting a real `.claude-out.jsonl` directly — but `liveOutputFromJsonl()` just concatenated every
+`text_delta` chunk with no regard for block boundaries.
+- mechanism: `dashboard/lib.js` — `liveOutputFromJsonl()` now inserts a newline at each NEW `text`
+  content block's start (never a leading one, never between two deltas of the SAME block — only a
+  genuine new round of narration gets a break). `dashboard/lib.test.js` covers both the separator and
+  the no-leading-newline case.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.34.1 → 1.34.2 — dashboard: show which model completed each done task
 `ledgers/outcomes.jsonl` already recorded `finalModel`/`finalEffort` per task (the tier that actually
 succeeded, after any escalation — distinct from `startModel`/`startEffort`, the cold-start floor it
