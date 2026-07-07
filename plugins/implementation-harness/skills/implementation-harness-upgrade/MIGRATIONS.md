@@ -35,6 +35,19 @@ Entry format:
 
 ---
 
+## 1.33.0 → 1.33.1 — dashboard: visible "?" tooltip icons on Internals table headers
+The per-facet calibration table's column headers had `title=` tooltips (added in 1.33.0), but a
+plain native tooltip on the header text gives no visual hint that hovering does anything — nothing
+signals there's more to read. Adds a small circled "?" icon after each header label, carrying the
+tooltip itself, so the affordance is a permanent, obvious UI element instead of a hidden one.
+- mechanism: `dashboard/server.js` — each of the eight `<th>`s in the per-facet calibration table's
+  header row now ends with `<span class="qtip" title="...">?</span>` instead of the `<th title="...">`
+  attribute; new `.qtip`/`.qtip:hover` CSS (small circle, muted by default, accent-colored on hover).
+  Same tooltip text as 1.33.0, just relocated onto a visible icon.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.32.3 → 1.33.0 — dashboard polish: preset color swatches, expand-all ideas, header tooltips
 Three small UI improvements, all in `dashboard/server.js`, none touching any endpoint or data shape:
 - The background-color picker is now 10 curated light/bright preset swatches (cream, sky blue, mint,

@@ -130,7 +130,7 @@ deliberately *not* parallel).
   as the loop does, so the numbers match what the loop actually uses) **alongside the observed audited
   fraction from the ledger**, plus build/failure counts, a failure-kind health panel (which gate is
   actually catching things), the tier ladder, the policy knobs, and a recent-activity feed. Every column
-  header in the per-facet calibration table carries a hover tooltip explaining what it means.
+  header in the per-facet calibration table carries a small "?" icon explaining what it means on hover.
 
 Every tab also carries a live **"Now" strip**: whether the loop is running (from its own repo lock —
 including a ⚠ stale-lock warning after an interrupt), the current task/phase/rung/attempt from the loop's

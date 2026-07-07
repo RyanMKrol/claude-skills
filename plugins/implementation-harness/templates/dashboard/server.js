@@ -551,6 +551,8 @@ function renderPage() {
   .ftable th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600}
   .ftable td{padding:7px 10px;border-bottom:1px solid var(--border)} .ftable tr:last-child td{border-bottom:none}
   .ftable td.num,.ftable th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .qtip{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);font-size:9px;font-weight:700;line-height:1;cursor:help;text-transform:none;letter-spacing:normal;vertical-align:1px}
+  .qtip:hover{border-color:var(--accent);color:var(--accent)}
   .facet-name{font-weight:600}
   .model-tag{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   .cold-tag{font-size:10px;color:var(--muted);margin-left:5px}
@@ -775,14 +777,14 @@ function renderHarness(data) {
     h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
   } else {
     h += '<table class="ftable"><thead><tr>'
-       + '<th title="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">Facet</th>'
-       + '<th title="The model/effort the policy would pick to START a task in this cell right now (it only escalates from here on real failure). \\'cold\\' = no build history yet, using the cold-start prior.">Start model</th>'
-       + '<th class="num" title="The sampling probability the policy will use for the NEXT build in this cell">Audit (policy)</th>'
-       + '<th class="num" title="What actually happened: audited successes / all successes recorded in the ledger">Audited (observed)</th>'
-       + '<th class="num" title="Total tasks in this cell that reached a terminal outcome (success or blocked), per the outcomes ledger.">Builds</th>'
-       + '<th class="num" title="Successful builds in this cell that the owner did NOT overturn.">✓</th>'
-       + '<th class="num" title="Builds the owner overturned as a false success, or that the loop itself gave up on (blocked).">✗</th>'
-       + '<th class="num" title="Failed attempts recorded before a task in this cell eventually succeeded or was blocked — see Failure health below for a kind breakdown.">⚠ fails</th>'
+       + '<th>Facet <span class="qtip" title="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">?</span></th>'
+       + '<th>Start model <span class="qtip" title="The model/effort the policy would pick to START a task in this cell right now (it only escalates from here on real failure). \\'cold\\' = no build history yet, using the cold-start prior.">?</span></th>'
+       + '<th class="num">Audit (policy) <span class="qtip" title="The sampling probability the policy will use for the NEXT build in this cell">?</span></th>'
+       + '<th class="num">Audited (observed) <span class="qtip" title="What actually happened: audited successes / all successes recorded in the ledger">?</span></th>'
+       + '<th class="num">Builds <span class="qtip" title="Total tasks in this cell that reached a terminal outcome (success or blocked), per the outcomes ledger.">?</span></th>'
+       + '<th class="num">✓ <span class="qtip" title="Successful builds in this cell that the owner did NOT overturn.">?</span></th>'
+       + '<th class="num">✗ <span class="qtip" title="Builds the owner overturned as a false success, or that the loop itself gave up on (blocked).">?</span></th>'
+       + '<th class="num">⚠ fails <span class="qtip" title="Failed attempts recorded before a task in this cell eventually succeeded or was blocked — see Failure health below for a kind breakdown.">?</span></th>'
        + '</tr></thead><tbody>';
     for (const c of cells) {
       const model = c.chosenModel ? esc(c.chosenModel) + ' / ' + esc(c.chosenEffort) : '—';
