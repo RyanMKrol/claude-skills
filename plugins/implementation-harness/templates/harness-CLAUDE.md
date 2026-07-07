@@ -83,11 +83,12 @@ loop is for buildable tasks; gates are for you.
 
 ## Capturing & converting ideas
 
-Rough ideas go in `tracking/IDEAS.md` (a committed inbox) via the capture-idea skill — zero
-ceremony, no interview. The convert-ideas skill later turns a batch of them into real backlog tasks
-(one agent per idea → a single locked `scripts/consolidate-ideas.sh` pass that allocates ids, writes
-specs, and removes the converted bullets). Both are documented here so the flow surfaces at the
-authoring surface, not just in the README.
+Rough ideas go in `tracking/IDEAS.jsonl` (a committed inbox — JSONL, one `{id, title, description,
+capturedAt}` object per line) via the capture-idea skill — zero ceremony, no interview. The
+convert-ideas skill later turns a batch of them into real backlog tasks (one agent per idea → a
+single locked `scripts/consolidate-ideas.sh` pass that allocates ids, writes specs, and removes the
+converted rows). Both are documented here so the flow surfaces at the authoring surface, not just
+in the README.
 
 ## Operating the loop — the three operational skills
 

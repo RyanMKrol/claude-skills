@@ -168,6 +168,39 @@ After a standardize, the prose files are byte-identical to the reference — re-
 (stage 5) and note in the report that **future upgrades of these files are now clean ledger walks**, with
 the customizations living safely in `.harness/custom/`.
 
+## 1c. One-time data migration: `tracking/IDEAS.md` → `tracking/IDEAS.jsonl` (offer when detected)
+
+As of **1.31.0** the ideas inbox moved from a hand-edited markdown numbered-bullet list
+(`tracking/IDEAS.md`) to JSONL (`tracking/IDEAS.jsonl` — one `{id, title, description, capturedAt}`
+object per line). This is USER DATA (never silently rewritten), but it's a **breaking** rename the
+upgrade should proactively offer to carry out: as of this version nothing else reads the old file
+(`dashboard/server.js`, `capture-idea`, `convert-ideas` all expect the new one), so an un-migrated
+install's ideas pipeline is effectively stalled until it converts.
+
+- **Detect:** the target has `tracking/IDEAS.md` and does NOT yet have `tracking/IDEAS.jsonl` (or has
+  an empty/starter one). If it already has a real `IDEAS.jsonl` with content, flag both files and ask
+  which is authoritative — don't guess.
+- **Offer, don't force:** "Your ideas inbox is still the old `IDEAS.md` markdown format — as of 1.31.0
+  the harness reads `IDEAS.jsonl` instead, and the dashboard/ideas skills no longer see `IDEAS.md` at
+  all. I can convert your existing ideas now — nothing is lost, and I'll show you the result before
+  removing the old file. Convert now, or skip and I'll leave both alone?"
+- **On approval, convert:** read every numbered bullet under `IDEAS.md`'s `## Inbox` (reconstruct
+  wrapped continuation lines the same way `consolidate-ideas.mjs` used to). For each bullet, in its
+  existing order, write ONE line to `tracking/IDEAS.jsonl`:
+  ```json
+  {"id": 1, "title": "<a short one-line summary you draft from the bullet's opening>", "description": "<the full original bullet text, verbatim>", "capturedAt": null}
+  ```
+  `id`s are 1..N in bullet order (matches the old local-numbering scheme — ids are local to the
+  current inbox, not a permanent ledger, same as before). `capturedAt` is `null` since the old format
+  never recorded a capture date — that's an accepted field, not an error.
+- **Show the user the converted file's contents** before deleting anything. Only remove `IDEAS.md`
+  once they confirm the conversion looks right (or, if they'd rather review it first, leave `IDEAS.md`
+  in place and let them delete it later — either is fine, since only `IDEAS.jsonl` is ever read going
+  forward).
+- Stage this alongside the rest of the report (§3) — it doesn't need its own confirmation round if the
+  user is already walking the report, but keep it a distinct, explicit item (it's a format change to
+  user data, not a mechanism refresh).
+
 ## 2. Select the relevant migration entries
 
 From `$LEDGER`, take the entries whose version transition falls in `(CUR_VERSION, REF_VERSION]`. If the
@@ -212,13 +245,14 @@ For each file, classify:
 Also from the ledger: list any **renames/removals** (e.g. a doc renamed — the old path present in the
 target should be removed and the new one added) and any **breaking / MAJOR** items needing manual steps.
 
-**Never diff, list, or touch the pure user-data files:** `tracking/*` (TASKS.json, IDEAS.md,
+**Never diff, list, or touch the pure user-data files:** `tracking/*` (TASKS.json, IDEAS.jsonl,
 human-done/manual-fail/reviews.json), `tasks/*.md`, `worklog/*`, `ledgers/*.jsonl`, **`custom/*`** (the
 customization overlay — the user's own prose: never reconcile, diff-to-overwrite, or clobber an *existing*
 overlay file; the upgrade may only **add a missing overlay stub** from the reference — new-file scaffolding
 so an install predating the overlay gets a home for the pristine files' pointers — or **append** to it via
 the §1b standardize path), and the repo-root `CLAUDE.md`, `.gitignore`, `.github/workflows/ci.yml`, root
-`README.md`. These belong to the user.
+`README.md`. These belong to the user. (The one scoped exception is a leftover `tracking/IDEAS.md` from
+before 1.31.0 — handled by §1c's confirmed one-time conversion, not by this stage.)
 
 Emit a grouped report:
 - **Up to date:** N files.

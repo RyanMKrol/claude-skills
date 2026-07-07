@@ -12,7 +12,7 @@
 //         "specDo": "...", "specDoneWhen": "..." },
 //       ...
 //     ],
-//     "ideaBullets": ["<original bullet text from IDEAS.md, for fuzzy removal>", ...]
+//     "ideaIds": [<the id(s) from tracking/IDEAS.jsonl this unit set consumed>, ...]
 //   }
 //
 // Does, in order:
@@ -23,8 +23,8 @@
 //      as a dangling reference).
 //   3. Write each unit's tasks/TNNN.md spec file (## Do / ## Done when from specDo/specDoneWhen).
 //   4. Append the new task objects to TASKS.json (never touches existing tasks/status).
-//   5. Fuzzy-remove each processed idea's bullets from tracking/IDEAS.md (exact → prefix →
-//      substring fallback, since captured idea text won't byte-match hand-wrapped markdown).
+//   5. Remove each processed idea's row from tracking/IDEAS.jsonl by `id` (an id with no matching
+//      row is a no-op — e.g. review-failed units, which have no real idea id at all).
 //
 // Idempotent: only ever processes whatever .pending-tasks/*.json files exist right now; the
 // wrapper script (consolidate-ideas.sh) deletes them after a successful commit.
@@ -36,7 +36,7 @@ import path from 'node:path';
 const HARNESS_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
 const ROOT = path.join(HARNESS_DIR, '..');
 const TASKS_PATH = path.join(HARNESS_DIR, 'tracking', 'TASKS.json');
-const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.md');
+const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.jsonl');
 const PENDING_DIR = path.join(HARNESS_DIR, '.pending-tasks');
 const TASKS_DIR = path.join(HARNESS_DIR, 'tasks');
 
@@ -58,67 +58,19 @@ function nextIdSequence(existingIds, count) {
   return out;
 }
 
-function normalizeForMatch(text) {
-  // Strip a leading bullet marker + backticks, so the stored bullet (no marker, no backticks) matches
-  // a wrapped file bullet reconstructed from its lines.
-  return text
-    .replace(/^\s*([-*]|\d+\.)\s+/, '')
-    .replace(/`/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-const isBulletStart = (l) => /^\s*([-*]|\d+\.)\s+/.test(l);
-const isHeading = (l) => /^\s*#{1,6}\s+/.test(l);
-
-// Bounds [lo, hi) of the "## Inbox" section, so bullet removal only ever touches the inbox and can't
-// splice a matching line out of a heading or a done/archive section. No explicit Inbox → whole file.
-function inboxBounds(lines) {
-  const start = lines.findIndex((l) => /^\s*##\s+Inbox\b/i.test(l));
-  if (start === -1) return [0, lines.length];
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^\s*##\s+/.test(lines[i])) { end = i; break; }
-  }
-  return [start + 1, end];
-}
-
-// Reconstruct the inbox's LOGICAL bullets: each is a bullet-start line plus its wrapped continuation
-// lines (not a new bullet / heading / blank), joined and normalized. So a bullet that wraps across
-// lines matches its single-line stored form.
-function inboxBullets(lines) {
-  const [lo, hi] = inboxBounds(lines);
-  const bullets = [];
-  for (let i = lo; i < hi; i++) {
-    if (!isBulletStart(lines[i])) continue;
-    let end = i + 1;
-    while (end < hi && !isBulletStart(lines[end]) && !isHeading(lines[end]) && lines[end].trim() !== '') end++;
-    bullets.push({ start: i, end, text: normalizeForMatch(lines.slice(i, end).join(' ')) });
-    i = end - 1;
-  }
-  return bullets;
-}
-
-// Fuzzy-remove a bullet from IDEAS.md's Inbox: exact → prefix → substring (either direction), matched
-// against reconstructed logical bullets; removes the WHOLE span (bullet line + wrapped continuations).
-// Warns (doesn't throw) if nothing matches — the bullet may already be hand-edited/removed.
-function removeIdeaBullet(ideasText, bullet) {
+// removeIdeaRows(ideasText, ids) — drop every JSONL row whose `id` is in `ids` (a Set). A garbled
+// line is preserved as-is (not our job to fix it here); an id with no matching row is simply a
+// no-op (e.g. review-failed's units, which never had a real idea id).
+function removeIdeaRows(ideasText, ids) {
+  if (!ideasText) return ideasText;
   const lines = ideasText.split('\n');
-  const bullets = inboxBullets(lines);
-  const target = normalizeForMatch(bullet);
-  const targetPrefix = target.slice(0, 200);
-
-  let b = bullets.find((x) => x.text === target);
-  if (!b) b = bullets.find((x) => targetPrefix.length > 20 && x.text.startsWith(targetPrefix));
-  if (!b) b = bullets.find((x) => target.length > 20 && x.text.includes(target.slice(0, 80)));
-  if (!b) b = bullets.find((x) => x.text.length > 20 && target.includes(x.text.slice(0, 80)));
-  if (!b) {
-    console.warn(`WARN: could not find idea bullet to remove (already edited?): ${bullet.slice(0, 60)}...`);
-    return ideasText;
-  }
-  lines.splice(b.start, b.end - b.start);
-  return lines.join('\n');
+  const kept = lines.filter((line) => {
+    if (!line.trim()) return false;   // drop blank lines while we're rewriting anyway
+    let row;
+    try { row = JSON.parse(line); } catch (_err) { return true; }   // keep unparseable lines untouched
+    return !(row && ids.has(row.id));
+  });
+  return kept.length ? kept.join('\n') + '\n' : '';
 }
 
 function main() {
@@ -136,11 +88,11 @@ function main() {
   const existingIds = new Set(tasksDoc.tasks.map((t) => t.id));
 
   const allUnits = [];
-  const allBullets = [];
+  const allIdeaIds = new Set();
   for (const f of files) {
     const parsed = readJson(path.join(PENDING_DIR, f));
     for (const unit of parsed.units || []) allUnits.push(unit);
-    for (const bullet of parsed.ideaBullets || []) allBullets.push(bullet);
+    for (const id of parsed.ideaIds || []) allIdeaIds.add(id);
   }
   if (!allUnits.length) {
     console.log('consolidate-ideas: pending files had no units — nothing to do');
@@ -212,10 +164,9 @@ function main() {
   tasksDoc.tasks.push(...newTasks);
   fs.writeFileSync(TASKS_PATH, JSON.stringify(tasksDoc, null, 2) + '\n');
 
-  if (fs.existsSync(IDEAS_PATH)) {
-    let ideasText = fs.readFileSync(IDEAS_PATH, 'utf8');
-    for (const bullet of allBullets) ideasText = removeIdeaBullet(ideasText, bullet);
-    fs.writeFileSync(IDEAS_PATH, ideasText);
+  if (allIdeaIds.size && fs.existsSync(IDEAS_PATH)) {
+    const ideasText = fs.readFileSync(IDEAS_PATH, 'utf8');
+    fs.writeFileSync(IDEAS_PATH, removeIdeaRows(ideasText, allIdeaIds));
   }
 
   console.log(`consolidate-ideas: added ${newTasks.length} task(s): ${newTasks.map((t) => t.id).join(', ')}`);

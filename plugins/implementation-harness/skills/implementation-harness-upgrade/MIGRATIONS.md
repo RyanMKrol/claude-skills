@@ -32,6 +32,39 @@ Entry format:
 
 ---
 
+## 1.30.0 → 1.31.0 — ideas inbox: Markdown → JSONL (title/description fields, dashboard cards)
+The ideas inbox was a hand-edited markdown numbered-bullet list, matched by ~60 lines of fuzzy
+bullet-text normalization in `consolidate-ideas.mjs`, and rendered on the dashboard's Ideas tab as one
+long markdown blob (hard to tell where one idea ends and the next begins). Moves it to
+`tracking/IDEAS.jsonl` — one `{id, title, description, capturedAt}` JSON object per line, matching the
+harness's existing ledger convention (`outcomes.jsonl`/`failures.jsonl`) — so ideas are addressed by a
+real `id` instead of fuzzy text matching, and the dashboard renders a collapsed one-line-per-idea list
+that expands to the full (still markdown-rendered) description.
+- mechanism: `dashboard/lib.js` — new `ideasFromJsonl(text)` (parses via the existing `parseJsonl()`,
+  renders each row's `description` through the existing `mdToHtml()`, sorts ascending by `id`);
+  `dashboard/server.js` — `GET /api/ideas` now returns `{ideas: [...], empty}` instead of one
+  pre-rendered HTML blob; the Ideas tab renders a collapsed id+title+captured-date row per idea
+  (reusing the backlog's taskrow/expand pattern) that expands to the rendered description.
+  `dashboard/lib.test.js` covers the new parser (garbled/id-less rows dropped, sort order, markdown
+  rendering).
+- mechanism: `scripts/consolidate-ideas.mjs` — the fuzzy bullet-text matcher (`normalizeForMatch`,
+  `inboxBounds`, `inboxBullets`, `removeIdeaBullet`) is GONE, replaced by a plain `id`-based filter over
+  `IDEAS.jsonl` rows. The pending-tasks file shape changes: `"ideaBullets": [<raw bullet text>, ...]` →
+  `"ideaIds": [<id>, ...]`. `review-failed`'s synthetic-bullet workaround (a `<TNNN>: <title>` string
+  that never matched anything, logging an expected-harmless warning) is gone too — it now simply omits
+  `ideaIds`, and consolidation does nothing idea-side for a review-derived unit, no warning.
+- renamed/removed: `tracking/IDEAS.md` → `tracking/IDEAS.jsonl` (format changed, not just the
+  extension). Fresh installs (`create`) get the new empty `IDEAS.jsonl` starter automatically.
+- config: none.
+- manual attention: an EXISTING install's `tracking/IDEAS.md` is user data — the upgrade never
+  silently rewrites it. The upgrade skill's new **§1c** offers a one-time, confirmed conversion: read
+  every numbered bullet, write one JSON object per idea (`id` in bullet order, a drafted one-line
+  `title`, the full bullet as `description`, `capturedAt: null`), show the result, and remove
+  `IDEAS.md` only once the user confirms.
+- breaking: **yes** — as of this version nothing reads `tracking/IDEAS.md` any more (dashboard,
+  `capture-idea`, `convert-ideas` all expect `IDEAS.jsonl`). An existing install's ideas pipeline is
+  effectively paused until it runs the upgrade's §1c conversion (or hand-converts).
+
 ## 1.29.0 → 1.30.0 — dashboard project title (custom/) + client-side background color picker
 Multiple projects (or multiple harness-driven repos) running the dashboard look identical, making tabs hard
 to tell apart. Adds an opt-in `custom/` overlay for a short project label shown in the header + browser tab,

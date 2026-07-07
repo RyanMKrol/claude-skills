@@ -178,7 +178,7 @@ cp -p "$TPL/harness-CLAUDE.md" "$H/CLAUDE.md"          # .harness/CLAUDE.md — 
 cp -p "$TPL/README.md" "$H/README.md"                  # .harness/README.md — the harness's own quick-start explainer (distinct from the repo-root README.md written in §5)
 cp -pR "$TPL/custom/." "$H/custom/"                    # customization overlay tree (mirrors the prose files; upgrades NEVER touch it — all project-specific prose edits go here, not in the pristine files)
 cp -p "$TPL/tracking/human-done.json" "$TPL/tracking/manual-fail.json" "$TPL/tracking/reviews.json" "$H/tracking/"   # owner-overlay files (loop reads, owner tooling writes) — seed empty
-cp -p "$TPL/tracking/IDEAS.md" "$H/tracking/IDEAS.md"   # committed ideas inbox — see implementation-harness-capture-idea / -convert-ideas
+cp -p "$TPL/tracking/IDEAS.jsonl" "$H/tracking/IDEAS.jsonl"   # committed ideas inbox — JSONL, one {id,title,description,capturedAt} object per line — see implementation-harness-capture-idea / -convert-ideas
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 : >"$H/ledgers/outcomes.jsonl"; : >"$H/ledgers/failures.jsonl"   # seed empty, committed ledgers (calibration input; diagnostics)
 chmod +x "$H/scripts/"*.sh
@@ -273,7 +273,7 @@ node --check "$T/.harness/dashboard/lib.js" 2>/dev/null || echo "FAIL: dashboard
 node "$T/.harness/dashboard/lib.test.js" >/dev/null 2>&1 || echo "FAIL: dashboard/lib.test.js failed"
 node --check "$T/.harness/scripts/consolidate-ideas.mjs" 2>/dev/null || echo "FAIL: consolidate-ideas.mjs has a syntax error"
 grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-questions' "$T/.gitignore" || echo "WARN: ideas-pipeline scratch not git-ignored"
-[ -f "$T/.harness/tracking/IDEAS.md" ] || echo "WARN: tracking/IDEAS.md inbox missing (should be a committed starter)"
+[ -f "$T/.harness/tracking/IDEAS.jsonl" ] || echo "WARN: tracking/IDEAS.jsonl inbox missing (should be a committed starter)"
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
 for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done

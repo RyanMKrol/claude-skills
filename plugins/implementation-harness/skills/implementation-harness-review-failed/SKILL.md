@@ -7,7 +7,7 @@ description: >-
   with status "failed" (owner overturned a false success) or "blocked" (the loop gave up), one
   investigation sub-agent per task in parallel, then a single locked consolidation pass that
   authors the follow-ups. Reuses the ideas-pipeline machinery (consolidate-ideas.sh + the
-  pending-tasks / pending-questions relay); never touches IDEAS.md. Requires the harness scaffolded.
+  pending-tasks / pending-questions relay); never touches IDEAS.jsonl. Requires the harness scaffolded.
 argument-hint: "[optional: a single task id, e.g. T042 — omit for a full sweep]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage
 ---
@@ -28,7 +28,7 @@ the COORDINATOR: you build the worklist and do the final consolidation; you dele
 investigate-and-shape work to one sub-agent per task, running concurrently. It **reuses the exact same
 pending-tasks / consolidation machinery as `implementation-harness-convert-ideas`** (each agent writes
 only its own `.harness/.pending-tasks/<slug>.json`; `scripts/consolidate-ideas.sh` does the id
-allocation, spec writing, `TASKS.json` merge, and single commit+push). It **never touches `IDEAS.md`**.
+allocation, spec writing, `TASKS.json` merge, and single commit+push). It **never touches `IDEAS.jsonl`**.
 Read this whole file, then execute in order.
 
 ## Stage 0 — recovery check (before anything else)
@@ -67,7 +67,7 @@ there is nothing to contend over).
 
 For each task, launch a **general-purpose** agent (send all the Agent calls in a single message so they
 run concurrently). Each agent investigates one task and writes ONLY to its own scratch file — it does
-NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `IDEAS.md`, or git.
+NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `IDEAS.jsonl`, or git.
 
 **Agent prompt template** (fill in `<TNNN>`, `<STATUS>`, and `<SLUG>` — a short kebab-case tag like
 `review-t042`):
@@ -130,8 +130,7 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >       "specDo": "The corrected work — incorporate the actual lesson (see below), not a restatement of the original spec.",
 >       "specDoneWhen": "The task-specific, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green)."
 >     }
->   ],
->   "ideaBullets": ["<TNNN>: <original title>"]
+>   ]
 > }
 > ```
 > Read `.harness/config/facets.json` (`jq '.facets'`) for the controlled facet vocabulary; pick the
@@ -148,9 +147,9 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > - **Do NOT set `dependsOn` to the original failed/blocked task** — it's terminal, nothing should wait
 >   on it. Traceability lives in the `specOverview` (which names the re-attempt). Atomise into multiple
 >   units if the review surfaces more than one separable follow-up.
-> - `needs-human` units omit `facets` entirely. `ideaBullets` is `["<TNNN>: <original title>"]` — a
->   synthetic string (review agents have no real idea bullet) that keeps the file byte-compatible with
->   the consolidation script; it will not match anything in `IDEAS.md` (that's expected — see Stage 3).
+> - `needs-human` units omit `facets` entirely. Omit `ideaIds` entirely too — a review-derived
+>   follow-up has no real idea in `IDEAS.jsonl` to remove; the consolidation script simply does
+>   nothing idea-side for a unit set with no `ideaIds` (see Stage 3).
 >
 > **4b. Confirm the definition of done with the owner (mandatory for every follow-up you author).** Also
 > write `.harness/.pending-questions/<SLUG>.json` — the DoD question *confirms* the `specDoneWhen` you
@@ -190,10 +189,9 @@ bash .harness/scripts/consolidate-ideas.sh      # NO_PUSH=1 … to commit locall
 ```
 
 It allocates real task ids, resolves `tempId` references, writes each unit's `tasks/TNNN.md` spec,
-appends the tasks to `TASKS.json`, and commits + pushes under the repo lock. **Expected harmless log
-line:** for each review-derived unit, the script tries to fuzzy-remove a matching bullet from
-`IDEAS.md`; the synthetic `<TNNN>: <title>` `ideaBullets` string never matches, so it logs a "could not
-find idea bullet" warning per unit. That is NOT a problem — do not go "clean up" a phantom bullet.
+appends the tasks to `TASKS.json`, and commits + pushes under the repo lock. Since a review-derived
+unit set carries no `ideaIds` (Stage 2 step 4), the script's `IDEAS.jsonl` cleanup is simply a no-op
+for these units — no warning, nothing to "clean up."
 
 ## Stage 4 — validate + report
 

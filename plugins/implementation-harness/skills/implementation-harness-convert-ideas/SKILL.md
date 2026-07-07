@@ -1,12 +1,12 @@
 ---
 name: implementation-harness-convert-ideas
 description: >-
-  Use when the user wants to process the ideas inbox (.harness/tracking/IDEAS.md) into real
+  Use when the user wants to process the ideas inbox (.harness/tracking/IDEAS.jsonl) into real
   TASKS.json backlog tasks — phrases like "convert the ideas", "process the ideas inbox", "turn
   the ideas into tasks", "/convert-ideas". Sweeps the WHOLE inbox at once: dedupes near-duplicate
   ideas, converts each idea (or cluster) in PARALLEL via one sub-agent each, relays any genuine
   open questions back through a real AskUserQuestion, then runs a single locked consolidation pass
-  that allocates real task ids, writes per-task specs, and removes converted bullets from the
+  that allocates real task ids, writes per-task specs, and removes converted ideas from the
   inbox. Requires the implementation harness to already be scaffolded.
 argument-hint: "[optional: only convert idea #N, or a keyword filter]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage
@@ -53,34 +53,37 @@ whole file, then execute in order.
     `AskUserQuestion` now (§4's format — summarize each idea's `ideaSummary` first, then batch its
     `questions`), then fold the answers into that idea's `.pending-tasks/<slug>.json` (resume its agent,
     or edit the file yourself) before consolidating.
-  - **Stale already-converted bullets.** A prior sweep may have consolidated tasks but died before its
-    bullet-removal committed, leaving an inbox bullet whose task already exists. Skim
+  - **Stale already-converted ideas.** A prior sweep may have consolidated tasks but died before its
+    idea-removal committed, leaving an inbox row whose task already exists. Skim
     `git log --oneline -15` for recent `consolidate-ideas`/backlog commits and the ~10 most recent
-    `TASKS.json` task titles; if an inbox bullet looks like it already became a task, **surface it to
-    the owner** (name the bullet + the matching task id) and only remove it if they confirm — never
-    silently delete a bullet you're merely guessing was converted.
+    `TASKS.json` task titles; if an inbox idea looks like it already became a task, **surface it to
+    the owner** (name the idea + the matching task id) and only remove it if they confirm — never
+    silently delete a row you're merely guessing was converted.
   - If all of the above are clear, proceed normally.
 
 ## 1. Read the inbox
 
-Read `.harness/tracking/IDEAS.md`. Extract every numbered bullet under `## Inbox`. If the user's
-argument names a specific idea number or a keyword, filter to matching bullets; otherwise process
-the whole inbox. If the inbox is empty, say so and stop.
+Read `.harness/tracking/IDEAS.jsonl` — one JSON object per line, `{id, title, description,
+capturedAt}`. Parse every line (skip a garbled one — flag it to the owner rather than silently
+dropping their idea). If the user's argument names a specific idea id or a keyword, filter to
+matching ideas (match the keyword against `title` and `description`); otherwise process the whole
+inbox. If the inbox is empty, say so and stop.
 
 ## 2. Dedup + cluster pass (you do this, not an agent)
 
 Two distinct sub-passes, both by reading (cheap — no agents):
 
-**2a. Dedup — ask, don't auto-merge.** Find bullets that are genuinely the *same idea described twice*
-(near-identical intent, not merely related). Group each set of suspected duplicates and **surface it to
-the owner via `AskUserQuestion`** — ask whether to merge them into one, keep the clearer one, or treat
-them separately. **Do NOT silently collapse them yourself** — a semantic near-match may be two real,
-distinct asks, and only the owner knows. Apply their decision before clustering.
+**2a. Dedup — ask, don't auto-merge.** Find ideas that are genuinely the *same idea described twice*
+(near-identical intent, not merely related) — compare `title` and `description`. Group each set of
+suspected duplicates and **surface it to the owner via `AskUserQuestion`** — ask whether to merge them
+into one, keep the clearer one, or treat them separately. **Do NOT silently collapse them yourself** —
+a semantic near-match may be two real, distinct asks, and only the owner knows. Apply their decision
+before clustering.
 
 **2b. Cluster — group by shared answer-space.** Of the survivors, group any that share the **same
 underlying feature or code area** — ideas that would require exploring the same code and would produce
 overlapping or dependent tasks — into ONE cluster handled by ONE agent (so it doesn't duplicate
-exploration or emit conflicting task sets). Bullets with no overlap each become their own singleton
+exploration or emit conflicting task sets). Ideas with no overlap each become their own singleton
 cluster. Clustering is a scheduling choice (one agent vs many), not a merge — it doesn't drop any idea.
 
 ## 3. Fan out — one agent per idea/cluster, in parallel
@@ -90,13 +93,15 @@ message so they run concurrently). Each agent gets its own idea/cluster text and
 own scratch file — zero lock contention between agents, since none of them touch git or
 `TASKS.json` directly.
 
-**Agent prompt template** (fill in `<IDEA TEXT>` and `<SLUG>`, a short kebab-case tag for this
-idea/cluster used in its scratch filenames):
+**Agent prompt template** (fill in `<IDEA(S)>` — each idea's `id`, `title`, and full `description`
+verbatim from `IDEAS.jsonl` (a cluster gets more than one), and `<SLUG>`, a short kebab-case tag for
+this idea/cluster used in its scratch filenames):
 
 > You are converting a raw idea into implementation-harness backlog tasks for this repo. Read this
 > whole prompt, then act.
 >
-> **The idea:** <IDEA TEXT>
+> **The idea(s):**
+> <IDEA(S) — for each: "id: N — title: <title>" then the full description text>
 >
 > **Your job:**
 > 1. Explore the codebase enough to decompose this into atomic, dependency-ordered task units. Cite
@@ -137,7 +142,7 @@ idea/cluster used in its scratch filenames):
 >      decisions as further questions.
 >    - Write `.harness/.pending-questions/<SLUG>.json`:
 >      ```json
->      { "slug": "<SLUG>", "ideaText": "<IDEA TEXT>",
+>      { "slug": "<SLUG>", "ideaIds": [<the id(s) of the idea(s) in this cluster>],
 >        "ideaSummary": "ONE short plain-language paragraph — what this idea is, why, and what will change; the coordinator shows it to the owner BEFORE the questions so they know which idea is being discussed.",
 >        "context": "<what you've found so far>",
 >        "questions": [
@@ -146,7 +151,7 @@ idea/cluster used in its scratch filenames):
 >        ] }
 >      ```
 >      `questions` MUST hold ≥1 entry and ≥1 with `topic: "definition-of-done"`. The file's
->      `ideaSummary`/`ideaText` label which idea every question belongs to (several agents relay concurrently).
+>      `ideaSummary`/`ideaIds` label which idea every question belongs to (several agents relay concurrently).
 >    - **Always write BOTH files.** Also write your best-draft `.pending-tasks/<SLUG>.json` (step 6): the
 >      DoD question *confirms* the bar you drafted, so shape the task fully and let the owner adjust it —
 >      don't block. Hold a unit OUT of pending-tasks only when it is genuinely un-shapeable until a
@@ -155,8 +160,8 @@ idea/cluster used in its scratch filenames):
 >      question — nothing is being built; just record why in `report`.
 > 6. If you conclude **no task is actually warranted** (the idea is already done, is a non-issue, or on
 >    investigation doesn't hold up), still write `.harness/.pending-tasks/<SLUG>.json` but with
->    `"units": []`, a `"report"` explaining why, AND the `ideaBullets` — so consolidation removes the
->    converted bullet from the inbox (the report is the record of why nothing was authored).
+>    `"units": []`, a `"report"` explaining why, AND the `ideaIds` — so consolidation removes the
+>    converted idea(s) from the inbox (the report is the record of why nothing was authored).
 >    Otherwise, write `.harness/.pending-tasks/<SLUG>.json` with the shaped units:
 >    ```json
 >    {
@@ -172,7 +177,7 @@ idea/cluster used in its scratch filenames):
 >          "specDoneWhen": "The task-specific, concrete, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green) — that's already covered once, globally."
 >        }
 >      ],
->      "ideaBullets": ["<the exact original bullet text from IDEAS.md, for fuzzy removal>"],
+>      "ideaIds": [<the id(s), from IDEAS.jsonl, of every idea this unit set consumed>],
 >      "report": "optional: any judgment calls you made, or why no task was warranted (units: [])."
 >    }
 >    ```
@@ -203,7 +208,7 @@ relay runs on essentially every sweep. Read them all, then:
   pending-questions file is drained.
 - **If the owner defers or declines the idea entirely**, delete BOTH its `.pending-questions/<slug>.json`
   AND its draft `.pending-tasks/<slug>.json` — with no pending-tasks entry, consolidation won't touch its
-  bullet, so the idea simply **stays in the inbox** for a future sweep (nothing authored, nothing removed).
+  row, so the idea simply **stays in the inbox** for a future sweep (nothing authored, nothing removed).
 
 ## 5. Consolidate
 
@@ -211,7 +216,7 @@ Run `.harness/scripts/consolidate-ideas.sh`. This is the ONLY step that touches 
 the harness's repo lock (waiting if the loop currently holds it, rather than failing), allocates
 real sequential task ids, resolves every `tempId` reference (dropping and logging any that don't
 resolve), writes each unit's `tasks/TNNN.md` spec, appends the new task objects to `TASKS.json`,
-fuzzy-removes the converted bullets from `IDEAS.md`, and commits + pushes. Read its output.
+removes the converted ideas from `IDEAS.jsonl` by `id`, and commits + pushes. Read its output.
 
 ## 6. Validate
 
@@ -222,7 +227,7 @@ Before reporting, confirm consolidation left the backlog sound (catches a corrup
   vocabulary; every `needs-human` task has none.
 - Every new task's `spec` path exists on disk with non-empty `## Do` / `## Done when`.
 - `.harness/.pending-tasks/` and `.harness/.pending-questions/` are empty (no straggler left un-consolidated).
-- Converted bullets are gone from `IDEAS.md`; ideas you deferred/declined are still there.
+- Converted ideas are gone from `IDEAS.jsonl`; ideas you deferred/declined are still there.
 
 If any check fails, fix it (or flag it) before the report — don't report success over a broken backlog.
 

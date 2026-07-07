@@ -68,7 +68,7 @@ deliberately *not* parallel).
 | `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
 | `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
 | `tracking/TASKS.json` | The backlog: schema + example tasks (replace with your own). |
-| `tracking/IDEAS.md` | Committed ideas inbox — see below. |
+| `tracking/IDEAS.jsonl` | Committed ideas inbox (JSONL: one `{id,title,description,capturedAt}` object per line) — see below. |
 | `tracking/human-done.json` / `manual-fail.json` / `reviews.json` | Owner-overlay files — see `docs/designs/manual-fail-signal.md`. |
 | `ledgers/outcomes.jsonl` | One terminal row per built task — the sole input to difficulty calibration. |
 | `ledgers/failures.jsonl` | One row per failed attempt — diagnostics only, never read by calibration. |
@@ -121,7 +121,9 @@ deliberately *not* parallel).
 
 - **Backlog** — the live task buckets (ready / waiting / needs-you / done) with per-task detail (spec,
   worklog, audit log) and buttons that call the same `mark-*.sh` scripts a human would run by hand.
-- **Ideas** — `tracking/IDEAS.md` rendered as markdown, so the inbox is visible without opening the file.
+- **Ideas** — `tracking/IDEAS.jsonl` rendered as a one-line-per-idea list (id, title, captured date);
+  click a row to expand its full description (rendered markdown), so the inbox is scannable without
+  opening the file or wading through every idea's full text at once.
 - **Internals** — the harness's own calibration, per `layer × work-type` facet cell: the model/effort it
   would pick and the audit rate the policy will use next (computed by invoking `scripts/policy.jq` exactly
   as the loop does, so the numbers match what the loop actually uses) **alongside the observed audited
@@ -151,13 +153,15 @@ HARNESS_DASHBOARD_PORT=5000 node dashboard/server.js   # different port
 ## Ideas → tasks pipeline (optional)
 
 A two-step flow for turning raw ideas into backlog tasks without interrupting whatever you're
-doing: capture now, convert later, in a batch. `tracking/IDEAS.md` is a committed, zero-ceremony
-inbox — append a bullet any time (via the `implementation-harness-capture-idea` skill, or by hand).
-When you're ready, `implementation-harness-convert-ideas` sweeps the whole inbox at once: it dedupes
-related ideas, converts each one (or cluster) in parallel via its own sub-agent, relays any genuine
-open question back to you in one batch, then runs `scripts/consolidate-ideas.sh` — the single
-locked pass that allocates real task ids, writes each task's spec, appends to `TASKS.json`, and
-removes the converted bullets.
+doing: capture now, convert later, in a batch. `tracking/IDEAS.jsonl` is a committed, zero-ceremony
+inbox — one JSON object per line, `{ "id": 1, "title": "...", "description": "...", "capturedAt":
+"..." }` — append a row any time (via the `implementation-harness-capture-idea` skill, or by hand;
+`id` is the next integer after the highest one currently in the file, local to the current inbox
+contents, not a permanent ledger). When you're ready, `implementation-harness-convert-ideas` sweeps
+the whole inbox at once: it dedupes related ideas, converts each one (or cluster) in parallel via
+its own sub-agent, relays any genuine open question back to you in one batch, then runs
+`scripts/consolidate-ideas.sh` — the single locked pass that allocates real task ids, writes each
+task's spec, appends to `TASKS.json`, and removes the converted rows.
 
 ## Visual verification (optional)
 

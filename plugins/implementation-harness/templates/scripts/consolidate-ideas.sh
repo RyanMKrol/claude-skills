@@ -41,7 +41,7 @@ node "$SCRIPT_DIR/consolidate-ideas.mjs"
 # are preserved for a retry) rather than committing+pushing a broken TASKS.json that would break the loop.
 jq empty "$HARNESS_DIR/tracking/TASKS.json" 2>/dev/null || { echo "ABORT: consolidate produced invalid TASKS.json — not committing (pending files kept)." >&2; exit 1; }
 
-git -C "$ROOT" add "$HARNESS_DIR/tracking/TASKS.json" "$HARNESS_DIR/tracking/IDEAS.md" "$HARNESS_DIR/tasks" 2>/dev/null || true
+git -C "$ROOT" add "$HARNESS_DIR/tracking/TASKS.json" "$HARNESS_DIR/tracking/IDEAS.jsonl" "$HARNESS_DIR/tasks" 2>/dev/null || true
 if git -C "$ROOT" commit -q --no-gpg-sign -m "consolidate-ideas: apply pending task conversions [skip ci]" 2>/dev/null; then
   # Reuse the shared push-with-retry (fetch+rebase between attempts) so a moved origin/main doesn't
   # lose the conversion to a single failed push, matching the mark-*.sh resilience.

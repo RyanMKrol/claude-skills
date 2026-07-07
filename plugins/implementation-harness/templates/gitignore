@@ -19,7 +19,7 @@
 .harness/tracking/*.tmp
 .harness/tracking/*.tmp.*
 
-# harness: ideas->tasks pipeline — ephemeral per-sweep scratch (the IDEAS.md inbox itself IS
+# harness: ideas->tasks pipeline — ephemeral per-sweep scratch (the IDEAS.jsonl inbox itself IS
 # committed, so the inbox travels with the repo; the per-agent scratch dirs are ignored ENTIRELY —
 # not just *.json — so a stray .md / .tmp / any incidental file an agent drops there can never be
 # committed. The committed .gitkeep keeps each dir present in a fresh clone.

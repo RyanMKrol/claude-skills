@@ -15,7 +15,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
-const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, mdToHtml } = require('./lib');
+const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, ideasFromJsonl } = require('./lib');
 
 const HARNESS_DIR = path.join(__dirname, '..');
 const ROOT = path.join(HARNESS_DIR, '..');
@@ -28,7 +28,7 @@ const OVERLAY_PATHS = {
 const WORKLOG_DIR = path.join(HARNESS_DIR, 'worklog');
 const LEDGERS_DIR = path.join(HARNESS_DIR, 'ledgers');
 const SCRIPTS_DIR = path.join(HARNESS_DIR, 'scripts');
-const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.md');
+const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.jsonl');
 const FACETS_PATH = path.join(HARNESS_DIR, 'config', 'facets.json');
 const HARNESS_ENV_PATH = path.join(HARNESS_DIR, 'config', 'harness.env');
 const DASHBOARD_TITLE_PATH = path.join(HARNESS_DIR, 'custom', 'dashboard-title.txt');
@@ -385,8 +385,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/ideas') {
-      const html = mdToHtml(readText(IDEAS_PATH) || '');
-      return sendJson(res, 200, { html, empty: html.trim() === '' });
+      const ideas = ideasFromJsonl(readText(IDEAS_PATH));
+      return sendJson(res, 200, { ideas, empty: ideas.length === 0 });
     }
 
     if (req.method === 'GET' && url.pathname === '/api/harness') {
@@ -484,6 +484,7 @@ function renderPage() {
   .expand{padding:12px 16px 14px;margin:0 0 8px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-size:13px;}
   .expand pre{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:8px;max-height:300px;overflow:auto;font-size:12px;}
   .expand details{margin-top:8px} .expand summary{color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
+  .expand .md-body{background:none;border:none;padding:0}
   .dep-link{font-family:ui-monospace,Menlo,monospace;color:var(--accent);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
   .kv{font-size:12px;color:var(--muted);margin-bottom:6px}
 
@@ -578,7 +579,8 @@ function renderPage() {
   <div id="sections"></div>
 </div>
 <div id="view-ideas" class="view" hidden>
-  <div id="ideas-md" class="md-body"></div>
+  <p class="sub" id="ideas-summary"></p>
+  <div id="ideas-md"></div>
 </div>
 <div id="view-harness" class="view" hidden>
   <div id="harness-body"></div>
@@ -586,7 +588,7 @@ function renderPage() {
 </div>
 <script>
 const HARNESS_PROJECT_KEY = ${JSON.stringify(NAME)};
-const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: false };
+const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, openIdeas: new Set(), lastIdeasData: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: false };
 
 function switchView(name) {
   state.activeView = name;
@@ -683,12 +685,43 @@ async function refreshHarness() {
 }
 
 function renderIdeas(data) {
+  state.lastIdeasData = data;   // cache so toggling a row re-renders without a refetch
   const el = document.getElementById('ideas-md');
-  if (data.empty) {
+  const ideas = data.ideas || [];
+  document.getElementById('ideas-summary').innerHTML = ideas.length
+    ? esc(String(ideas.length)) + ' idea(s) in <span class="mono">.harness/tracking/IDEAS.jsonl</span> — click one to expand.'
+    : '';
+  if (!ideas.length) {
     el.innerHTML = '<p class="note">No ideas captured yet — add one with <span class="mono">/implementation-harness-capture-idea</span>, then sweep them into tasks with <span class="mono">/implementation-harness-convert-ideas</span>.</p>';
     return;
   }
-  el.innerHTML = data.html;   // server-rendered by lib.js mdToHtml (HTML-escaped first → XSS-safe)
+  el.innerHTML = '<div class="panel">' + ideas.map(renderIdea).join('') + '</div>';
+}
+
+// renderIdea(idea) — one collapsed one-line row (id + title + captured date) by default; expands to
+// the full description (server-rendered markdown, XSS-safe by construction — see lib.js mdToHtml).
+// Mirrors the backlog's taskrow/expand pattern so both tabs read as one design language.
+function renderIdea(idea) {
+  const key = 'idea-' + idea.id;
+  const open = state.openIdeas.has(key);
+  const when = idea.capturedAt ? '<span class="pill">' + esc(String(idea.capturedAt).slice(0, 10)) + '</span>' : '';
+  const detail = open
+    ? '<div class="expand" onclick="event.stopPropagation()"><div class="md-body">' + idea.descriptionHtml + '</div></div>'
+    : '';
+  return '<div class="taskrow" id="' + key + '">'
+    + '<div class="row" onclick="toggleIdea(\'' + key + '\')">'
+    + '<span class="caret">' + (open ? '▾' : '▸') + '</span>'
+    + '<span class="tid mono">#' + esc(String(idea.id)) + '</span>'
+    + '<span class="title">' + esc(idea.title) + '</span>'
+    + when
+    + '</div>'
+    + detail
+    + '</div>';
+}
+
+function toggleIdea(key) {
+  state.openIdeas.has(key) ? state.openIdeas.delete(key) : state.openIdeas.add(key);
+  if (state.lastIdeasData) renderIdeas(state.lastIdeasData);
 }
 
 function knob(label, val) { return '<div class="knob"><span>' + label + '</span><b>' + esc(String(val)) + '</b></div>'; }

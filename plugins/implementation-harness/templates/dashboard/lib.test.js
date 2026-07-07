@@ -4,7 +4,7 @@
 'use strict';
 
 const assert = require('assert');
-const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, failureKinds, mdToHtml } = require('./lib');
+const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, failureKinds, mdToHtml, ideasFromJsonl } = require('./lib');
 
 const EMPTY_OVERLAYS = { humanDone: {}, manualFail: {}, reviews: {} };
 let pass = 0;
@@ -281,6 +281,30 @@ test('mdToHtml strips HTML comments (authoring guidance)', () => {
   const h = mdToHtml('before\n<!-- guidance\nmultiline -->\nafter');
   assert.ok(!h.includes('guidance'));
   assert.ok(h.includes('before') && h.includes('after'));
+});
+
+test('ideasFromJsonl parses rows, renders description markdown, sorts ascending by id', () => {
+  const text = [
+    JSON.stringify({ id: 2, title: 'Second', description: 'has **bold**', capturedAt: '2026-07-01T00:00:00Z' }),
+    JSON.stringify({ id: 1, title: 'First', description: 'plain' }),
+    'not json',
+    '',
+  ].join('\n');
+  const ideas = ideasFromJsonl(text);
+  assert.strictEqual(ideas.length, 2);
+  assert.strictEqual(ideas[0].id, 1);
+  assert.strictEqual(ideas[0].title, 'First');
+  assert.strictEqual(ideas[1].id, 2);
+  assert.ok(ideas[1].descriptionHtml.includes('<strong>bold</strong>'));
+});
+
+test('ideasFromJsonl drops rows with no id and handles empty/missing text', () => {
+  const text = [JSON.stringify({ title: 'No id' }), JSON.stringify({ id: 3, title: 'Has id' })].join('\n');
+  const ideas = ideasFromJsonl(text);
+  assert.strictEqual(ideas.length, 1);
+  assert.strictEqual(ideas[0].id, 3);
+  assert.deepStrictEqual(ideasFromJsonl(''), []);
+  assert.deepStrictEqual(ideasFromJsonl(null), []);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
