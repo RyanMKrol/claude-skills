@@ -13,6 +13,13 @@
       "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" },
       "category": "workflow",
       "source": "./plugins/implementation-harness"
+    },
+    {
+      "name": "update-plugins",
+      "description": "One command to update everything: refreshes every configured marketplace and updates every installed plugin to its latest version, via the `claude` CLI's own scriptable subcommands (not the interactive session slash commands, which have no bulk-update option). A single skill, nothing else.",
+      "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" },
+      "category": "workflow",
+      "source": "./plugins/update-plugins"
     }
   ]
 }
