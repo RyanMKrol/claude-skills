@@ -495,6 +495,10 @@ loop's perspective**. `reconcile_overlays()` promotes `human-done`/`manual-fail`
 this same checkout takes effect on the loop's very next pass. A `manual-fail` entry also
 retroactively corrects difficulty calibration **by subtracting at read time**, never by mutating the
 append-only ledger — see `docs/designs/manual-fail-signal.md` for the full mechanism and rationale.
+`reviews.json` is now also written automatically by `implementation-harness-review-failed` (for every
+task it investigates, so a future sweep never re-investigates it) and by the dashboard's "Mark done"
+action (a human completing a needs-human task themselves is itself a review) — both are just
+additional callers of `mark-reviewed.sh`, not a change to the mechanism itself.
 
 ### 8.3 — Extending via `custom/` (lifecycle hooks + guard denylist)
 

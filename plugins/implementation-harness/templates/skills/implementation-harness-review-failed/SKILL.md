@@ -4,12 +4,13 @@ description: >-
   Use when the user wants to review the harness's failed or blocked backlog tasks and turn what
   went wrong into better-specified follow-up tasks — phrases like "review the failed tasks",
   "why did these tasks fail", "fix the blocked backlog items", "/review-failed". Sweeps every task
-  with status "failed" (owner overturned a false success) or "blocked" (the loop gave up), one
-  investigation sub-agent per task in parallel, then a single locked consolidation pass that
-  authors the follow-ups AND closes out every reviewed "blocked" task (via mark-failed.sh) so it
-  stops sitting in the dashboard's Human Tasks bucket forever. Reuses the ideas-pipeline machinery
-  (consolidate-ideas.sh + the pending-tasks / pending-questions relay); never touches IDEAS.jsonl.
-  Requires the harness scaffolded.
+  with status "failed" (owner overturned a false success) or "blocked" (the loop gave up) that
+  hasn't already been reviewed, one investigation sub-agent per task in parallel, then a single
+  locked consolidation pass that authors the follow-ups, closes out every reviewed "blocked" task
+  (via mark-failed.sh) so it stops sitting in the dashboard's Human Tasks bucket forever, AND marks
+  every investigated task reviewed (tracking/reviews.json) so a future sweep never re-investigates
+  it. Reuses the ideas-pipeline machinery (consolidate-ideas.sh + the pending-tasks / pending-questions
+  relay); never touches IDEAS.jsonl. Requires the harness scaffolded.
 argument-hint: "[optional: a single task id, e.g. T042 — omit for a full sweep]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage
 ---
@@ -31,10 +32,13 @@ investigate-and-shape work to one sub-agent per task, running concurrently. It *
 pending-tasks / consolidation machinery as `implementation-harness-convert-ideas`** (each agent writes
 only its own `.harness/.pending-tasks/<slug>.json`; `scripts/consolidate-ideas.sh` does the id
 allocation, spec writing, `TASKS.json` merge, and single commit+push). It **never touches `IDEAS.jsonl`**.
-Every review also ends with the **original task closed out** — the coordinator (never a per-task agent,
-which never touches git in this skill's design) runs `.harness/scripts/mark-failed.sh` against each
-reviewed `"blocked"` task in Stage 3, so a review doesn't just produce a follow-up, it also retires the
-task it investigated. Read this whole file, then execute in order.
+Every review also ends with the **original task closed out AND recorded reviewed** — the coordinator
+(never a per-task agent, which never touches git in this skill's design) runs
+`.harness/scripts/mark-failed.sh` against each reviewed `"blocked"` task in Stage 3, then
+`.harness/scripts/mark-reviewed.sh` against every task the sweep investigated (both originally-`"failed"`
+and originally-`"blocked"`) — so a review doesn't just produce a follow-up, it also retires the task it
+investigated AND ensures a future sweep never re-investigates it (Stage 1's worklist query excludes
+anything already recorded reviewed). Read this whole file, then execute in order.
 
 ## Stage 0 — recovery check (before anything else)
 
@@ -56,8 +60,17 @@ Also require the harness (`.harness/docs/HARNESS.md`, `scripts/loop.sh`, `tracki
 ## Stage 1 — build the worklist
 
 ```bash
-jq -r '.tasks[]|select(.status=="failed" or .status=="blocked")|.id' .harness/tracking/TASKS.json
+jq -r --argjson rv "$(cat .harness/tracking/reviews.json 2>/dev/null || echo '{}')" \
+  '.tasks[]|select(.status=="failed" or .status=="blocked")|select(($rv[.id].reviewed // false)|not)|.id' \
+  .harness/tracking/TASKS.json
 ```
+
+The `reviews.json` exclusion is what makes this sweep-safe to re-run: Stage 3 below records every task
+this sweep investigates as reviewed, so a task a PAST sweep already closed out is never re-selected here.
+**The very first run of this command after that mechanism ships will still re-investigate every
+currently-`failed`/`blocked` task once more** — none of them have a `reviews.json` entry yet, since
+nothing wrote one before now. That's expected and self-healing (each gets its entry this time, so it
+never resurfaces again), not a bug to work around.
 
 If `$ARGUMENTS` names a task id, confirm it is actually `failed` or `blocked` (if not, tell the user
 this command only reviews failed/blocked tasks and stop). If the worklist is empty, say so and stop.
@@ -246,10 +259,24 @@ Run one call per closed-out task, sequentially. Template the reason by which out
 - Follow-up authored: `"review-failed: superseded by <TNNN2> — <why the follow-up is better-specified>"`.
 - Not worth pursuing: `"review-failed: not worth pursuing — owner confirmed; <the agent's report>"`.
 
-Worklist entries that were already `status=="failed"` need **no** closing action — they're already
-terminal and already dashboard-bucketed as reviewed/Done (`dashboard/lib.js`'s `computeBacklog()` treats
-`status=="failed"` as implicitly reviewed); `mark-failed.sh`'s own guard would reject a redundant call
-against one anyway, so just skip them.
+Worklist entries that were already `status=="failed"` need **no** `mark-failed.sh` call — they're already
+terminal; `mark-failed.sh`'s own guard would reject a redundant call against one anyway, so just skip them
+for this step (they still need the reviewed-marking step below).
+
+**Then, in ONE batched call, mark every task this sweep investigated as reviewed** — both
+originally-`"failed"` ids (skipped above, since they needed no status change) and originally-`"blocked"`
+ids just closed out, for every outcome that's now fully settled (skip only an id still mid-relay on an
+unresolved pending-question):
+
+```bash
+bash .harness/scripts/mark-reviewed.sh <TNNN1> <TNNN2> ...   # every settled id from this sweep's worklist
+```
+
+One call, all ids, one commit (`mark-reviewed.sh` supports bulk ids atomically, has no gate/status guard,
+and safely accepts a `status=="failed"` id — the exact case skipped above). This is what makes Stage 1's
+`reviews.json` exclusion actually take effect on the next sweep: without it, an originally-`"failed"` task
+would never get an entry and would be re-investigated forever, since it needs no `mark-failed.sh` call to
+close out.
 
 This is now the ONLY stage that touches git — Stages 0–2 and the relay above are read/scratch-file only.
 
@@ -257,12 +284,16 @@ This is now the ONLY stage that touches git — Stages 0–2 and the relay above
 
 `jq empty .harness/tracking/TASKS.json`; confirm no duplicate ids, every `dependsOn` id exists, every
 buildable new task has `facets` from the vocabulary, and every new task's `spec` path has a matching
-file; `.pending-tasks/` / `.pending-questions/` left empty. Confirm every `status=="blocked"` task in the
-original worklist was either closed out in Stage 3 or has a documented reason it wasn't (e.g. still
-awaiting an owner answer). Summarize each reviewed task → its outcome (already resolved / a new follow-up
-id / not worth pursuing) and its closure action.
+file; `.pending-tasks/` / `.pending-questions/` left empty. Confirm every task in the original worklist
+either now has a `tracking/reviews.json` entry (and, if originally `"blocked"`, was also closed out via
+`mark-failed.sh`) or has a documented reason it doesn't yet (still awaiting an owner answer). Summarize
+each reviewed task → its outcome (already resolved / a new follow-up id / not worth pursuing) and its
+closure action.
 
-Originally-`"failed"` tasks stay `status="failed"` (unchanged, already terminal/reviewed); originally-
-`"blocked"` tasks now also read `status="failed"` after Stage 3's closeout, moving them out of Human
-Tasks and into Done permanently. If the sweep produced ≥1 new task, close by suggesting the user run
-`/implementation-harness-pre-loop-checkin` before the next unattended loop run.
+Originally-`"failed"` tasks stay `status="failed"` (unchanged, already terminal) and are now also recorded
+reviewed in `tracking/reviews.json`; originally-`"blocked"` tasks now also read `status="failed"` after
+Stage 3's closeout AND are recorded reviewed — moving them out of both the dashboard's Human Tasks bucket
+and its "Failed — Pending Review" bucket, into Done permanently. Neither is ever re-selected by a future
+`/review-failed` sweep, since Stage 1's query excludes anything already recorded reviewed. If the sweep
+produced ≥1 new task, close by suggesting the user run `/implementation-harness-pre-loop-checkin` before
+the next unattended loop run.

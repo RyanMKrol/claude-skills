@@ -137,9 +137,10 @@ function loadState() {
       task.spec = task.spec ? readText(path.join(ROOT, task.spec)) : null;
       task.worklog = readText(path.join(WORKLOG_DIR, `${task.id}.md`));
       task.audit = readText(path.join(WORKLOG_DIR, `${task.id}.audit.md`));
-      // Attach failed-attempt history to NON-done tasks (a done task's past soft-fails aren't
-      // interesting; a still-open task with failures is the signal worth surfacing).
-      if (!task.failed && failures[task.id]) task.buildFailures = failures[task.id];
+      // Attach failed-attempt history to any task that ISN'T a closed-out (failed AND reviewed)
+      // done task — a still-open task, or a failed-but-not-yet-reviewed task, both want the "N
+      // failed attempts" signal; only a genuinely reviewed failure should suppress it.
+      if ((!task.failed || !task.reviewed) && failures[task.id]) task.buildFailures = failures[task.id];
       // Which model/effort actually completed this task, once it has a terminal outcome. A task
       // marked done via the human-done overlay (a needs-human gate, or any task completed by hand)
       // never goes through run_claude()/record_outcome(), so it has no ledger row at all — that's
@@ -158,6 +159,7 @@ function loadState() {
       ready: buckets.ready.length,
       waiting: buckets.waiting.length,
       needsHuman: buckets.needsHuman.length,
+      failedPendingReview: buckets.failedPendingReview.length,
       done: buckets.done.length,
     },
     buckets,
@@ -451,6 +453,10 @@ const server = http.createServer(async (req, res) => {
         const ids = Array.isArray(body.ids) ? body.ids : [body.id];
         if (!ids.length || !ids.every(isValidTaskId)) return sendJson(res, 400, { error: 'ids required' });
         await runScript('mark-done.sh', ids);
+        // A human completing a needs-human task themselves IS the review — chain mark-reviewed.sh so it
+        // doesn't also need a separate manual click (mirrors: marking a task failed is itself a review
+        // verdict). Two single-purpose script calls, two commits, serialized safely under repo-lock.sh.
+        await runScript('mark-reviewed.sh', ids);
         return sendJson(res, 200, { ok: true, ids });
       }
       if (url.pathname === '/api/mark-failed') {
@@ -938,6 +944,10 @@ function pillsFor(task, bucketName) {
     pills += task.status === 'blocked'
       ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
       : '<span class="pill human">🔒 needs human</span>';
+  } else if (bucketName === 'failedPendingReview') {
+    // Amber "blocked"-style pill, not the red "failed" pill done tasks use — this means "unresolved,
+    // needs attention" (like blocked), distinct from Done's "confirmed, closed-out failure."
+    pills += '<span class="pill blocked">⚠ awaiting review</span>';
   } else if (bucketName === 'done') {
     pills += task.reviewed ? '<span class="pill reviewed">👁 reviewed</span>' : '<span class="pill">not reviewed</span>';
     pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill done">✓ done</span>';
@@ -977,13 +987,13 @@ function renderTask(task, bucketName) {
     detail += '<div class="bar" style="margin-top:10px">';
     if (bucketName === 'needsHuman') detail += \`<button class="act" onclick="markDone('\${task.id}')">Mark done</button>\`;
     if (bucketName === 'done' && !task.failed) detail += \`<button class="act danger" onclick="markFailed('\${task.id}')">Mark failed</button>\`;
-    // A failed task is implicitly reviewed (see lib.js) — offer the review toggle only when NOT failed.
-    if (!task.failed) detail += \`<button class="act" onclick="markReviewed('\${task.id}')">\${task.reviewed ? 'Reviewed ✓' : 'Mark reviewed'}</button>\`;
+    if (!task.reviewed) detail += \`<button class="act" onclick="markReviewed('\${task.id}')">Mark reviewed</button>\`;
     detail += '</div></div>';
   }
-  // Only offer a bulk-select checkbox where bulk actions exist: needsHuman (mark-done) and
-  // not-yet-reviewed done tasks (mark-reviewed) — mirrors the two bulk-action groups.
-  const showCheckbox = bucketName === 'needsHuman' || (bucketName === 'done' && !task.reviewed);
+  // Only offer a bulk-select checkbox where bulk actions exist: needsHuman (mark-done),
+  // not-yet-reviewed done tasks, and failedPendingReview tasks (mark-reviewed) — mirrors the three
+  // bulk-action groups.
+  const showCheckbox = bucketName === 'needsHuman' || (bucketName === 'done' && !task.reviewed) || bucketName === 'failedPendingReview';
   const checkbox = showCheckbox
     ? \`<input type="checkbox" \${checked} data-id="\${task.id}" data-bucket="\${bucketName}" onclick="event.stopPropagation(); rangeSelect(event, this)" onchange="toggleSelect(this)">\`
     : '';
@@ -1002,7 +1012,7 @@ function renderTask(task, bucketName) {
 function renderSection(name, emoji, label, desc, tasks, countStr) {
   const openAttr = state.closedSections.has(name) ? '' : ' open';
   let bar = '';
-  if (name === 'needsHuman' || name === 'done') {
+  if (name === 'needsHuman' || name === 'done' || name === 'failedPendingReview') {
     const selectable = tasks.filter(t => name === 'needsHuman' || !t.reviewed).map(t => t.id);
     const n = selectable.filter(id => state.selected.has(id)).length;
     const allSel = selectable.length > 0 && n === selectable.length;
@@ -1029,15 +1039,16 @@ function renderSection(name, emoji, label, desc, tasks, countStr) {
 function renderBacklog(data) {
   state.lastData = data;   // cache so pure-UI actions (expand, filter, select) re-render without a refetch
   const b = data.buckets, c = data.counts;
-  const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.done.length;
+  const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.failedPendingReview.length + b.done.length;
   const reviewed = b.done.filter(t => t.reviewed).length;
   document.getElementById('summary').innerHTML =
     'The harness task list (<span class="mono">.harness/tracking/TASKS.json</span>), rendered. '
-    + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.done} done (\${reviewed} reviewed). Auto-refreshes.\`;
+    + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.failedPendingReview} failed (pending review) · \${c.done} done (\${reviewed} reviewed). Auto-refreshes.\`;
   document.getElementById('sections').innerHTML =
     renderSection('ready', '🤖', 'Ready', 'Everything the harness can build with no human involved — either right now, or once an earlier, equally-buildable task in its chain lands.', b.ready, b.ready.length)
     + renderSection('waiting', '⏳', 'Waiting on human tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
     + renderSection('needsHuman', '🔒', 'Human tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
+    + renderSection('failedPendingReview', '⚠', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
     + renderSection('done', '✅', 'Done', null, b.done, \`\${b.done.length} · \${reviewed} reviewed · \${b.done.length - reviewed} not reviewed\`);
 }
 
@@ -1124,7 +1135,7 @@ async function bulkAction(bucket) {
     if (!confirm('Mark ' + ids.length + ' task(s) done? Writes human-done.json, commits + pushes.')) return;
     ok = await post('/api/mark-done', { ids });
   }
-  if (bucket === 'done') ok = await post('/api/mark-reviewed', { ids });
+  if (bucket === 'done' || bucket === 'failedPendingReview') ok = await post('/api/mark-reviewed', { ids });
   if (ok) { state.selected.clear(); refreshActive(); }
 }
 

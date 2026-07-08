@@ -42,6 +42,42 @@ Entry format:
 
 ---
 
+## 1.38.0 → 1.39.0 — fix review-failed re-investigation bug + human-done reviewed bug + new dashboard bucket
+Two real bugs found in production use, plus a related dashboard feature, all sharing one root fix:
+`tracking/reviews.json` previously meant only "a human clicked Mark reviewed on a Done task" — extending
+it to mean "anyone (human or a review-failed sweep) has actually looked at this" fixes all three.
+- mechanism: `skills/implementation-harness-review-failed/SKILL.md` — Stage 1's worklist query now
+  excludes any id already recorded reviewed in `tracking/reviews.json`, so a task a past sweep already
+  closed out is never re-investigated (previously EVERY `status=="failed"`/`"blocked"` task was
+  re-selected on every run, forever — this is why a real sweep found 5 tasks when only 4 needed review).
+  Stage 3 now also runs one batched `mark-reviewed.sh` call covering every id the sweep investigated
+  (both originally-`"failed"` and originally-`"blocked"`), which is what makes the Stage 1 exclusion
+  take effect on the next sweep. Frontmatter/Stage 4 text updated to match. Note: the FIRST sweep after
+  upgrading will still re-investigate every currently-failed task once — self-healing, not a bug.
+- mechanism: `dashboard/server.js` — `/api/mark-done` now chains a `mark-reviewed.sh` call after
+  `mark-done.sh` succeeds, so a human completing a needs-human task themselves no longer needs a
+  separate manual "Mark reviewed" click (mirrors: marking a task failed is itself a review verdict).
+  Also wires the new `failedPendingReview` bucket throughout: `loadState()`'s `counts` and its
+  `buildFailures` attachment guard (fixed from `!task.failed` to `(!task.failed || !task.reviewed)` so
+  the "N failed attempts" pill still shows for a failed-but-unreviewed task, not just non-failed ones),
+  `renderBacklog()` (new section between Human Tasks and Done), `renderSection()`'s bulk-action-bar
+  condition, `pillsFor()` (new amber "⚠ awaiting review" pill, distinct from Done's red "✗ failed"),
+  `renderTask()`'s "Mark reviewed" button condition (`!task.failed` → `!task.reviewed`) and
+  `showCheckbox`, and `bulkAction()`.
+- mechanism: `dashboard/lib.js` — `computeBacklog()` drops the `reviewed = isReviewed() || failed`
+  auto-implication; `reviewed` now means only "has a `reviews.json` entry." A `failed && !reviewed` task
+  lands in a new `failedPendingReview` bucket instead of `done`. `isStuck()` and the `done`-bucket sort
+  are unaffected (confirmed by direct trace, not assumed).
+- mechanism: `dashboard/lib.test.js` — 3 tests rewritten to assert the new (opposite) invariant, 1 fixed
+  by adding a `reviews` overlay to keep testing what its name says, 3 new tests added; full suite green
+  (36/36).
+- mechanism: `docs/HARNESS.md` §8.2, `docs/designs/manual-fail-signal.md` — one sentence/clause each
+  noting `reviews.json` is now also written by `review-failed` and the dashboard's mark-done action.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none. Every failure mode degrades safely (a task simply isn't excluded/auto-reviewed yet,
+  never a wrong state); the one-time "first sweep re-investigates everything" transition is expected.
+
 ## 1.37.0 → 1.38.0 — checksum-based auto-upgrade fast path for genuinely stale (never-edited) files
 The upgrade skill already refused to auto-decide on anything that wasn't byte-identical to the CURRENT
 reference — but "current" was the only version it ever checked against, so an install several releases

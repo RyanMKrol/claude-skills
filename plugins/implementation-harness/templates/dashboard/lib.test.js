@@ -29,25 +29,32 @@ test('a plain done task lands in done', () => {
   assert.strictEqual(b.done[0].failed, false);
 });
 
-test('a status:failed task lands in done, flagged failed', () => {
+test('a status:failed task with no reviews.json entry lands in failedPendingReview, not done', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'failed', gate: null, dependsOn: [] }] };
   const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  assert.strictEqual(b.failedPendingReview.length, 1);
+  assert.strictEqual(b.done.length, 0);
+  assert.strictEqual(b.failedPendingReview[0].failed, true);
+  assert.strictEqual(b.failedPendingReview[0].reviewed, false);
+});
+
+test('a status:failed task WITH a reviews.json entry lands in done, reviewed', () => {
+  const tasks = { tasks: [{ id: 'T001', status: 'failed', gate: null, dependsOn: [] }] };
+  const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
+  const b = computeBacklog(tasks, overlays, new Set());
   assert.strictEqual(b.done.length, 1);
   assert.strictEqual(b.done[0].failed, true);
+  assert.strictEqual(b.done[0].reviewed, true);
+  assert.strictEqual(b.failedPendingReview.length, 0);
 });
 
-test('a failed task is implicitly reviewed (even with no reviews overlay)', () => {
-  const tasks = { tasks: [{ id: 'T001', status: 'failed', gate: null, dependsOn: [] }] };
-  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
-  assert.strictEqual(b.done[0].failed, true);
-  assert.strictEqual(b.done[0].reviewed, true);   // failure IS a review verdict — no separate mark-reviewed
-});
-
-test('a manual-fail task is implicitly reviewed', () => {
+test('a manual-fail overturned task with no reviews.json entry lands in failedPendingReview', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'done', gate: null, dependsOn: [] }] };
   const overlays = { ...EMPTY_OVERLAYS, manualFail: { T001: { failed: true } } };
   const b = computeBacklog(tasks, overlays, new Set());
-  assert.strictEqual(b.done[0].reviewed, true);
+  assert.strictEqual(b.failedPendingReview.length, 1);
+  assert.strictEqual(b.done.length, 0);
+  assert.strictEqual(b.failedPendingReview[0].reviewed, false);
 });
 
 test('human-done overlay promotes a needs-human task to done', () => {
@@ -58,12 +65,17 @@ test('human-done overlay promotes a needs-human task to done', () => {
   assert.strictEqual(b.needsHuman.length, 0);
 });
 
-test('manual-fail overlay overturns a done task into done+failed (not needs-human)', () => {
+test('manual-fail overlay overturns a done task into done+failed once reviewed (not needs-human)', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'done', gate: null, dependsOn: [] }] };
-  const overlays = { ...EMPTY_OVERLAYS, manualFail: { T001: { failed: true } } };
+  const overlays = {
+    ...EMPTY_OVERLAYS,
+    manualFail: { T001: { failed: true } },
+    reviews: { T001: { reviewed: true } },
+  };
   const b = computeBacklog(tasks, overlays, new Set());
   assert.strictEqual(b.done.length, 1);
   assert.strictEqual(b.done[0].failed, true);
+  assert.strictEqual(b.needsHuman.length, 0);
 });
 
 test('needs-human tasks land in needsHuman (gate is only null | needs-human)', () => {
