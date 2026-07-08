@@ -32,6 +32,19 @@
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
 set -euo pipefail
 
+# ─── Refuse to run from inside a Claude Code process (no override, by design) ───────────────────
+# Starting (or single-passing) the build loop is a deliberate, human-hands action from a real
+# terminal — never something an agent decides on its own initiative (an interactive session
+# "helpfully" spinning up the loop for an unrelated request, or a builder task recursively
+# starting another loop instance mid-build). Claude Code sets CLAUDECODE=1 in every Bash tool
+# subprocess it spawns, regardless of session mode (-p / interactive, --dangerously-skip-
+# permissions or not) — detect and hard-refuse, unconditionally. No override env var exists on
+# purpose: an agent that could be told to set one could just as easily be told to run this anyway.
+if [ -n "${CLAUDECODE:-}" ]; then
+  echo "ABORT: this script must be run manually, from a real terminal — never from within a Claude Code session (detected \$CLAUDECODE=1). If Claude suggested running this, decline; run it yourself." >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .harness/scripts — this script's own dir
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"                    # the .harness/ dir (config/ docs/ ledgers/ scripts/ tasks/ tracking/ worklog/)
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"

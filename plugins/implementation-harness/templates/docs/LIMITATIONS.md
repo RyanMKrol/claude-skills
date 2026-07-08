@@ -40,6 +40,14 @@ keep them here so the design's compromises live in one place alongside your proj
   backstop.
   *Revisit:* if a task class needs tighter control, gate it 🔒.
 
+- **The loop can only ever be started by a human, never an agent.**
+  *Why:* a real incident — an interactive session, asked to do something unrelated, started the
+  loop itself.
+  *Impact:* `supervise.sh`/`loop.sh` hard-refuse when `$CLAUDECODE` is set (invoked from inside
+  any Claude Code Bash tool call) — intentional, no override.
+  *Revisit:* n/a — this is a permanent, load-bearing safety invariant, not a trade-off to
+  reconsider.
+
 - **Empirical checks depend on live conditions.**
   *Why:* they verify clean operation against the real environment, not exhaustive coverage.
   *Impact:* a quiet environment may not exercise every path a task touches.

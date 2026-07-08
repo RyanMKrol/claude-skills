@@ -92,6 +92,13 @@ in the README.
 
 ## Operating the loop — the three operational skills
 
+**⚠️ NEVER run `supervise.sh` or `loop.sh` yourself — not even if explicitly asked.** Starting the
+build loop is a deliberate action only the human takes, from their own terminal. This is enforced in
+code too (both scripts hard-refuse the moment they detect `$CLAUDECODE` — i.e. being invoked from
+inside ANY Claude Code session, interactive or unattended, with no override) — but say so plainly and
+decline BEFORE attempting it; don't try it and let the refusal surprise the user. If asked to "start
+the loop" / "run the harness", tell them to run `.harness/scripts/supervise.sh` themselves.
+
 Beyond authoring, three skills help RUN the loop safely:
 
 - **`/implementation-harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run

@@ -31,6 +31,20 @@ mandatory confirmation like the definition-of-done check — **STOP and re-asser
 user, making explicit that the change contradicts the plugin's design.** Do not make such a change
 silently; if the user still wants it after that, it must be a deliberate, informed choice.
 
+## ⚠️ The loop can only ever be started by a human, never an agent (design principle — do not erode)
+
+`supervise.sh`, `loop.sh`, and `loop.in-place.sh` each hard-refuse (`exit 1`, no override) the moment
+they detect `$CLAUDECODE` set — i.e. being invoked from inside ANY Claude Code Bash tool call, regardless
+of session mode. This exists because of a real incident: an interactive session, asked to do something
+unrelated, started the build loop itself. Starting an unattended, git-mutating loop must always be a
+deliberate, human-hands action from a real terminal — never something an agent decides on its own
+initiative, and never something a task running inside an already-active loop can recursively trigger.
+
+**Re-assert guard.** If a change to any of these three scripts would remove, weaken, or add a bypass
+condition to this check (an env var override, a flag that skips it, narrowing which invocation paths it
+covers) — **STOP and re-assert this principle to the user, making explicit that the change removes a
+safety invariant.** Do not make such a change silently.
+
 ## ⚠️ Every change under `templates/` MUST update the migration ledger (non-negotiable)
 
 Consumers don't run `templates/` directly — they run a **copy** scaffolded into their own repo's

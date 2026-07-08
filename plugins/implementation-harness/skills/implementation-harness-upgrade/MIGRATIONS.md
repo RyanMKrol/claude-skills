@@ -42,6 +42,26 @@ Entry format:
 
 ---
 
+## 1.39.1 → 1.40.0 — the loop can only ever be started by a human, never an agent
+A real incident: an interactive Claude Code session, asked to do something unrelated, started the
+build loop itself. Fixed with a hard, unconditional, no-override code check — starting the loop is now
+strictly a manual, human-hands-from-a-real-terminal action.
+- mechanism: `scripts/supervise.sh`, `scripts/loop.sh`, `scripts/loop.in-place.sh` — each now checks
+  `$CLAUDECODE` (set by Claude Code in every Bash tool subprocess it spawns, regardless of session mode
+  — interactive, `-p` unattended, `--dangerously-skip-permissions` or not) immediately after `set -eu[o
+  pipefail]`, before any other logic, and `exit 1` with an explanatory message if set. No override env
+  var exists, deliberately — an agent that could be told to set one could just as easily be told to run
+  the script anyway. Catches both an interactive session starting the loop unprompted AND a builder task
+  running inside an already-active loop trying to recursively start another instance.
+- mechanism: `harness-CLAUDE.md` — new callout at the top of "Operating the loop" telling any Claude
+  session to decline and explain BEFORE attempting this, not attempt-then-fail.
+- mechanism: `docs/HARNESS.md` §6 step 6, §12 — note near the run instructions + a new Trade-offs bullet
+  naming the guard and the incident that prompted it; mirrored into `docs/LIMITATIONS.md` per that
+  section's own "kept honest" convention.
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none for any legitimate use — a human running these scripts from a real terminal is
+  completely unaffected (`$CLAUDECODE` is never set outside a Claude Code Bash tool subprocess).
+
 ## 1.39.0 → 1.39.1 — fix: "Failed — Pending Review" only caught status=="failed", not status=="blocked" too
 Found immediately in real use on `ryankrol.co.uk`: `computeBacklog()`'s new `failedPendingReview` bucket
 (shipped in 1.39.0) only matched `isFailed(task)` — i.e. a task ALREADY flipped to `status=="failed"` —

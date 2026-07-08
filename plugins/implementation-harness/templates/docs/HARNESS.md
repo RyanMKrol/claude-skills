@@ -614,7 +614,9 @@ The loop **skips** `needs-human` during selection and surfaces it on the status 
 5. **Push `main` to GitHub** so the CI gate has somewhere to run. The loop integrates by
    pushing to `origin/main`, so a remote is required when `REQUIRE_CI=1`.
 6. **Run it:** `chmod +x .harness/scripts/*.sh && .harness/scripts/supervise.sh` (or a single pass with
-   `.harness/scripts/loop.sh`; preview the next pick with `DRY_RUN=1 .harness/scripts/loop.sh`).
+   `.harness/scripts/loop.sh`; preview the next pick with `DRY_RUN=1 .harness/scripts/loop.sh`). Run
+   this yourself, from a real terminal — both scripts refuse to start if invoked from within a Claude
+   Code session; see `harness-CLAUDE.md`.
 
 ---
 
@@ -631,6 +633,11 @@ The loop **skips** `needs-human` during selection and surfaces it on the status 
   path; the check verifies clean operation, not exhaustive coverage.
 - **`--dangerously-skip-permissions` means no per-action guardrail.** Accepted for headless
   runs; the gates + reviewable branches are the backstop.
+- **The loop can only ever be started by a human, never an agent.** `supervise.sh`/`loop.sh`
+  hard-refuse when `$CLAUDECODE` is set (invoked from inside any Claude Code Bash tool call) —
+  intentional, no override, since an agent that could bypass it could just as easily be told to. A
+  real incident prompted this: an interactive session, asked to do something unrelated, started the
+  loop itself.
 - **Auto-tuned model routing & escalation trade attempts for cost.** The policy picks each task's
   start tier from its facets + the outcomes ledger; if it starts too weak, the task burns up to
   `MAX_ATTEMPTS` soft-failures (and their CI runs) per rung before escalating — escalation is a safety

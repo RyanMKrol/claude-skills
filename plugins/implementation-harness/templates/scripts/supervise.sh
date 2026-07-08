@@ -26,6 +26,19 @@
 # Tip: the loop streams its own progress; this just paces and re-launches it.
 set -uo pipefail
 
+# ─── Refuse to run from inside a Claude Code process (no override, by design) ───────────────────
+# Starting the build loop is a deliberate, human-hands action from a real terminal — never
+# something an agent decides on its own initiative (an interactive session "helpfully" spinning up
+# the loop for an unrelated request, or a builder task recursively starting another loop instance
+# mid-build). Claude Code sets CLAUDECODE=1 in every Bash tool subprocess it spawns, regardless of
+# session mode (-p / interactive, --dangerously-skip-permissions or not) — detect and hard-refuse,
+# unconditionally. No override env var exists on purpose: an agent that could be told to set one
+# could just as easily be told to run this anyway.
+if [ -n "${CLAUDECODE:-}" ]; then
+  echo "ABORT: this script must be run manually, from a real terminal — never from within a Claude Code session (detected \$CLAUDECODE=1). If Claude suggested running this, decline; run it yourself." >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .harness/scripts — this script's own dir
 LOOP="${LOOP:-$SCRIPT_DIR/loop.sh}"
 INTERVAL="${1:-18900}"
