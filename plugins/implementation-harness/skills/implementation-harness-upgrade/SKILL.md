@@ -327,7 +327,14 @@ Emit a grouped report:
   needed `.gitignore` addition ever gets surfaced (the file itself is never diffed against the target).
 - **Version:** `CUR_VERSION` (or "legacy/unknown") → `REF_VERSION`.
 
-Present this report and STOP for confirmation before any writes.
+Present this report, then get the go-ahead via **`AskUserQuestion`** — never end this stage with a
+plain-text question requiring a typed reply, even when the ENTIRE report is auto-upgrade-only with
+nothing needing an individual per-file judgment call (a clean upgrade still needs a yes/no before any
+write happens, just via a structured question instead of prose). One `AskUserQuestion` covering the
+overall decision is enough for a clean report — e.g. "Apply the N auto-upgrade files and re-stamp to
+`<REF_VERSION>`?" with options like *Apply now* / *Show me the full diff first* / *Stop here, don't
+apply anything*. If the report ALSO has files needing individual per-difference decisions, fold those
+into the same batched `AskUserQuestion` flow described in Stage 4 below rather than asking twice.
 
 ## 4. Confirm + apply (only after the user has seen the report)
 

@@ -42,6 +42,18 @@ Entry format:
 
 ---
 
+## 1.40.0 → 1.40.1 — fix: the clean-upgrade confirmation gate used plain text, not AskUserQuestion
+Found immediately in real use: a run against `ryankrol.co.uk` where every difference was checksum-
+verified auto-upgrade (nothing needing a per-file judgment call) ended Stage 3 with a plain-text
+question ("Want me to apply the 6 auto-upgrades...?") requiring a typed reply — even though Stage 4's
+per-difference flow already used `AskUserQuestion`, and the tool is in this skill's own `allowed-tools`.
+The instruction simply never said HOW to ask for the overall go/no-go, so it silently defaulted to prose.
+- mechanism: `skills/implementation-harness-upgrade/SKILL.md` — the end of Stage 3 now explicitly
+  mandates `AskUserQuestion` for the overall apply/stop decision, even (especially) when the whole
+  report is auto-upgrade-only with nothing else needing a per-file question.
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none — purely a UX fix to how confirmation is asked, not what gets applied.
+
 ## 1.39.1 → 1.40.0 — the loop can only ever be started by a human, never an agent
 A real incident: an interactive Claude Code session, asked to do something unrelated, started the
 build loop itself. Fixed with a hard, unconditional, no-override code check — starting the loop is now
