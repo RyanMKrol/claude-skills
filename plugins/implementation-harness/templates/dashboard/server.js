@@ -945,9 +945,13 @@ function pillsFor(task, bucketName) {
       ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
       : '<span class="pill human">🔒 needs human</span>';
   } else if (bucketName === 'failedPendingReview') {
-    // Amber "blocked"-style pill, not the red "failed" pill done tasks use — this means "unresolved,
+    // Amber "blocked"-style pills, not the red "failed" pill Done uses — this means "unresolved,
     // needs attention" (like blocked), distinct from Done's "confirmed, closed-out failure."
-    pills += '<span class="pill blocked">⚠ awaiting review</span>';
+    // Distinguish the two ways a task lands here, same wording Human Tasks already used for the
+    // blocked case, so a task reads consistently as it moves between sections.
+    pills += task.status === 'blocked'
+      ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
+      : '<span class="pill blocked">⚠ failed — awaiting review</span>';
   } else if (bucketName === 'done') {
     pills += task.reviewed ? '<span class="pill reviewed">👁 reviewed</span>' : '<span class="pill">not reviewed</span>';
     pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill done">✓ done</span>';

@@ -42,6 +42,31 @@ Entry format:
 
 ---
 
+## 1.39.0 → 1.39.1 — fix: "Failed — Pending Review" only caught status=="failed", not status=="blocked" too
+Found immediately in real use on `ryankrol.co.uk`: `computeBacklog()`'s new `failedPendingReview` bucket
+(shipped in 1.39.0) only matched `isFailed(task)` — i.e. a task ALREADY flipped to `status=="failed"` —
+so a `status=="blocked"` task (the loop gave up, never yet closed out) stayed in Human Tasks instead of
+moving to the new section, contradicting both the approved mockup (which showed exactly this population
+there) and the section's own stated purpose ("we're essentially going to be using the ReviewFailed skill
+to clean them up" — `review-failed`'s Stage 1 worklist is `status=="failed" OR status=="blocked"`, not
+`"failed"` alone).
+- mechanism: `dashboard/lib.js` — `computeBacklog()`'s bucket check widened from `failed && !reviewed` to
+  `(failed || task.status==='blocked') && !reviewed`, using the literal `status` field only (NOT the
+  legacy `blockedIds` worklog-grep fallback — `review-failed`'s own query never reads that either, so a
+  task only that fallback would catch correctly stays in Human Tasks, consistent with what
+  `review-failed` would actually process). `isNeedsHuman()`'s own `status==='blocked'` check is
+  unchanged and still needed: `isStuck()` calls it directly (dependency-chain buildability is unaffected
+  by review status either way), and it's the defensive fallback bucket for the should-be-rare case of a
+  blocked task marked reviewed without ever having `mark-failed.sh` run against it.
+- mechanism: `dashboard/server.js` — `pillsFor()`'s new bucket branch now distinguishes the two ways a
+  task lands there, reusing Human Tasks' exact wording for continuity: `⚠ blocked (loop gave up)` for a
+  still-`"blocked"` task, `⚠ failed — awaiting review` for an already-`"failed"` one.
+- mechanism: `dashboard/lib.test.js` — 1 test rewritten (a bare blocked task now lands in
+  `failedPendingReview`, not `needsHuman`), 1 new test added covering the blocked+reviewed defensive
+  fallback; full suite green (37/37).
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none — this only affects which section a task's badge shows in, not any status/overlay data.
+
 ## 1.38.0 → 1.39.0 — fix review-failed re-investigation bug + human-done reviewed bug + new dashboard bucket
 Two real bugs found in production use, plus a related dashboard feature, all sharing one root fix:
 `tracking/reviews.json` previously meant only "a human clicked Mark reviewed on a Done task" — extending

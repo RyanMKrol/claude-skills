@@ -89,10 +89,20 @@ test('needs-human tasks land in needsHuman (gate is only null | needs-human)', (
   assert.strictEqual(b.needsHuman.length, 2);
 });
 
-test('a status:"blocked" task lands in needsHuman even with no worklog-grep hit', () => {
+test('a status:"blocked" task with no reviews.json entry lands in failedPendingReview, not needsHuman', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'blocked', gate: null, dependsOn: [] }] };
   const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  assert.strictEqual(b.failedPendingReview.length, 1);
+  assert.strictEqual(b.needsHuman.length, 0);
+  assert.strictEqual(b.failedPendingReview[0].reviewed, false);
+});
+
+test('a status:"blocked" task WITH a reviews.json entry falls back to needsHuman (defensive edge case — normally review-failed also flips it to status:"failed" before marking reviewed)', () => {
+  const tasks = { tasks: [{ id: 'T001', status: 'blocked', gate: null, dependsOn: [] }] };
+  const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
+  const b = computeBacklog(tasks, overlays, new Set());
   assert.strictEqual(b.needsHuman.length, 1);
+  assert.strictEqual(b.failedPendingReview.length, 0);
 });
 
 test('a worklog-blocked task lands in needsHuman', () => {
