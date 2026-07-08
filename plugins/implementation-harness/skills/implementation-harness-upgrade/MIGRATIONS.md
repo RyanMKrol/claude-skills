@@ -42,6 +42,19 @@ Entry format:
 
 ---
 
+## 1.40.3 → 1.40.4 — fix: scope-exempt.test.sh's throwaway repo missed loop.in-place.sh's early TASKS.json check
+CI itself caught this: `loop.in-place.sh` has an unconditional top-level check right after its
+`--guard-selftest` dispatch that exits 3 if `tracking/TASKS.json` is absent — `loop.sh`'s worktree
+variant has no equivalent check that early. The test's throwaway repo never created `TASKS.json`, so
+every `--scope-exempt-selftest` case against `loop.in-place.sh` (added in 1.40.3) hit that exit before
+reaching the new dispatch, failing 6/6 cases in CI while `loop.sh`'s 6/6 passed.
+- mechanism: `scripts/scope-exempt.test.sh` — its `setup_repo()` now seeds a minimal placeholder
+  `.harness/tracking/TASKS.json`.
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none — test-only fix, no shipped-mechanism behavior change.
+
+---
+
 ## 1.40.2 → 1.40.3 — fix: SCOPE_EXEMPT_GLOBS silently exempted nothing for directory-prefix/glob-suffix forms
 Found via `/implementation-harness-review-failed` investigating two independently-blocked
 `ryankrol.co.uk` tasks (6/6 and 14/14 failed attempts, every model tier) on an identical false-positive
