@@ -1,9 +1,9 @@
 ---
-name: freshen-up
+name: go
 description: >-
   Use when the user wants to update all their Claude Code marketplaces and plugins in one go —
   phrases like "update my plugins", "update all my marketplaces", "refresh my plugins", "sync my
-  plugins", "freshen up my plugins", "/freshen-up". Runs `claude plugin marketplace update`
+  plugins", "freshen up my plugins", "/freshen-up:go". Runs `claude plugin marketplace update`
   (refreshes every configured marketplace from its source) then `claude plugin update` for every
   currently-installed plugin, via the `claude` CLI's own scriptable subcommands — NOT the
   interactive `/plugin` session commands, which have no bulk "update all" option. Reports exactly
