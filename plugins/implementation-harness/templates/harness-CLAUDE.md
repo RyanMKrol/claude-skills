@@ -103,10 +103,11 @@ Beyond authoring, four skills help RUN the loop safely:
 
 - **`/implementation-harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run
   (needs-human blockers, dirty tree / running loop / lock, per-task facets/spec/scope quality). Changes nothing.
-- **`/implementation-harness-fix-scope-gaps`** — the fix-side companion to pre-loop-checkin's
+- **`implementation-harness-fix-scope-gaps`** — the fix-side companion to pre-loop-checkin's
   scope-authoring check: fans out a cheap-model judge per warning (real gap vs false positive) and
   fixes confident real gaps directly, so a NO-GO scope-gap advisory doesn't require inspecting every
-  warning by hand.
+  warning by hand. `user-invocable: false` — not in the owner's own `/` menu; offer to run it as the
+  follow-up when pre-loop-checkin surfaces a scope-gap advisory, don't tell the owner to type it.
 - **`/implementation-harness-loop-recover`** — after a manual Ctrl-C interrupt, diagnose AND fix the
   state it left (orphaned tasks, stale lock, dirty tree / leftover worktree, ledger noise), then leave
   the loop restartable. This is the ONLY safe way to hand-correct loop state — do the recovery through

@@ -42,6 +42,21 @@ Entry format:
 
 ---
 
+## 1.41.0 → 1.41.1 — fix-scope-gaps is now `user-invocable: false`
+It's meant to be run as the deliberate follow-up when pre-loop-checkin flags a scope-gap advisory (or
+on direct request), not something an owner stumbles into typing blind from the `/` menu — Claude can
+still invoke it (following pre-loop-checkin's own pointer, or a plain-English "fix the scope gaps"
+request), it's just hidden from direct slash-invocation now.
+- mechanism: `skills/implementation-harness-fix-scope-gaps/SKILL.md` — added `user-invocable: false`;
+  reworded its description away from a `/fix-scope-gaps` trigger-phrase example. `skills/
+  implementation-harness-pre-loop-checkin/SKILL.md` and `harness-CLAUDE.md` — both reworded their
+  pointers from "run `/implementation-harness-fix-scope-gaps`" to "offer to run
+  `implementation-harness-fix-scope-gaps`", since the owner can no longer type it themselves.
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none — purely a visibility/wording change; the skill's own fix behavior is unchanged.
+
+---
+
 ## 1.40.5 → 1.41.0 — new skill: fix-scope-gaps (cheap-model triage for scope-authoring WARNs) + tighter check-task-scope.sh
 A real `pre-loop-checkin` run surfaced 24 `check-task-scope.sh` WARNs and forced a NO-GO, but most were
 noise: `bare_names`' open-ended extension match flagged CSS values (`0.3rem`), property/method chains

@@ -1,14 +1,17 @@
 ---
 name: implementation-harness-fix-scope-gaps
 description: >-
-  Use to triage and fix `check-task-scope.sh`'s scope-authoring WARNs — phrases like "fix the scope
-  gaps", "triage the scope warnings", "/fix-scope-gaps". Fans out one cheap-model subagent per WARN to
-  independently judge real-gap vs false-positive against the spec's own prose, auto-applies confident
+  Internal fix-side companion to `implementation-harness-pre-loop-checkin`'s check (e) — invoke this
+  when a pre-loop-checkin report (or the owner directly) flags scope-authoring WARNs from
+  `check-task-scope.sh` and wants them triaged. Not meant to be run blind/standalone without a reason —
+  it's the follow-up step after warnings are already known. Fans out one cheap-model subagent per WARN
+  to independently judge real-gap vs false-positive against the spec's own prose, auto-applies confident
   real gaps to that task's `scope` array, and asks the owner only about genuinely ambiguous cases. This
   MUTATES `.harness/tracking/TASKS.json` (scope arrays only) and pushes to main. Requires the harness
   scaffolded.
 argument-hint: "[optional: a task id to focus on, e.g. T042 — omit for a full sweep]"
 allowed-tools: Read, Edit, Bash, Glob, Agent
+user-invocable: false
 ---
 
 # Triage and fix scope-authoring gaps
