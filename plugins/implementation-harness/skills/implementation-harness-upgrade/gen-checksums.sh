@@ -67,7 +67,7 @@ discover_files_worktree() {
     [ -f "$tpl/harness-CLAUDE.md" ] && echo "$tpl/harness-CLAUDE.md"
     [ -f "$tpl/README.md" ] && echo "$tpl/README.md"
     find "$tpl/skills" -mindepth 2 -maxdepth 2 -type f -name 'SKILL.md' 2>/dev/null
-  ) | sed "s#^$tpl/##" | sort
+  ) | sed "s#^$tpl/##" | LC_ALL=C sort
 }
 
 # discover_files_at_commit <commit> — same, but from a historical commit's tree via git ls-tree.
@@ -88,7 +88,7 @@ discover_files_at_commit() {
         *) continue ;;
       esac
       echo "${p#"$TPL_REL"/}"
-    done | sort
+    done | LC_ALL=C sort
 }
 
 # reverse_lines — portable (no GNU tac / BSD `tail -r` dependency).
