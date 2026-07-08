@@ -37,6 +37,7 @@
 #
 # Usage:  .harness/scripts/loop.sh [TNNN]  # optional: force a specific task id this run
 #         .harness/scripts/loop.sh --guard-selftest [path]  # verify the guard regex (or test one path), then exit
+#         .harness/scripts/loop.sh --scope-exempt-selftest [globs path]  # verify SCOPE_EXEMPT_GLOBS matching, then exit
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
 # Config: .harness/config/harness.env (sourced if present) and/or the environment override the
@@ -101,7 +102,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"           # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                  # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"         # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -865,6 +866,15 @@ run_claude() {
 # green and BEFORE the fast-forward to main, so unaudited work never reaches main. Cold-ness is
 # enforced by tearing the branch/worktree down on every capability failure (see the done/fail paths).
 
+# normalize_scope_prefix <raw> — strip a trailing `/`, `/**`, or `/*` so a directory-style glob
+# becomes a bare prefix. Shared by `scope` entries (structural_checks) and SCOPE_EXEMPT_GLOBS
+# (in_scope_exempt) — keep both on this ONE implementation; they drifted apart once already.
+normalize_scope_prefix() {
+  local s="$1"
+  s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
+  printf '%s' "$s"
+}
+
 # in_scope_exempt <file> — true if <file> matches one of SCOPE_EXEMPT_GLOBS (space-separated
 # repo-relative path prefixes, exact-path-or-directory-prefix — same rule as `scope` itself).
 # Empty SCOPE_EXEMPT_GLOBS (the default) exempts nothing.
@@ -872,11 +882,40 @@ in_scope_exempt() {
   local f="$1" g
   for g in $SCOPE_EXEMPT_GLOBS; do
     [ -z "$g" ] && continue
+    g="$(normalize_scope_prefix "$g")"
     [ "$f" = "$g" ] && return 0
     [ "${f#"$g"/}" != "$f" ] && return 0
   done
   return 1
 }
+
+# --scope-exempt-selftest [globs path]: with two args, print EXEMPT/NOT-EXEMPT for that ONE
+# (SCOPE_EXEMPT_GLOBS, path) pair against in_scope_exempt. With no args, run the built-in
+# regression table (the trailing-slash / glob-suffix normalization cases that once silently
+# exempted nothing).
+scope_exempt_selftest() {
+  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
+    SCOPE_EXEMPT_GLOBS="$1"
+    if in_scope_exempt "$2"; then echo EXEMPT; else echo NOT-EXEMPT; fi
+    return 0
+  fi
+  local fail=0 globs file exp got
+  while read -r globs file exp; do
+    [ -z "$globs" ] && continue
+    SCOPE_EXEMPT_GLOBS="$globs"
+    if in_scope_exempt "$file"; then got=EXEMPT; else got=NOT-EXEMPT; fi
+    [ "$got" = "$exp" ] || { echo "scope-exempt FAIL: globs='$globs' file='$file' expected $exp got $got"; fail=1; }
+  done <<'CASES'
+scripts/ scripts/_visual-harness.mjs EXEMPT
+scripts/** scripts/_visual-harness.mjs EXEMPT
+scripts/* scripts/_visual-harness.mjs EXEMPT
+scripts scripts/_visual-harness.mjs EXEMPT
+scripts/visual-check.mjs scripts/visual-check.mjs EXEMPT
+scripts/visual-check.mjs scripts/other.mjs NOT-EXEMPT
+CASES
+  [ "$fail" = 0 ] && { echo "scope-exempt self-test OK (6 cases)"; return 0; } || return 1
+}
+[ "${1:-}" = "--scope-exempt-selftest" ] && { scope_exempt_selftest "${2:-}" "${3:-}"; exit $?; }
 
 # structural_checks <id> — cheap, model-agnostic gate on the branch diff, BEFORE the audit. 0=pass 1=fail.
 structural_checks() {
@@ -907,8 +946,9 @@ structural_checks() {
     while IFS= read -r s; do
       [ -z "$s" ] && continue
       # Normalize glob-style scope entries (`src/foo/**`, `src/foo/*`, `src/foo/`) to a bare directory
-      # prefix — else a scope authored with a trailing glob never matches its own files (all counted creep).
-      s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
+      # prefix — else a scope authored with a trailing glob never matches its own files (all counted
+      # creep). Shared with in_scope_exempt() above via normalize_scope_prefix().
+      s="$(normalize_scope_prefix "$s")"
       if [ "$f" = "$s" ] || [ "${f#"$s"/}" != "$f" ]; then inscope=1; break; fi
     done <<SCOPE
 $scope

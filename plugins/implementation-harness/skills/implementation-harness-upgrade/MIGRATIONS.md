@@ -42,6 +42,27 @@ Entry format:
 
 ---
 
+## 1.40.2 → 1.40.3 — fix: SCOPE_EXEMPT_GLOBS silently exempted nothing for directory-prefix/glob-suffix forms
+Found via `/implementation-harness-review-failed` investigating two independently-blocked
+`ryankrol.co.uk` tasks (6/6 and 14/14 failed attempts, every model tier) on an identical false-positive
+`scope-creep`. `in_scope_exempt()` unconditionally appended `/` to each `SCOPE_EXEMPT_GLOBS` entry
+before matching, which only works for a bare directory name — silently exempting nothing for the
+trailing-slash form (`scripts/`) or glob-suffix forms (`scripts/**`, `scripts/*`), despite its own doc
+comment claiming "same rule as `scope` itself." `structural_checks()`'s sibling `scope`-matching logic
+already normalized this way; the fix extracts one shared helper both now use, so they can't drift apart
+again.
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — new shared `normalize_scope_prefix()`
+  helper; `in_scope_exempt()` now calls it before matching each glob; `structural_checks()`'s inline
+  normalization now calls the same helper instead of repeating it; new `--scope-exempt-selftest`
+  debug flag (mirrors the existing `--guard-selftest`) for regression coverage.
+- new files: `scripts/scope-exempt.test.sh` — plugin-source test (both variants), not scaffolded into
+  a consumer's `.harness/`.
+- config: none. renamed/removed: none. manual attention: none.
+- breaking: none — a project whose exemption never worked before simply starts working; no prior
+  behavior to regress away from.
+
+---
+
 ## 1.40.0 → 1.40.1 — fix: the clean-upgrade confirmation gate used plain text, not AskUserQuestion
 Found immediately in real use: a run against `ryankrol.co.uk` where every difference was checksum-
 verified auto-upgrade (nothing needing a per-file judgment call) ended Stage 3 with a plain-text
