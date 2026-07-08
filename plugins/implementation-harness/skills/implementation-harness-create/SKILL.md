@@ -198,8 +198,8 @@ jq -r .version "$TPL/../.claude-plugin/plugin.json" > "$H/.harness-version"   # 
 
 ## 4b. Scaffold the project-local operational skills
 
-Six of the harness's skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `loop-recover`,
-`pre-loop-checkin`, `review-failed`) read/write THIS project's versioned `.harness/` mechanism files
+Seven of the harness's skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `fix-scope-gaps`,
+`loop-recover`, `pre-loop-checkin`, `review-failed`) read/write THIS project's versioned `.harness/` mechanism files
 (e.g. `scripts/consolidate-ideas.mjs`, `config/facets.json`'s schema), so they are shipped as
 **project-local** skills — scaffolded here, at the repo root (`$T`, NOT under `$H`), and kept in sync
 later by `implementation-harness-upgrade`'s mechanism-file reconciliation. This is deliberate: it
@@ -214,7 +214,7 @@ plugin-name colon prefix) — a distinct Claude Code mechanism from plugin-regis
 
 ```bash
 mkdir -p "$T/.claude/skills"
-for s in add-to-backlog capture-idea convert-ideas loop-recover pre-loop-checkin review-failed; do
+for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed; do
   mkdir -p "$T/.claude/skills/implementation-harness-$s"
   cp -p "$TPL/skills/implementation-harness-$s/SKILL.md" "$T/.claude/skills/implementation-harness-$s/SKILL.md"
 done
@@ -301,7 +301,7 @@ grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
 for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done
-for s in add-to-backlog capture-idea convert-ideas loop-recover pre-loop-checkin review-failed; do
+for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed; do
   f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
   test -f "$f" || echo "FAIL: project-local skill implementation-harness-$s missing at .claude/skills/"
   grep -q "^name: implementation-harness-$s\$" "$f" || echo "FAIL: $f frontmatter name mismatch or missing"
@@ -340,8 +340,8 @@ DRY_RUN=1 .harness/scripts/loop.sh         # preview the next task the loop woul
 .harness/scripts/supervise.sh              # leave running; re-runs the loop on a cadence
 ```
 
-Also tell the user: six skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `loop-recover`,
-`pre-loop-checkin`, `review-failed`) were just scaffolded as **project-local** skills under
+Also tell the user: seven skills (`add-to-backlog`, `capture-idea`, `convert-ideas`, `fix-scope-gaps`,
+`loop-recover`, `pre-loop-checkin`, `review-failed`) were just scaffolded as **project-local** skills under
 `.claude/skills/` — invoke them bare, e.g. `/implementation-harness-convert-ideas` (no plugin-name
 prefix). Commit `.claude/skills/` along with the rest of the harness — it travels with the repo and
 is kept in sync by `implementation-harness:implementation-harness-upgrade`. If this session doesn't

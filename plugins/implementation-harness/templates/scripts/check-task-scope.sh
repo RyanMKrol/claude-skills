@@ -61,7 +61,14 @@ check_one() {
   # .harness/..., public/...) and bare backtick-quoted filenames (`Foo.js`) — checked separately
   # below, since they need different matching rules.
   full_paths="$(grep -oE '\`(src|\.harness|public|scripts|config|docs|tests?)/[A-Za-z0-9_./-]+\`' "$spec_path" | tr -d '`' | sort -u)"
-  bare_names="$(grep -oE '\`[A-Za-z0-9_-]+\.[A-Za-z0-9]+\`' "$spec_path" | tr -d '`' | sort -u)"
+  # bare_names requires a REAL code/asset extension (not any `word.word` token) — an open-ended
+  # `\.[A-Za-z0-9]+` suffix also matches CSS values (`0.3rem`) and property/method chains
+  # (`workoutStats.totalVolume`, `Promise.all`, `console.log`) as if they were filenames. This still
+  # can't tell "a real file, but only mentioned as read-only background" from "a real file the spec
+  # means to edit" (e.g. a path cited as a SCOPE_EXEMPT_GLOBS reference) — that class needs the
+  # mention's surrounding prose actually read, which is what implementation-harness-fix-scope-gaps'
+  # judge fan-out is for.
+  bare_names="$(grep -oE '\`[A-Za-z0-9_-]+\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte|py|rb|go|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|rs|sql|graphql|gql|css|scss|sass|less|html|htm|json|jsonc|yaml|yml|md|mdx|sh|bash|zsh|toml|xml|svg|env|txt|csv|ini|conf|lock|prisma|proto)\`' "$spec_path" | tr -d '`' | sort -u)"
 
   while IFS= read -r p; do
     [ -z "$p" ] && continue

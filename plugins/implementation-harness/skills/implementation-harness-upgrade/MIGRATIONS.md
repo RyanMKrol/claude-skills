@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.40.5 → 1.41.0 — new skill: fix-scope-gaps (cheap-model triage for scope-authoring WARNs) + tighter check-task-scope.sh
+A real `pre-loop-checkin` run surfaced 24 `check-task-scope.sh` WARNs and forced a NO-GO, but most were
+noise: `bare_names`' open-ended extension match flagged CSS values (`0.3rem`), property/method chains
+(`workoutStats.totalVolume`, `Promise.all`, `console.log`) as if they were filenames. The remaining
+class — a real path mentioned only as read-only background, not an edit target — needs the mention's
+prose actually read, which a regex can't do. `pre-loop-checkin` stays exactly as read-only as before
+(its own non-negotiable guardrail); the new skill is where triage-and-fix happens, mirroring the
+existing `pre-loop-checkin` (report) / `loop-recover` (fix) pairing.
+- mechanism: `scripts/check-task-scope.sh` — `bare_names` now requires a whitelisted real code/asset
+  extension instead of matching any backtick-quoted `word.word` token.
+- new files: `skills/implementation-harness-fix-scope-gaps/SKILL.md` — fans out one cheap-model
+  (`claude-haiku-4-5`) read-only judge subagent per WARN in parallel, auto-applies confident real gaps
+  to that task's `scope` array (one commit for the sweep), and only asks the owner about genuinely
+  ambiguous verdicts via a batched `AskUserQuestion`. Mutates `TASKS.json` scope arrays only — never
+  `status`/`facets`/`dependsOn`; refuses to run while the loop is active (same guardrail as loop-recover).
+- mechanism: `skills/implementation-harness-pre-loop-checkin/SKILL.md` — text-only update pointing the
+  scope-gap advisory at the new skill as the fix path; no change to its own read-only contract.
+- mechanism: `harness-CLAUDE.md` — "Operating the loop" section now covers four operational skills, not
+  three; added a bullet for `fix-scope-gaps`. `skills/implementation-harness-create/SKILL.md` and
+  `skills/implementation-harness-upgrade/SKILL.md`'s own scaffold/verify loops now include it too.
+- config: none. renamed/removed: none. manual attention: none.
+- breaking: none — a project's existing scope-authoring WARNs simply get quieter (fewer false
+  positives) and gain a new, optional fix skill; nothing about the existing gate behavior changes.
+
+---
+
 ## 1.40.3 → 1.40.4 — fix: scope-exempt.test.sh's throwaway repo missed loop.in-place.sh's early TASKS.json check
 CI itself caught this: `loop.in-place.sh` has an unconditional top-level check right after its
 `--guard-selftest` dispatch that exits 3 if `tracking/TASKS.json` is absent — `loop.sh`'s worktree

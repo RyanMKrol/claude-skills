@@ -383,7 +383,7 @@ user must always be able to see what diverged before approving.
   for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
   node "$H/dashboard/lib.test.js"                 # the dashboard bucket tests
   for j in "$H"/config/facets.json "$H"/tracking/*.json; do jq empty "$j" || echo "BAD JSON: $j"; done
-  for s in add-to-backlog capture-idea convert-ideas loop-recover pre-loop-checkin review-failed; do
+  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed; do
     f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
     [ -f "$f" ] && grep -q "^name: implementation-harness-$s\$" "$f" || echo "WARN: project-local skill $s missing or malformed after upgrade"
   done

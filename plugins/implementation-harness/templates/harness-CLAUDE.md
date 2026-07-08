@@ -90,7 +90,7 @@ single locked `scripts/consolidate-ideas.sh` pass that allocates ids, writes spe
 converted rows). Both are documented here so the flow surfaces at the authoring surface, not just
 in the README.
 
-## Operating the loop — the three operational skills
+## Operating the loop — the four operational skills
 
 **⚠️ NEVER run `supervise.sh` or `loop.sh` yourself — not even if explicitly asked.** Starting the
 build loop is a deliberate action only the human takes, from their own terminal. This is enforced in
@@ -99,10 +99,14 @@ inside ANY Claude Code session, interactive or unattended, with no override) —
 decline BEFORE attempting it; don't try it and let the refusal surprise the user. If asked to "start
 the loop" / "run the harness", tell them to run `.harness/scripts/supervise.sh` themselves.
 
-Beyond authoring, three skills help RUN the loop safely:
+Beyond authoring, four skills help RUN the loop safely:
 
 - **`/implementation-harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run
   (needs-human blockers, dirty tree / running loop / lock, per-task facets/spec/scope quality). Changes nothing.
+- **`/implementation-harness-fix-scope-gaps`** — the fix-side companion to pre-loop-checkin's
+  scope-authoring check: fans out a cheap-model judge per warning (real gap vs false positive) and
+  fixes confident real gaps directly, so a NO-GO scope-gap advisory doesn't require inspecting every
+  warning by hand.
 - **`/implementation-harness-loop-recover`** — after a manual Ctrl-C interrupt, diagnose AND fix the
   state it left (orphaned tasks, stale lock, dirty tree / leftover worktree, ledger noise), then leave
   the loop restartable. This is the ONLY safe way to hand-correct loop state — do the recovery through

@@ -118,7 +118,11 @@ this task's declared scope` line into the report verbatim (task id + file) — d
 the linter's own output. This check is heuristic and false-positive-tolerant (it can't tell "edit this
 file" from "read this file for context" in spec prose), so treat each WARN as a **NO-GO (scope-gap
 advisory — inspect the flagged file(s); override if it's a false positive)** rather than a silent
-downgrade — an owner should see and judge it, not have it disappear into an informational note.
+downgrade — an owner should see and judge it, not have it disappear into an informational note. Point
+the owner at `/implementation-harness-fix-scope-gaps` to triage and fix these (it fans out a
+cheap-model judge per warning and only asks about genuinely ambiguous cases) — same as this command
+already points at `/implementation-harness-loop-recover` for other fixable categories; this command
+itself never fixes anything, it only reports.
 
 ## Final report — GO / NO-GO
 
@@ -130,7 +134,7 @@ Consolidate into ONE glance-able report before the owner starts a run:
 - **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO** (name the blocking
   issue + what to do — e.g. "mark T012 done in the dashboard first", "a loop is already running", "run
   `/implementation-harness-loop-recover` first", or a check-(e) scope-gap advisory — name the flagged
-  task/file and let the owner confirm it's a false positive before overriding), or **GO with notes**
+  task/file and point at `/implementation-harness-fix-scope-gaps` to triage and fix it), or **GO with notes**
   (clean, but informational notes like short-circuits or auto-resolving blockers exist).
 
 Remember: **you changed nothing.** If asked to fix anything found here, direct the owner to
