@@ -267,21 +267,32 @@ For each file, classify:
 Also from the ledger: list any **renames/removals** (e.g. a doc renamed — the old path present in the
 target should be removed and the new one added) and any **breaking / MAJOR** items needing manual steps.
 
-**Never diff, list, or touch the pure user-data files:** `tracking/*` (TASKS.json, IDEAS.jsonl,
-human-done/manual-fail/reviews.json), `tasks/*.md`, `worklog/*`, `ledgers/*.jsonl`, **`custom/*`** (the
-customization overlay — the user's own prose: never reconcile, diff-to-overwrite, or clobber an *existing*
-overlay file; the upgrade may only **add a missing overlay stub** from the reference — new-file scaffolding
-so an install predating the overlay gets a home for the pristine files' pointers — or **append** to it via
-the §1b standardize path), and the repo-root `CLAUDE.md`, `.gitignore`, `.github/workflows/ci.yml`, root
-`README.md`. These belong to the user. (The one scoped exception is a leftover `tracking/IDEAS.md` from
-before 1.31.0 — handled by §1c's confirmed one-time conversion, not by this stage.)
+**Never diff, list-as-changed, or write to the pure user-data files:** `tracking/*` (TASKS.json,
+IDEAS.jsonl, human-done/manual-fail/reviews.json), `tasks/*.md`, `worklog/*`, `ledgers/*.jsonl`,
+**`custom/*`** (the customization overlay — the user's own prose: never reconcile, diff-to-overwrite, or
+clobber an *existing* overlay file; the upgrade may only **add a missing overlay stub** from the
+reference — new-file scaffolding so an install predating the overlay gets a home for the pristine files'
+pointers — or **append** to it via the §1b standardize path), and the repo-root `CLAUDE.md`, `.gitignore`,
+`.github/workflows/ci.yml`, root `README.md`. These belong to the user — the upgrade never mechanically
+compares or overwrites them. (The one scoped exception is a leftover `tracking/IDEAS.md` from before
+1.31.0 — handled by §1c's confirmed one-time conversion, not by this stage.)
+
+**But this is NOT the same as staying silent about them.** When a ledger entry between `CUR_VERSION` and
+`REF_VERSION` carries a `manual attention:` note about one of these files (most commonly root
+`.gitignore` — e.g. "add this entry, or the new file shows as untracked"), that note MUST be pulled into
+the report's **Manual attention** section like any other. "Never touch the file" and "never tell the user
+about a change they should make to it by hand" are different rules — only the first one applies here.
 
 Emit a grouped report:
 - **Up to date:** N files.
 - **New files to add:** paths (+ one-line ledger reason each).
 - **Changed — needs your call:** each path, its class, the ledger's "expected change" note, and the diff.
 - **Config knobs to add:** each new `harness.env` knob (name + default) absent from the target.
-- **Manual attention:** renames/removals, breaking notes, facets/schema changes.
+- **Manual attention:** EVERY `manual attention:` note from every ledger entry in range, verbatim —
+  renames/removals, breaking notes, facets/schema changes, and root-file notes (`.gitignore`/`CLAUDE.md`/
+  `ci.yml`/`README.md`) alike. Do not filter this down to only the first three kinds — a root-file note is
+  just as much a "manual attention" item as a rename or a breaking change, and it's the ONLY place a
+  needed `.gitignore` addition ever gets surfaced (the file itself is never diffed against the target).
 - **Version:** `CUR_VERSION` (or "legacy/unknown") → `REF_VERSION`.
 
 Present this report and STOP for confirmation before any writes.
@@ -346,7 +357,9 @@ user must always be able to see what diverged before approving.
   values are never rewritten. `facets.json` is left alone unless the ledger flags a required migration.
 - **User data is off-limits:** never read-to-modify or write `tracking/`, `tasks/`, `worklog/`,
   `ledgers/`, `custom/` (except the §1b standardize path, which only *appends* to it), or the repo-root
-  `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`.
+  `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`. This means never diffing or writing to them — it
+  does NOT mean staying silent about them: a ledger's `manual attention:` note about one of these
+  files still belongs in stage 3's report (see there).
 - **No auto-commit.** Leave the working tree dirty for the user to review.
 
 ## What this is NOT

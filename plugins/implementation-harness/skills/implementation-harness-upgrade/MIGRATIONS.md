@@ -131,10 +131,11 @@ whenever the audit phase began.
   each with its own persisted open/closed state; the `▶ running <Tool>…` pill follows whichever phase
   the heartbeat says is currently active.
 - config: none.
-- new files: `worklog/.claude-out.{build,audit}[.jsonl]` are created by the loop at runtime (not
-  shipped) — `templates/gitignore`'s `.claude-out` entry widened to a glob (`.claude-out*`) covering
-  every phase variant instead of the two old exact names.
-- manual attention: none.
+- new files: `worklog/.claude-out.{build,audit}[.jsonl]` are created by the loop at runtime (not shipped).
+- manual attention: root `.gitignore` (user data) — widen the `.claude-out` entry to a glob
+  (`.claude-out*`) so it covers all four phase-specific files (`.claude-out.build[.jsonl]`,
+  `.claude-out.audit[.jsonl]`) instead of just the two old exact names. Without this they'll show as
+  untracked files.
 - breaking: none (an un-upgraded install simply has no `.claude-out.{build,audit}` files yet, so both
   panels degrade to showing nothing until the loop is upgraded and runs at least once).
 
@@ -211,13 +212,14 @@ it — the CLI refuses to start without it).
   two-candidate plain-text behavior. `GET /api/activity` gains a `toolNow` field alongside `logTail`.
   `dashboard/lib.test.js` covers concatenation, the mid-tool-call state, garbled-line tolerance, and
   empty input.
-- new files: `worklog/.claude-out.jsonl` is created by the loop at runtime (not shipped) — added to
-  `templates/gitignore` alongside the existing `.claude-out` entry.
+- new files: `worklog/.claude-out.jsonl` is created by the loop at runtime (not shipped).
 - config: none.
-- manual attention: `docs/LIMITATIONS.md` — new field note: rate-limit detection still regex-matches
-  prose rather than the structured `rate_limit_info.resetsAt` timestamp the same stream also emits on
-  every invocation (a good follow-up, deliberately NOT done here — it needs its own verification
-  against a real rate-limit-hit payload, which this round of testing never triggered).
+- manual attention: (1) root `.gitignore` (user data) — add a `.harness/worklog/.claude-out.jsonl`
+  entry alongside the existing `.claude-out` line, or it'll show as an untracked file. (2)
+  `docs/LIMITATIONS.md` — new field note: rate-limit detection still regex-matches prose rather than
+  the structured `rate_limit_info.resetsAt` timestamp the same stream also emits on every invocation
+  (a good follow-up, deliberately NOT done here — it needs its own verification against a real
+  rate-limit-hit payload, which this round of testing never triggered).
 - breaking: none (an un-upgraded install keeps working exactly as before; this only adds a capability).
 
 ## 1.33.0 → 1.33.1 — dashboard: visible "?" tooltip icons on Internals table headers
