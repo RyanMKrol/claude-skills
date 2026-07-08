@@ -1,5 +1,5 @@
 {
-  "name": "update-plugins",
+  "name": "freshen-up",
   "version": "1.0.0",
   "description": "One command to update everything: refreshes every configured marketplace and updates every installed plugin to its latest version, via the `claude` CLI's own scriptable subcommands (not the interactive session slash commands, which have no bulk-update option). A single skill, nothing else — no other side effects.",
   "author": {
