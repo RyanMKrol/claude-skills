@@ -24,10 +24,14 @@ the stages in order.
 **Two rules govern everything below (the user chose these):**
 1. **Report, then apply on confirm.** Produce a full dry-run report first; mutate only after the user
    approves.
-2. **Never auto-decide on a file that isn't byte-identical to the reference.** A file that matches the
-   reference exactly is already current — skip it silently. For *any* other difference, surface the
-   delta (with the ledger's "expected change" note) and **ask the user how to handle it** — they have
-   very likely made their own edits, and those must be respected. Do not overwrite on your own judgment.
+2. **Never auto-decide on a file or knob whose safety isn't provable.** A file byte-identical to the
+   CURRENT reference is already current — skip it silently. A file byte-identical to a PAST released
+   version (per `CHECKSUMS.jsonl`) is provably never locally edited — auto-upgrade it, no question
+   asked. A missing `harness.env` knob is always safe to append (the action never touches an existing
+   value) — add it directly, no question asked. For any OTHER difference — the file's hash matches
+   nothing ever shipped, or a real edit — surface the delta (with the ledger's "expected change" note)
+   and **ask the user how to handle it** — they have very likely made their own edits, and those must
+   be respected. Do not overwrite on your own judgment when provenance is uncertain.
 
 ## 0. Locate the bundled reference, its version, and the ledger
 
@@ -40,10 +44,15 @@ TPL="$(cd "$TPL" && pwd)"                                   # normalize
 [ -f "$TPL/scripts/loop.sh" ] || { echo "plugin templates not found — install looks broken"; exit 1; }
 REF_VERSION="$(jq -r .version "$TPL/../.claude-plugin/plugin.json")"
 LEDGER="${CLAUDE_SKILL_DIR}/MIGRATIONS.md"                  # the per-version migration notes (sibling of this file)
+CHECKSUMS="${CLAUDE_SKILL_DIR}/CHECKSUMS.jsonl"             # per-version file hashes (sibling of this file)
+sha256_of() { command -v sha256sum >/dev/null 2>&1 && sha256sum "$1" | awk '{print $1}' || shasum -a 256 "$1" | awk '{print $1}'; }
 ```
 
 Read `$LEDGER` now — it is your source of truth for *what changed per version* and *how to apply each
 change safely* (especially the additive `harness.env` instructions and any file renames/removals).
+`$CHECKSUMS` is the second source of truth stage 3 uses: a file whose hash appears under its own
+canonical path in ANY line is provably a stale-but-unedited shipped version, not a local edit — that's
+what lets stage 3/4 auto-upgrade it without asking.
 
 ## 1. Locate + validate the target; detect variant and installed version
 
@@ -94,6 +103,14 @@ that's usually a better fix than reconciling the same inline edits on every futu
   `.harness/`, diff against *that*, and list the canonical-layout moves as their own report section — the
   user may adopt the layout or keep theirs (a kept nonstandard layout means mechanism files will keep
   showing path-derivation diffs; say so).
+- **Checksum fast-path FIRST, even with no reliable version marker.** Before running the expensive
+  hunk-by-hunk three-way classification below on a differing file, hash it (`sha256_of`) and check
+  `$CHECKSUMS` (same lookup as stage 3) against its canonical path. A match means the file is provably
+  a genuine past shipped version with zero local edits — route it straight to **clean / auto-upgrade**
+  (stage 4's bucket) and skip the hunk classification entirely for that file, even though this install
+  has no `.harness-version` to anchor a ledger-entry range. Only files with NO checksum match still
+  need the full plugin-newer / local-bespoke / conflict hunk analysis below — that expensive path
+  exists precisely for files this fast-path can't exonerate.
 - **Classify every differing mechanism file three ways, hunk by hunk**, instead of one overwrite/keep
   call per file:
   - **(a) plugin-newer** — the delta matches a ledger entry newer than the install's vintage (or, with no
@@ -254,8 +271,20 @@ For each file, classify:
   `custom/sensitive-paths.txt.example`). Offer to add any that are missing; never treat a missing `custom/`
   scaffolding file as a deliberate removal — and NEVER overwrite a user's REAL `custom/hooks/*.sh` or
   `custom/sensitive-paths.txt` (that's their content).
-- **differs** → capture the unified diff (`diff -u "$target" "$ref"`) **and** the matching ledger note(s).
-  Do NOT decide anything yet — this goes in the report for the user to adjudicate.
+- **differs from the CURRENT reference** → before treating this as a judgment call, check whether it's
+  merely STALE (never locally edited): hash the installed file and look it up against ITS OWN canonical
+  path across every line of `$CHECKSUMS`:
+  ```bash
+  h="$(sha256_of "$target")"
+  match_version="$(jq -r --arg p "$canonical_path" --arg h "$h" 'select(.files[$p]==$h)|.version' "$CHECKSUMS" | tail -1)"
+  ```
+  - **Hash matches a past version** (`$match_version` non-empty) → classify as **clean / auto-upgrade**,
+    not "differs, needs adjudication." Record `$match_version` for the report (e.g. "matches what the
+    plugin shipped at 1.36.1"). This file is provably never locally edited — the entire delta between it
+    and the CURRENT reference is 100% shipped change across versions the owner just hasn't pulled in yet.
+  - **No match anywhere in `$CHECKSUMS`** → today's behavior, unchanged: capture the unified diff
+    (`diff -u "$target" "$ref"`) and the matching ledger note(s); goes in the report for the user to
+    adjudicate.
 - **Exception — the six project-local operational skill files above are never a "deliberate removal"
   question, even in adoption mode (§1a).** An install with no `.claude/skills/implementation-harness-*`
   at all predates 1.32.0 wholesale (before that version they were global and the project never needed
@@ -286,7 +315,10 @@ about a change they should make to it by hand" are different rules — only the 
 Emit a grouped report:
 - **Up to date:** N files.
 - **New files to add:** paths (+ one-line ledger reason each).
-- **Changed — needs your call:** each path, its class, the ledger's "expected change" note, and the diff.
+- **Auto-upgrade — verified stale, no local edits:** each path, with the historical version it matched
+  (e.g. "scripts/mark-reviewed.sh — matches the 1.36.1 release, 2 versions behind current").
+- **Changed — needs your call:** each path (only files with NO checksum match land here now), its
+  class, the ledger's "expected change" note, and the diff.
 - **Config knobs to add:** each new `harness.env` knob (name + default) absent from the target.
 - **Manual attention:** EVERY `manual attention:` note from every ledger entry in range, verbatim —
   renames/removals, breaking notes, facets/schema changes, and root-file notes (`.gitignore`/`CLAUDE.md`/
@@ -300,22 +332,34 @@ Present this report and STOP for confirmation before any writes.
 ## 4. Confirm + apply (only after the user has seen the report)
 
 Walk the report and get the user's decision **per difference** — do not batch-decide anything that isn't
-byte-identical. Use `AskUserQuestion` (batch related items). For each:
-- **Changed mechanism file** → offer: *overwrite with the reference* / *keep mine* / *show full diff* /
-  *skip*. Recommend overwrite only when the diff shows purely the shipped change with no sign of local
-  edits — but the user chooses.
-- **Changed `harness.env`** → offer: *add the missing knob(s) additively (preserving my values)* / *show
-  diff* / *skip*. **Never** rewrite an existing knob's value; only append knobs the target lacks, using
-  the reference's default line + comment (per the ledger's ACTION note).
+byte-identical (or checksum-verified stale, see below). Use `AskUserQuestion` (batch related items). For
+each:
+- **Auto-upgrade files (checksum-verified stale, no local edits)** → apply directly, NO
+  `AskUserQuestion`: `cp -p "$ref" "$target"` (re-`chmod +x` if under `scripts/*.sh`). Accumulate each
+  into a single report line ("auto-upgraded N files, verified byte-identical to a prior shipped version
+  — no local edits detected"); do not ask the user anything per-file for this bucket. This is one of two
+  buckets in this stage that do NOT go through `AskUserQuestion` (the other is the `harness.env`
+  knob-add below) — everything else in this stage still does.
+- **Changed mechanism file (no checksum match — genuinely unknown provenance)** → offer: *overwrite with
+  the reference* / *keep mine* / *show full diff* / *skip*. Recommend overwrite only when the diff shows
+  purely the shipped change with no sign of local edits — but the user chooses.
+- **Missing `harness.env` knob(s)** → apply directly, NO `AskUserQuestion`: append the reference's knob
+  line(s) (per the ledger's ACTION note), keeping the section comment; **never** rewrite an existing
+  knob's value. This action is safe by construction (it only ever adds a key the target lacks), so it
+  doesn't need a confirmation any more than an auto-upgrade file does — report what was added. If
+  `harness.env` ALSO shows any OTHER divergence beyond the ledger's expected additions (a hand-edited
+  value, an unexpected structural change), that residual still surfaces and gets asked about like any
+  unknown-provenance diff — only the "append a missing knob" action itself is auto-applied.
 - **`facets.json`** → surface the ledger's schema/vocab note; because this file is tailored + self-evolving
   per project, default to *leave it and report* unless the ledger flags a required schema migration.
 - **New file** → offer: *add it* / *skip*.
 - **Rename/removal** → confirm, then move/delete per the ledger.
 
 Apply exactly what was approved:
-- Overwrite an approved mechanism file: `cp -p "$ref" "$target"` (re-`chmod +x` any `scripts/*.sh`).
-- Add an approved knob: append the reference's knob line(s) to `config/harness.env` (keep the section
-  comment). Confirm you did not alter any existing value.
+- Overwrite an approved (or auto-upgrade) mechanism file: `cp -p "$ref" "$target"` (re-`chmod +x` any
+  `scripts/*.sh`).
+- Add a knob (auto-applied, or approved): append the reference's knob line(s) to `config/harness.env`
+  (keep the section comment). Confirm you did not alter any existing value.
 - Add a new file / perform a rename or removal as approved.
 
 Cleanly-unmodified stale files may be grouped into a single "refresh these N files?" confirmation, but the
@@ -339,8 +383,11 @@ user must always be able to see what diverged before approving.
   ```
   If anything fails, report it prominently — the upgrade left the harness in a broken state and the user
   should revert (all changes are uncommitted).
-- **Summarize:** files refreshed, knobs added, files skipped/kept, manual-attention items still open, and
-  the version transition (`CUR_VERSION` → `REF_VERSION`).
+- **Summarize:** split "files refreshed" into (a) auto-upgraded — "N files auto-upgraded: verified
+  byte-identical to a prior shipped version, no local edits detected" — and (b) user-approved — "M files
+  refreshed on your approval"; plus knobs added (noting how many were auto-applied vs. approved), files
+  skipped/kept, manual-attention items still open, and the version transition (`CUR_VERSION` →
+  `REF_VERSION`).
 - **Do NOT commit.** Leave every change uncommitted so the user can review the diff and commit themselves
   (all changes are git-revertible). Remind them to `git add -A && git commit` (and push) when satisfied.
 - **Surface new customization features.** New plugin versions often add opt-in `custom/` extension points
@@ -352,9 +399,13 @@ user must always be able to see what diverged before approving.
 ## ⚠️ Guardrails
 
 - **Report before you write.** Stage 3 produces the report; stages 4–5 only run after the user approves.
-- **Byte-identical is the only "leave it alone."** Any other difference is the user's call, never yours.
-- **Additive-only for config.** New `harness.env` knobs get appended with template defaults; existing
-  values are never rewritten. `facets.json` is left alone unless the ledger flags a required migration.
+- **Byte-identical to the CURRENT reference is "leave it alone."** Byte-identical to a PAST released
+  version (per `CHECKSUMS.jsonl`) is "auto-upgrade it" — provably no local edit, so no question needed.
+  Any OTHER difference — no checksum match, genuinely unknown provenance — is the user's call, never
+  yours.
+- **Additive-only for config, and that makes it safe to auto-apply.** New `harness.env` knobs get
+  appended with template defaults, with no `AskUserQuestion`, since existing values are never rewritten
+  — there is nothing to decide. `facets.json` is left alone unless the ledger flags a required migration.
 - **User data is off-limits:** never read-to-modify or write `tracking/`, `tasks/`, `worklog/`,
   `ledgers/`, `custom/` (except the §1b standardize path, which only *appends* to it), or the repo-root
   `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`. This means never diffing or writing to them — it

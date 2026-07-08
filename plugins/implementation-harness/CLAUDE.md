@@ -52,6 +52,29 @@ The ledger entry must record (newest-first, using the format documented at the t
 - anything the upgrade **won't** touch (user-data / root files) under **manual attention**;
 - any **breaking** change + the manual steps it needs.
 
+## ⚠️ Every version bump MUST regenerate the checksums ledger (non-negotiable)
+
+The upgrade skill's checksum fast-path (`skills/implementation-harness-upgrade/CHECKSUMS.jsonl`) lets
+it auto-upgrade a file that's merely STALE (never locally edited) without asking — but it can only do
+that for versions actually recorded in the ledger. **Any commit that bumps `.claude-plugin/plugin.json`'s
+`version` MUST, in the same commit, re-run:**
+
+```bash
+plugins/implementation-harness/skills/implementation-harness-upgrade/gen-checksums.sh --append
+```
+
+No separate rule is needed for adding or removing a file under `templates/` — `gen-checksums.sh`
+discovers files unconditionally from the mechanism directories every time it runs (no manifest, no
+exclude list), so there is nothing to remember to update beyond the version-bump step that was already
+mandatory.
+
+**A skipped run degrades safely, not silently wrong:** that version's files simply never fast-path,
+falling back to the existing ask-the-user diff flow — never a wrong overwrite. But it IS a **permanent**
+coverage gap for that version once time passes — unlike a missed `MIGRATIONS.md` entry, this can't be
+usefully backfilled later for a commit that no longer reflects "the state at that version" once
+`templates/` has since moved on. **Run it as the literal last step before committing the version bump**,
+exactly like `bash -n` before committing an edited `*.sh`.
+
 ## File taxonomy (classify every change against this)
 
 The upgrade skill treats the three classes differently, so classify correctly:
