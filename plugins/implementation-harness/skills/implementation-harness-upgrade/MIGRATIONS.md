@@ -35,6 +35,52 @@ Entry format:
 
 ---
 
+## 1.36.2 → 1.37.0 — close 4 failure-learning gaps: scope self-checks, blocked-task closeout, ladder resume
+Four related fixes from a deep-dive into how failed/blocked tasks get reviewed and whether their
+learnings feed back into future task authoring, all found and verified against real running installs.
+- mechanism: `skills/implementation-harness-pre-loop-checkin/SKILL.md` — new check 4e runs
+  `check-task-scope.sh` (previously only manually invoked) across all pending/buildable tasks and
+  folds any scope-gap WARN into the GO/NO-GO verdict as a NO-GO (distinctly labeled as a heuristic
+  advisory, since the linter can't distinguish "edit this file" from "read this file for context" in
+  spec prose).
+- mechanism: `skills/implementation-harness-convert-ideas/SKILL.md` — Stage 3's per-idea agent prompt
+  gets a new self-check step (6a): before finalizing a draft, the agent verifies every file its own
+  `specDo` text instructs touching is present in that unit's `scope` array, fixing silently if not.
+  Belt-and-suspenders with the 4e check above — this catches the gap at draft time, 4e catches it (plus
+  tasks authored via other paths) at pre-flight time.
+- mechanism: `scripts/mark-failed.sh` — guard loosened to accept `status=="done"` OR
+  `status=="blocked"` (previously `"done"` only), so it can also close out a reviewed blocked task, not
+  just overturn a false "done" success. Header comment updated to describe both uses.
+- mechanism: `skills/implementation-harness-review-failed/SKILL.md` — the 2-way outcome split ("no
+  follow-up needed" / "follow-up authored") becomes 3-way ("already resolved" / "follow-up authored" /
+  "not worth pursuing"), and Stage 3 now closes out every reviewed `status=="blocked"` task via the
+  loosened `mark-failed.sh` once its outcome is settled — previously a reviewed blocked task sat in the
+  dashboard's Human Tasks bucket forever with no way to leave it. "Not worth pursuing" is the only
+  outcome requiring owner confirm-first (via the existing pending-questions/AskUserQuestion relay) since
+  it abandons something the backlog once wanted; "already resolved" and "follow-up authored" close
+  automatically. Originally-`"failed"` tasks are unaffected (already dashboard-bucketed as reviewed).
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` (kept in parity) — fixes a real bug where
+  tier-escalation ladder progress (`cur_rung`/`cur_attempts`) was lost on ANY process restart,
+  including the exact `supervise.sh` relaunch-after-rate-limit/MAX_ITERS paths the bug depended on:
+  `heartbeat_clear()` was wired into the blanket `trap ... EXIT INT TERM`, so a plain `exit 5`/`exit 4`
+  wiped the heartbeat before the process actually exited. Fix: `heartbeat_clear()` now fires only at
+  genuine terminal task outcomes (`block_task()`, a done-integration branch, the drained-backlog exit);
+  the trap no longer clears it. A leftover heartbeat at process start is read back once and, if its task
+  is still pending and the heartbeat isn't older than `LOOP_HEARTBEAT_RESUME_MAX_AGE`, resumes
+  `cur_rung`/`cur_attempts`/`cur_base` instead of cold-starting the ladder — restoring only scheduling
+  metadata, never a partial build diff (every attempt still rebuilds cold). `heartbeat()` now also
+  writes `base` (needed to reconstruct the resumed tier). `Ctrl-C`/`SIGTERM` also preserve the heartbeat
+  (consistent with the crash/rate-limit case) — use `LOOP_IGNORE_HEARTBEAT=1` for one run to force a
+  clean cold restart.
+- mechanism: `docs/HARNESS.md` (§3, §12), `docs/LIMITATIONS.md` — corrected the "rung is in-memory per
+  run, always cold-restarts on interruption" language to describe the new resume behavior.
+- config: `config/harness.env` — ACTION: add knob `LOOP_HEARTBEAT_RESUME_MAX_AGE` default `21600` if
+  absent; add knob `LOOP_IGNORE_HEARTBEAT` default empty (unset) if absent; don't touch existing values.
+- new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none. `mark-failed.sh`'s loosened guard is additive (still refuses anything that isn't
+  `"done"` or `"blocked"`); the heartbeat resume is a pure behavior improvement with an escape hatch.
+
 ## 1.36.0 → 1.36.1 — dashboard: cog is now an SVG icon (fixes a real rotation wobble)
 Reported and independently verified: the spinning cog visibly "orbited" a small amount instead of
 spinning in place, worse at higher speed. Root cause, confirmed by pixel-level screenshot analysis

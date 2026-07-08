@@ -6,8 +6,10 @@ description: >-
   "why did these tasks fail", "fix the blocked backlog items", "/review-failed". Sweeps every task
   with status "failed" (owner overturned a false success) or "blocked" (the loop gave up), one
   investigation sub-agent per task in parallel, then a single locked consolidation pass that
-  authors the follow-ups. Reuses the ideas-pipeline machinery (consolidate-ideas.sh + the
-  pending-tasks / pending-questions relay); never touches IDEAS.jsonl. Requires the harness scaffolded.
+  authors the follow-ups AND closes out every reviewed "blocked" task (via mark-failed.sh) so it
+  stops sitting in the dashboard's Human Tasks bucket forever. Reuses the ideas-pipeline machinery
+  (consolidate-ideas.sh + the pending-tasks / pending-questions relay); never touches IDEAS.jsonl.
+  Requires the harness scaffolded.
 argument-hint: "[optional: a single task id, e.g. T042 — omit for a full sweep]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage
 ---
@@ -29,7 +31,10 @@ investigate-and-shape work to one sub-agent per task, running concurrently. It *
 pending-tasks / consolidation machinery as `implementation-harness-convert-ideas`** (each agent writes
 only its own `.harness/.pending-tasks/<slug>.json`; `scripts/consolidate-ideas.sh` does the id
 allocation, spec writing, `TASKS.json` merge, and single commit+push). It **never touches `IDEAS.jsonl`**.
-Read this whole file, then execute in order.
+Every review also ends with the **original task closed out** — the coordinator (never a per-task agent,
+which never touches git in this skill's design) runs `.harness/scripts/mark-failed.sh` against each
+reviewed `"blocked"` task in Stage 3, so a review doesn't just produce a follow-up, it also retires the
+task it investigated. Read this whole file, then execute in order.
 
 ## Stage 0 — recovery check (before anything else)
 
@@ -102,17 +107,33 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > a `## Done when` met technically but missing the real intent. Your follow-up must be **demonstrably
 > better at the specific thing that went wrong** — an identical-spec retry would just fail the same way.
 >
-> **3. Decide the outcome. You are in the planning stage — bias TOWARD asking.** This review runs with a
-> human reachable (via the coordinator's relay); the eventual follow-up gets built by a weaker, unattended
-> builder from the spec alone, with no chance to ask. So resolve ambiguity with the owner now rather than
-> guessing — whenever a decision changes *what gets built* or *what "done" means*, surface it.
-> - **No follow-up needed** (already resolved elsewhere, or a stale/invalid signal — e.g. a framework
->   bug since fixed, not a real defect): write `.harness/.pending-tasks/<SLUG>.json` with
->   `{ "units": [], "ideaBullets": [], "report": "<why nothing further is needed>" }`. No question needed —
->   nothing is being built.
-> - **A follow-up IS warranted:** go to step 4 to shape it. You do NOT have `AskUserQuestion` — you relay
+> **3. Decide the outcome — one of three. You are in the planning stage — bias TOWARD asking, but only
+> where a real judgment call is being made.** This review runs with a human reachable (via the
+> coordinator's relay); the eventual follow-up gets built by a weaker, unattended builder from the spec
+> alone, with no chance to ask. So resolve ambiguity with the owner now rather than guessing — whenever a
+> decision changes *what gets built* or *what "done" means*, surface it. Every outcome below ends with the
+> ORIGINAL task being closed out (`status` flips to `"failed"`, terminal, dashboard-bucketed as reviewed)
+> — the coordinator does this in Stage 3, not you; your job here is only to decide, and record, which
+> outcome fired and why.
+> - **Already resolved** — the investigation found this is PROVABLY fixed/stale/non-issue: a framework bug
+>   since patched upstream, a later task or manual commit that already touched the same scope and fixed
+>   it, a failure mode that no longer reproduces. This is a FACTUAL finding, not a judgment call. Write
+>   `.harness/.pending-tasks/<SLUG>.json` with `{ "units": [], "ideaBullets": [], "report": "<why nothing
+>   further is needed>" }`. **No question needed** — the coordinator closes the original out automatically
+>   in Stage 3, citing your report as the reason.
+> - **Follow-up authored** — go to step 4 to shape it. You do NOT have `AskUserQuestion` — you relay
 >   through the coordinator, and for every follow-up you author you MUST (step 4b) confirm its definition
->   of done with the owner, plus surface any other decision that changes what gets built.
+>   of done with the owner, plus surface any other decision that changes what gets built. Once confirmed
+>   and consolidated, the coordinator closes the ORIGINAL out automatically alongside it, citing the new
+>   follow-up's id as the reason — this is bookkeeping, not a fresh judgment call, since the follow-up's
+>   own `specOverview` already carries the traceability back to the original.
+> - **Not worth pursuing** — the root cause is real and still present, but on reflection the task itself
+>   isn't worth building: it was already deprioritized, the underlying ask is stale/no longer wanted, or a
+>   proper fix's cost isn't justified relative to its value. Unlike "already resolved," this ABANDONS
+>   something the backlog once wanted — that IS a judgment call, so it must be confirmed, not closed
+>   silently. Write `.harness/.pending-tasks/<SLUG>.json` with the same `{ "units": [], "ideaBullets": [],
+>   "report": "<why you think it's not worth pursuing>" }` shape as "already resolved" (your `report` text
+>   is what distinguishes them for the coordinator), AND relay a confirm-first question per step 4c below.
 >
 > **4. Shape the follow-up — no lock, no git, no `TASKS.json` edit.** Write
 > `.harness/.pending-tasks/<SLUG>.json` in this exact shape (the same one
@@ -166,23 +187,42 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > `questions` MUST hold ≥1 entry and ≥1 with `topic: "definition-of-done"`. Hold a unit OUT of your
 > pending-tasks file only when it is genuinely un-shapeable until a `topic: "other"` answer lands.
 >
+> **4c. "Not worth pursuing" needs owner confirmation before closing (mandatory for that outcome only).**
+> Write `.harness/.pending-questions/<SLUG>.json` (same shape as 4b's DoD confirmation), with one
+> question:
+> ```json
+> { "slug": "<SLUG>", "ideaText": "<TNNN>: <original title>",
+>   "ideaSummary": "ONE short plain-language paragraph — what <TNNN> was, the root cause you found, and why you think it's not worth pursuing further.",
+>   "context": "<what you found>",
+>   "questions": [
+>     { "topic": "close-without-followup", "question": "Investigated <TNNN>: <root cause, one sentence>. My assessment: not worth pursuing further, no follow-up. OK to close this out as reviewed (no rebuild), or would you prefer a follow-up be drafted instead?" }
+>   ] }
+> ```
+> If the owner says to draft a follow-up instead, this task's outcome MOVES to "follow-up authored" —
+> resume your agent (or the coordinator folds it in directly) back to step 4 to shape one, same as any
+> other pending-questions answer that opens new work.
+>
 > **5. Report back**: the root cause you found, which step-3 outcome you reached, the slug you used, and
 > what you wrote (both files). The coordinator reads your files, not your prose.
 
-## Stage 3 — relay questions (summarize each review first), then consolidate
+## Stage 3 — relay questions (summarize each review first), consolidate, then close out
 
-Every authored follow-up left a `.pending-questions/<slug>.json` (Stage 2 step 4b), so this relay runs on
-essentially every sweep. Read them all, then **summarize before asking**: first emit a short markdown
-recap — one line per review: its `ideaSummary` (and the `<TNNN>` it concerns) — then make ONE
+Every authored follow-up left a `.pending-questions/<slug>.json` (Stage 2 step 4b or 4c), so this relay
+runs on essentially every sweep. Read them all, then **summarize before asking**: first emit a short
+markdown recap — one line per review: its `ideaSummary` (and the `<TNNN>` it concerns) — then make ONE
 `AskUserQuestion` batching **every** question from **every** file (each may carry several — a
-definition-of-done confirmation plus other build-changing decisions), each with a `<TNNN>`-naming
-header/label. Fold each answer back to its `(slug, question)`: for a `definition-of-done` answer, update
-that follow-up's `.pending-tasks/<slug>.json` `specDoneWhen` if the owner adjusted it (resume the agent
-via `SendMessage`, or edit the file yourself), else leave the draft; for a `topic: "other"` answer, fold
-it in the same way. If an answer opens a NEW question, **append** it to the same file's `questions` array
-and relay again (no cap); delete a `.pending-questions/<slug>.json` only once ALL its questions resolve.
+definition-of-done confirmation, a `close-without-followup` confirmation, plus other build-changing
+decisions), each with a `<TNNN>`-naming header/label. Fold each answer back to its `(slug, question)`:
+for a `definition-of-done` answer, update that follow-up's `.pending-tasks/<slug>.json` `specDoneWhen` if
+the owner adjusted it (resume the agent via `SendMessage`, or edit the file yourself), else leave the
+draft; for a `close-without-followup` answer, either leave the `{ "units": [] }` draft as-is (owner
+confirmed closing with no follow-up) or, if the owner asked for a follow-up instead, fold that request in
+and shape one per Stage 2 step 4 (the outcome moves from "not worth pursuing" to "follow-up authored");
+for a `topic: "other"` answer, fold it in the same way. If an answer opens a NEW question, **append** it
+to the same file's `questions` array and relay again (no cap); delete a `.pending-questions/<slug>.json`
+only once ALL its questions resolve.
 
-Then run the consolidation (the ONLY step that touches git):
+Then run the consolidation:
 
 ```bash
 bash .harness/scripts/consolidate-ideas.sh      # NO_PUSH=1 … to commit locally only
@@ -193,14 +233,36 @@ appends the tasks to `TASKS.json`, and commits + pushes under the repo lock. Sin
 unit set carries no `ideaIds` (Stage 2 step 4), the script's `IDEAS.jsonl` cleanup is simply a no-op
 for these units — no warning, nothing to "clean up."
 
+**Then close out every reviewed `status=="blocked"` task in this sweep's worklist** whose outcome is now
+settled (already resolved / follow-up consolidated / not-worth-pursuing confirmed) — this is what moves
+it out of the dashboard's Human Tasks bucket permanently:
+
+```bash
+bash .harness/scripts/mark-failed.sh <TNNN> "review-failed: <one-line outcome>"
+```
+
+Run one call per closed-out task, sequentially. Template the reason by which outcome fired:
+- Already resolved: `"review-failed: no follow-up needed — <the agent's report, condensed>"`.
+- Follow-up authored: `"review-failed: superseded by <TNNN2> — <why the follow-up is better-specified>"`.
+- Not worth pursuing: `"review-failed: not worth pursuing — owner confirmed; <the agent's report>"`.
+
+Worklist entries that were already `status=="failed"` need **no** closing action — they're already
+terminal and already dashboard-bucketed as reviewed/Done (`dashboard/lib.js`'s `computeBacklog()` treats
+`status=="failed"` as implicitly reviewed); `mark-failed.sh`'s own guard would reject a redundant call
+against one anyway, so just skip them.
+
+This is now the ONLY stage that touches git — Stages 0–2 and the relay above are read/scratch-file only.
+
 ## Stage 4 — validate + report
 
 `jq empty .harness/tracking/TASKS.json`; confirm no duplicate ids, every `dependsOn` id exists, every
 buildable new task has `facets` from the vocabulary, and every new task's `spec` path has a matching
-file; `.pending-tasks/` / `.pending-questions/` left empty. Summarize each reviewed task → its outcome
-(a new follow-up id, "no follow-up needed" + why, or a question relayed + its answer).
+file; `.pending-tasks/` / `.pending-questions/` left empty. Confirm every `status=="blocked"` task in the
+original worklist was either closed out in Stage 3 or has a documented reason it wasn't (e.g. still
+awaiting an owner answer). Summarize each reviewed task → its outcome (already resolved / a new follow-up
+id / not worth pursuing) and its closure action.
 
-**The reviewed tasks stay `status="failed"` / `"blocked"`** — this command never changes that (they're
-terminal by design; a new task is how progress resumes, not a reopen). If the sweep produced ≥1 new
-task, close by suggesting the user run `/implementation-harness-pre-loop-checkin` before the next
-unattended loop run.
+Originally-`"failed"` tasks stay `status="failed"` (unchanged, already terminal/reviewed); originally-
+`"blocked"` tasks now also read `status="failed"` after Stage 3's closeout, moving them out of Human
+Tasks and into Done permanently. If the sweep produced ≥1 new task, close by suggesting the user run
+`/implementation-harness-pre-loop-checkin` before the next unattended loop run.

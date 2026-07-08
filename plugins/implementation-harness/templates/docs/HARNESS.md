@@ -133,9 +133,16 @@ the sole, forward-only calibration input. Facets are the ONLY per-task difficult
 are classified with **facets** (not a guessed
 difficulty) by the add-to-backlog skill, and the `layer` vocabulary self-evolves via a poor-fit gate.
 
-> The current rung is tracked **in-memory per `loop.sh` run** (like the attempt counter): a
-> fresh run after an interruption restarts the task at rung 0. Deriving the rung durably from
-> the worklog's soft-failure count is a possible future hardening, not a guarantee today.
+> The current rung/attempt count is tracked in-memory per `loop.sh` run, but it also survives a
+> process restart: the `worklog/.current.json` heartbeat is cleared only at a genuine terminal
+> outcome (blocked / done / drained), never on a plain exit — so a leftover heartbeat at process
+> start (e.g. after `supervise.sh` relaunches following a rate-limit or `MAX_ITERS` exit) is read
+> back and resumes the SAME task's rung/attempts instead of cold-starting the ladder, as long as
+> it's younger than `LOOP_HEARTBEAT_RESUME_MAX_AGE` (default ~6h) and the task is still pending.
+> This restores only *scheduling metadata* (which tier to start the next cold attempt at) — it does
+> **not** resume a partial build diff; every attempt still tears down and rebuilds from `origin/main`
+> (or resets in-place), same as always. Set `LOOP_IGNORE_HEARTBEAT=1` for one run to force a clean,
+> cold restart of the ladder regardless of a leftover heartbeat.
 
 ### Planning vs building — where `max` effort lives
 
@@ -623,8 +630,11 @@ The loop **skips** `needs-human` during selection and surfaces it on the status 
 - **Auto-tuned model routing & escalation trade attempts for cost.** The policy picks each task's
   start tier from its facets + the outcomes ledger; if it starts too weak, the task burns up to
   `MAX_ATTEMPTS` soft-failures (and their CI runs) per rung before escalating — escalation is a safety
-  net, not a substitute for atomic sizing. The current rung is tracked in-memory per `loop.sh` run
-  (§3), so a fresh run after an interruption restarts the task at the policy's chosen start tier.
+  net, not a substitute for atomic sizing. The current rung/attempt count is tracked in-memory per
+  `loop.sh` run but survives most restarts via the `worklog/.current.json` heartbeat (§3); it's only
+  lost on a heartbeat older than `LOOP_HEARTBEAT_RESUME_MAX_AGE` (default ~6h), a task whose status
+  changed underneath it, or `LOOP_IGNORE_HEARTBEAT=1` — those cases restart the task at the policy's
+  chosen start tier as before.
 
 ---
 

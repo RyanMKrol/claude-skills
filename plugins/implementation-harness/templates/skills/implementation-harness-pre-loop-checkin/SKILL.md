@@ -103,10 +103,22 @@ jq -r '.tasks[]|select(.status=="pending" and .gate==null)|[.id,.spec]|@tsv' .ha
 # d) scope is a non-empty array
 jq -r '.tasks[]|select(.status=="pending" and .gate==null)
   |select((.scope|type != "array") or (.scope|length==0))|.id' .harness/tracking/TASKS.json
+
+# e) scope-authoring sweep — does the spec's OWN text agree with its OWN scope?
+bash .harness/scripts/check-task-scope.sh
 ```
 Report every task that fails any of (a)–(d), naming the specific check. (These are exactly the authoring
 slips that make a task fail its first build — a missing scope entry, an empty spec, a facet outside the
-vocabulary.)
+vocabulary.) Check (e), below, runs separately over the whole backlog rather than per-task.
+
+Check (e) is a stronger version of (d): a non-empty `scope` array can still omit a file the spec
+explicitly instructs touching — `check-task-scope.sh` catches that gap by cross-referencing the spec's
+own prose against its own `scope`. Fold every `WARN: <id> — spec mentions \`<file>\` but it is not in
+this task's declared scope` line into the report verbatim (task id + file) — don't re-derive or suppress
+the linter's own output. This check is heuristic and false-positive-tolerant (it can't tell "edit this
+file" from "read this file for context" in spec prose), so treat each WARN as a **NO-GO (scope-gap
+advisory — inspect the flagged file(s); override if it's a false positive)** rather than a silent
+downgrade — an owner should see and judge it, not have it disappear into an informational note.
 
 ## Final report — GO / NO-GO
 
@@ -114,11 +126,12 @@ Consolidate into ONE glance-able report before the owner starts a run:
 - **Needs-human blockers**: blocker id → blocked ids → auto-resolving (yes/no).
 - **Session hygiene**: dirty tree? ahead/behind? loop already running / lock held?
 - **Dependency short-circuits**: list or "none found".
-- **Task definition quality**: tasks with issues (+ which check), or "all clear".
+- **Task definition quality**: tasks with issues (+ which check, a–e), or "all clear".
 - **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO** (name the blocking
   issue + what to do — e.g. "mark T012 done in the dashboard first", "a loop is already running", "run
-  `/implementation-harness-loop-recover` first"), or **GO with notes** (clean, but informational notes
-  like short-circuits or auto-resolving blockers exist).
+  `/implementation-harness-loop-recover` first", or a check-(e) scope-gap advisory — name the flagged
+  task/file and let the owner confirm it's a false positive before overriding), or **GO with notes**
+  (clean, but informational notes like short-circuits or auto-resolving blockers exist).
 
 Remember: **you changed nothing.** If asked to fix anything found here, direct the owner to
 `/implementation-harness-loop-recover` or a manual edit — never mutate from this command.

@@ -181,16 +181,21 @@ AUDITOR_EFFORT="$(blob config/facets.json | jq -r '.policy.auditorEffort // "med
 LOCAL_DOD="${LOCAL_DOD:-}"   # optional cheap gate run before the audit; empty = rely on CI (which the worktree variant already has)
 FAILURES_BUF="$HARNESS_DIR/worklog/.failures.buf"   # gitignored, in the PRIMARY checkout (survives worktree rebuilds); per-current-task, flushed into ledgers/failures.jsonl at each terminal outcome
 
-# ─── Heartbeat: the dashboard's live "Now" view ───────────────────────────────
+# ─── Heartbeat: the dashboard's live "Now" view, AND the escalation-ladder resume signal ────────
 # worklog/.current.json in the PRIMARY checkout — a best-effort breadcrumb of what the loop is doing
-# RIGHT NOW (task, phase, rung, attempt, tier). Written at phase transitions, removed at every
-# terminal outcome and on any exit (trap). Purely observational: nothing in the loop reads it back,
-# every write is `|| true`, and it lives among the gitignored worklog scratch so it can never be
-# committed or affect a diff.
+# RIGHT NOW (task, phase, rung, attempt, base tier). Written at phase transitions; cleared ONLY at a
+# genuine terminal outcome for the current task (block_task(), a done-integration branch, or the
+# drained-backlog exit) — NOT in the EXIT/INT/TERM trap. So a heartbeat still present at process
+# START means the PRIOR process never reached one of those terminal points: a hard kill/crash, or
+# (via supervise.sh) a relaunch after exit 4 (MAX_ITERS) or exit 5 (rate-limit) — i.e. a genuinely
+# interrupted mid-climb, not a fresh cold start. That leftover file IS read back once, near the top
+# of the main loop below, to resume cur_rung/cur_attempts/cur_base instead of cold-starting the
+# ladder — see the "resume an interrupted mid-climb" block. Every write is still `|| true`; it lives
+# among the gitignored worklog scratch so it can never be committed or affect a diff.
 HEARTBEAT="$HARNESS_DIR/worklog/.current.json"
 heartbeat() {
-  printf '{"task":"%s","phase":"%s","rung":%s,"attempt":%s,"model":"%s","effort":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
-    "${cur_task:-}" "$1" "${cur_rung:-0}" "${cur_attempts:-0}" "${tmodel:-}" "${teffort:-}" "${hb_started:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$HEARTBEAT" 2>/dev/null || true
+  printf '{"task":"%s","phase":"%s","rung":%s,"attempt":%s,"base":%s,"model":"%s","effort":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
+    "${cur_task:-}" "$1" "${cur_rung:-0}" "${cur_attempts:-0}" "${cur_base:-0}" "${tmodel:-}" "${teffort:-}" "${hb_started:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$HEARTBEAT" 2>/dev/null || true
 }
 heartbeat_clear() { rm -f "$HEARTBEAT" 2>/dev/null || true; }
 
@@ -1001,9 +1006,35 @@ fi
 
 # --- Main loop --------------------------------------------------------------
 acquire_lock
-trap 'heartbeat_clear; release_lock' EXIT INT TERM
+trap 'release_lock' EXIT INT TERM
 
 cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"; hb_started=""
+
+# ─── Resume an interrupted mid-climb from a leftover heartbeat ──────────────────────────────────
+# See the heartbeat block above for why a leftover file here means a genuine interruption. Bounded
+# by age (a heartbeat from long enough ago is probably an unrelated, stale session) and gated on the
+# task still being pending. LOOP_IGNORE_HEARTBEAT=1 forces a clean cold restart for one run.
+resume_task=""; resume_rung=0; resume_attempts=0; resume_base=0; resume_started=""
+if [ -z "${LOOP_IGNORE_HEARTBEAT:-}" ] && [ -f "$HEARTBEAT" ]; then
+  hb_json="$(cat "$HEARTBEAT" 2>/dev/null || true)"
+  hb_task="$(jq -r '.task // empty' <<<"$hb_json" 2>/dev/null || true)"
+  hb_updated="$(jq -r '.updatedAt // empty' <<<"$hb_json" 2>/dev/null || true)"
+  if [ -n "$hb_task" ] && [ -n "$hb_updated" ]; then
+    hb_epoch="$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$hb_updated" +%s 2>/dev/null || date -d "$hb_updated" +%s 2>/dev/null || echo 0)"
+    hb_age=$(( $(date -u +%s) - hb_epoch ))
+    hb_status="$(tj -r --arg id "$hb_task" '.tasks[]|select(.id==$id)|.status' 2>/dev/null || true)"
+    if [ "$hb_age" -le "${LOOP_HEARTBEAT_RESUME_MAX_AGE:-21600}" ] && { [ "$hb_status" = "pending" ] || [ -z "$hb_status" ]; }; then
+      resume_task="$hb_task"
+      resume_rung="$(jq -r '.rung // 0' <<<"$hb_json" 2>/dev/null || echo 0)"
+      resume_attempts="$(jq -r '.attempt // 0' <<<"$hb_json" 2>/dev/null || echo 0)"
+      resume_base="$(jq -r '.base // 0' <<<"$hb_json" 2>/dev/null || echo 0)"
+      resume_started="$(jq -r '.startedAt // empty' <<<"$hb_json" 2>/dev/null || true)"
+      log "found a leftover heartbeat for $resume_task (rung $resume_rung, attempt $resume_attempts, ${hb_age}s old) — will resume its climb if it's selected next, instead of cold-starting the ladder."
+    else
+      log "found a leftover heartbeat for ${hb_task:-?} but ignoring it (age ${hb_age}s, cap ${LOOP_HEARTBEAT_RESUME_MAX_AGE:-21600}s, or task no longer pending) — starting cold."
+    fi
+  fi
+fi
 
 # Give up on ONE task WITHOUT halting the loop: tear down its branch/worktree, record a
 # failed:blocked marker on main (select_task reads worklog from origin/main, so it then skips the
@@ -1074,14 +1105,25 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   sel="$(select_task || true)"
   if [ -z "$sel" ]; then
     log "no eligible task — backlog complete or everything left is gate/human-blocked."
-    run_hook drained drained; board; sync_primary_checkout; exit 0
+    heartbeat_clear; run_hook drained drained; board; sync_primary_checkout; exit 0
   fi
   read -r task branch mode <<<"$sel"
   if [ "$task" != "$cur_task" ]; then
-    # cur_verification resets here too: a task that terminates BEFORE its audit_gate runs (structural
-    # fail / CI red / blocked) must not inherit the previous task's "audited" into its ledger row.
-    cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"; hb_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
+    if [ -n "$resume_task" ] && [ "$task" = "$resume_task" ]; then
+      # Resuming an interrupted mid-climb — restore scheduling metadata only (which tier to
+      # cold-start the next attempt at). This does NOT resume a partial build diff: every attempt
+      # still tears down and rebuilds a fresh worktree off origin/main below, same as always.
+      cur_task="$task"; cur_attempts="$resume_attempts"; cur_rung="$resume_rung"; cur_base="$resume_base"
+      cur_verification="ci-only"; hb_started="${resume_started:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+      log "resuming $task at rung $cur_rung (attempt $cur_attempts/$MAX_ATTEMPTS) — restored from the interrupted run's heartbeat."
+      resume_task=""   # one-shot: never re-applies once consumed
+    else
+      # cur_verification resets here too: a task that terminates BEFORE its audit_gate runs
+      # (structural fail / CI red / blocked) must not inherit the previous task's "audited" into
+      # its ledger row.
+      cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"; hb_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
+    fi
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
   read -r tmodel teffort <<<"$(rung_at "$task" "$cur_rung")"   # global-ladder tier at cur_base+cur_rung

@@ -49,8 +49,10 @@ keep them here so the design's compromises live in one place alongside your proj
   *Why:* start cheap and climb only for tasks that actually need it (the policy picks the start
   tier from facets + the outcomes ledger).
   *Impact:* if it starts too weak, a task burns up to `MAX_ATTEMPTS` soft-failures (and their CI
-  runs) per rung before escalating; the rung is in-memory per run, so a fresh run restarts at the
-  policy's chosen start tier.
+  runs) per rung before escalating. The rung/attempt count is in-memory per run but survives most
+  restarts via the `worklog/.current.json` heartbeat; it's only lost on a heartbeat older than
+  `LOOP_HEARTBEAT_RESUME_MAX_AGE` (default ~6h), a task whose status changed underneath it, or
+  `LOOP_IGNORE_HEARTBEAT=1` — those cases restart at the policy's chosen start tier.
   *Revisit:* escalation is a safety net, not a substitute for atomic sizing — split tasks that keep
   climbing the ladder.
 

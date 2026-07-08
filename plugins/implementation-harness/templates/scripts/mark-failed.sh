@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 #
-# mark-failed.sh — owner CLI: overturn a "done" task as a false success (an audit-missed bug, a
-# visual regression the automated checks didn't catch, etc). Writes the tracking/manual-fail.json
-# overlay with a REQUIRED reason; the loop's reconcile_overlays() flips TASKS.json status to
-# "failed" on its next iteration, and both calibration readers (policy.jq's tier branch and
-# audit_gate's confirmed-audited-count query) subtract the overlay at read time so the false
-# success stops inflating that (layer × work-type) cell's calibration — see
-# docs/designs/manual-fail-signal.md. Terminal: this does NOT re-open the task; a human decides
-# whether/how to redo it.
+# mark-failed.sh — owner CLI: close out a task as a reviewed, non-success outcome. Two uses:
+#   - overturn a "done" task as a false success (an audit-missed bug, a visual regression the
+#     automated checks didn't catch, etc).
+#   - close out a "blocked" task once implementation-harness-review-failed has investigated it
+#     (already resolved elsewhere / a better-specified follow-up was authored / not worth pursuing) —
+#     without this, a reviewed "blocked" task has no way to leave the dashboard's Human Tasks bucket.
+# Writes the tracking/manual-fail.json overlay with a REQUIRED reason; the loop's reconcile_overlays()
+# flips TASKS.json status to "failed" on its next iteration, and both calibration readers (policy.jq's
+# tier branch and audit_gate's confirmed-audited-count query) subtract the overlay at read time so the
+# false success stops inflating that (layer × work-type) cell's calibration — see
+# docs/designs/manual-fail-signal.md. Both transitions land on status:"failed", which dashboard/lib.js's
+# computeBacklog() already buckets into Done and tags implicitly reviewed. Terminal: this does NOT
+# re-open the task; a human decides whether/how to redo it.
 #
 # Usage: mark-failed.sh TNNN "<reason>"
 #        mark-failed.sh --undo TNNN
@@ -44,8 +49,8 @@ fi
 # renders) instead of silently keeping only the first word.
 id="${1:-}"; shift 2>/dev/null || true; reason="$*"
 [ -n "$id" ] && [ -n "$reason" ] || { echo "usage: mark-failed.sh TNNN \"<reason>\"" >&2; exit 2; }
-jq -e --arg id "$id" '.tasks[]|select(.id==$id)|.status=="done"' "$BACKLOG" >/dev/null 2>&1 \
-  || { echo "ABORT: $id is not currently status:\"done\" — no changes made." >&2; exit 1; }
+jq -e --arg id "$id" '.tasks[]|select(.id==$id)|(.status=="done" or .status=="blocked")' "$BACKLOG" >/dev/null 2>&1 \
+  || { echo "ABORT: $id is not currently status:\"done\" or status:\"blocked\" — no changes made." >&2; exit 1; }
 
 acquire_lock
 trap 'release_lock' EXIT INT TERM
