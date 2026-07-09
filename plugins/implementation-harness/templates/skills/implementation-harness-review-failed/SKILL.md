@@ -233,8 +233,15 @@ pending `questions` text, so the owner reads the exact draft (or, for a `close-w
 question, the exact investigation report) a question refers to right next to the question itself. This
 is a **utilitarian reference doc for a decision in progress**, not a landing page — clean hierarchy and
 real spacing, no hero, no marketing framing; build it from the REAL current content, never placeholder
-text. Write the page to your own scratchpad directory and call the `Artifact` tool (favicon 🔍) to
-publish it. **If the relay loops across multiple rounds**, regenerate and redeploy to the SAME file path
+text. **Give it a persistent left-hand outline to navigate by** — a sweep can span many reviews, and a
+single long scroll is hard to move around in. Render a sidebar (table of contents) listing one entry per
+review (its `<TNNN>` + title, with that review's unit titles nested under it), each anchor-linking
+(`href="#<slug>"`) to the matching section — give every review section a corresponding `id="<slug>"`.
+Keep the outline visible while the content scrolls (a sticky/fixed sidebar that itself scrolls when the
+list is long), and on a narrow screen let it collapse above the content rather than overlapping it or
+forcing horizontal scroll. These are plain in-page `#id` anchors — no external requests, so they're
+CSP-safe inside an Artifact; no JavaScript is required for the jump-to behavior. Write the page to your
+own scratchpad directory and call the `Artifact` tool (favicon 🔍) to publish it. **If the relay loops across multiple rounds**, regenerate and redeploy to the SAME file path
 each round — the owner keeps one tab open for the whole sweep instead of chasing a new link every round.
 Zero pending questions → skip this entirely, nothing to relay.
 

@@ -42,6 +42,24 @@ Entry format:
 
 ---
 
+## 1.49.0 → 1.50.0 — navigable outline sidebar on the ideas/review relay Artifact
+
+The reference Artifact that `convert-ideas` and `review-failed` publish before asking the owner
+anything is a single long scroll — hard to navigate once a sweep spans many ideas/reviews. Both
+skills' artifact-build instructions now require a persistent left-hand **outline / table of
+contents**: one anchor-linked entry per idea (or review) that jumps to its section, sticky while the
+content scrolls, collapsing above the content on a narrow screen. Plain in-page `#id` anchors, so it
+stays CSP-safe with no JavaScript. Instruction-only change — no script/config/schema touched.
+- operational skills: `skills/implementation-harness-convert-ideas/SKILL.md`,
+  `skills/implementation-harness-review-failed/SKILL.md` — §4 relay step gains the outline-sidebar
+  requirement in the Artifact-build bullet. Content-diffed + overwritten on approval like any
+  operational skill (target `$T/.claude/skills/implementation-harness-*/SKILL.md`).
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.48.0 → 1.49.0 — in-project workflow guide in `.harness/README.md`
 
 Adds a "How you operate this harness" section to the scaffolded `.harness/README.md` — a Mermaid

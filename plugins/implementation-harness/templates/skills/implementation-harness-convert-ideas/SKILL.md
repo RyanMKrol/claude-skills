@@ -204,7 +204,15 @@ relay runs on essentially every sweep. Read them all, then:
   so the owner can read the exact draft a question refers to right next to the question itself. This is
   a **utilitarian reference doc for a decision in progress**, not a landing page — clean hierarchy and
   real spacing, no hero, no marketing framing; build it from the REAL current draft content, never
-  placeholder text. Write the page to your own scratchpad directory and call the `Artifact` tool
+  placeholder text.
+- **Give it a persistent left-hand outline to navigate by** — a sweep can span many ideas, and a
+  single long scroll is hard to move around in. Render a sidebar (table of contents) listing one entry
+  per idea (its `ideaSummary` title, with that idea's unit titles nested under it), each anchor-linking
+  (`href="#<slug>"`) to the matching section — give every idea section a corresponding `id="<slug>"`.
+  Keep the outline visible while the content scrolls (a sticky/fixed sidebar that itself scrolls when
+  the list is long), and on a narrow screen let it collapse above the content rather than overlapping it
+  or forcing horizontal scroll. These are plain in-page `#id` anchors — no external requests, so they're
+  CSP-safe inside an Artifact; no JavaScript is required for the jump-to behavior. Write the page to your own scratchpad directory and call the `Artifact` tool
   (favicon 🧩) to publish it. **If the relay loops across multiple rounds** (an answer opens a new
   question — see below), regenerate and redeploy to the SAME file path each round rather than creating a
   new one — the tool redeploys in place, so the owner keeps one tab open for the whole session instead of
