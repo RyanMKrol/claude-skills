@@ -42,6 +42,22 @@ Entry format:
 
 ---
 
+## 1.48.0 → 1.49.0 — in-project workflow guide in `.harness/README.md`
+
+Adds a "How you operate this harness" section to the scaffolded `.harness/README.md` — a Mermaid
+flow diagram plus a step-by-step capture → convert → pre-loop-checkin → (fix-scope-gaps) →
+`supervise.sh` → review-failed walkthrough, so an owner opening their installed project learns the
+skill lifecycle without visiting the marketplace page. Prose-only; no script/config/schema change.
+- mechanism: `README.md` (→ `.harness/README.md`) — new workflow section inserted after "The idea
+  in one picture"; the rest of the file is unchanged. Content-diffs + overwrites on approval as
+  usual for a mechanism file.
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none — nothing under `tracking/`, `tasks/`, `worklog/`, `ledgers/`, `custom/`,
+  or the repo-root files changed.
+- breaking: none.
+
 ## 1.47.1 → 1.48.0 — periodic recheck for rejected downward-exploration rungs
 
 Downward exploration (1.47.0) was a one-way ratchet: once a candidate cheap rung accumulated `minN`
