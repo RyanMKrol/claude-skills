@@ -306,14 +306,16 @@ clobber an *existing* overlay file; the upgrade may only **add a missing overlay
 reference — new-file scaffolding so an install predating the overlay gets a home for the pristine files'
 pointers — or **append** to it via the §1b standardize path), and the repo-root `CLAUDE.md`, `.gitignore`,
 `.github/workflows/ci.yml`, root `README.md`. These belong to the user — the upgrade never mechanically
-compares or overwrites them. (The one scoped exception is a leftover `tracking/IDEAS.md` from before
+compares or overwrites them. (Scoped exception for `.gitignore`: the harness-managed marker block inside
+it is maintained by `ensure-gitignore.sh` in Stage 4 — the user's own lines are still never touched.) (The one scoped exception is a leftover `tracking/IDEAS.md` from before
 1.31.0 — handled by §1c's confirmed one-time conversion, not by this stage.)
 
 **But this is NOT the same as staying silent about them.** When a ledger entry between `CUR_VERSION` and
-`REF_VERSION` carries a `manual attention:` note about one of these files (most commonly root
-`.gitignore` — e.g. "add this entry, or the new file shows as untracked"), that note MUST be pulled into
-the report's **Manual attention** section like any other. "Never touch the file" and "never tell the user
-about a change they should make to it by hand" are different rules — only the first one applies here.
+`REF_VERSION` carries a `manual attention:` note about one of these files (e.g. a root `CLAUDE.md` reword,
+or a `.gitignore` change OUTSIDE the harness-managed block), that note MUST be pulled into the report's
+**Manual attention** section like any other. "Never touch the file" and "never tell the user about a change
+they should make to it by hand" are different rules — only the first one applies here. (Harness-owned
+scratch ignores are no longer such a note — they're auto-maintained by `ensure-gitignore.sh`; see Stage 4.)
 
 Emit a grouped report:
 - **Up to date:** N files.
@@ -326,8 +328,10 @@ Emit a grouped report:
 - **Manual attention:** EVERY `manual attention:` note from every ledger entry in range, verbatim —
   renames/removals, breaking notes, facets/schema changes, and root-file notes (`.gitignore`/`CLAUDE.md`/
   `ci.yml`/`README.md`) alike. Do not filter this down to only the first three kinds — a root-file note is
-  just as much a "manual attention" item as a rename or a breaking change, and it's the ONLY place a
-  needed `.gitignore` addition ever gets surfaced (the file itself is never diffed against the target).
+  just as much a "manual attention" item as a rename or a breaking change. (Harness-owned scratch ignores
+  are the exception: they're auto-maintained by `ensure-gitignore.sh` in Stage 4, so they no longer rely on
+  a manual note — a `.gitignore` manual-attention item is now only ever about a change OUTSIDE the managed
+  block.)
 - **Version:** `CUR_VERSION` (or "legacy/unknown") → `REF_VERSION`.
 
 Present this report, then get the go-ahead via **`AskUserQuestion`** — never end this stage with a
@@ -371,6 +375,16 @@ Apply exactly what was approved:
 - Add a knob (auto-applied, or approved): append the reference's knob line(s) to `config/harness.env`
   (keep the section comment). Confirm you did not alter any existing value.
 - Add a new file / perform a rename or removal as approved.
+- **Guarantee the root `.gitignore` managed block** (auto-applied, NO `AskUserQuestion`). After the
+  mechanism refreshes above — so the just-updated `ensure-gitignore.sh` is in place — run
+  `bash "$H/scripts/ensure-gitignore.sh"`. It appends or refreshes the harness-managed scratch block
+  (loop scratch + status board, atomic-write temps, ideas->tasks pipeline dirs, scope-gap dismissals)
+  INSIDE its markers in the repo-root `.gitignore`, never touching the user's own lines — additive-within-
+  markers, exactly as safe to auto-apply as a knob-add. This runs on EVERY upgrade regardless of version
+  range, so a scratch-ignore block that never reached this project (a missed manual-attention window — the
+  original incident) is finally self-healed. Report the line it prints (added / refreshed / already
+  current). If `ensure-gitignore.sh` isn't present (the user skipped adding this new file on a pre-1.55.0
+  upgrade), note that the managed block can't be maintained until it's added.
 
 Cleanly-unmodified stale files may be grouped into a single "refresh these N files?" confirmation, but the
 user must always be able to see what diverged before approving.
@@ -430,9 +444,13 @@ user must always be able to see what diverged before approving.
   — there is nothing to decide. `facets.json` is left alone unless the ledger flags a required migration.
 - **User data is off-limits:** never read-to-modify or write `tracking/`, `tasks/`, `worklog/`,
   `ledgers/`, `custom/` (except the §1b standardize path, which only *appends* to it), or the repo-root
-  `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`. This means never diffing or writing to them — it
+  `CLAUDE.md` / `ci.yml` / `README.md`. This means never diffing or writing to them — it
   does NOT mean staying silent about them: a ledger's `manual attention:` note about one of these
-  files still belongs in stage 3's report (see there).
+  files still belongs in stage 3's report (see there). **Root `.gitignore` is the one carve-out:** the
+  upgrade still never touches the user's OWN lines, but it DOES maintain the harness's marker-delimited
+  managed block via `ensure-gitignore.sh` (Stage 4) — write confined to that block, as additive as a
+  knob-add. That is what makes the harness scratch ignores self-healing instead of a perpetual
+  manual-attention note.
 - **Commit + push by default (see Stage 5) — but never on a failed validation, no matter what.** A
   validation failure always means uncommitted + reverted, even if the owner's preference or CLAUDE.md
   says to auto-push everything else. Auto-push is an opt-OUT default (commit unless told not to), not

@@ -1,12 +1,3 @@
-# Transient loop scratch (last-iteration verdict) + the generated status board.
-.harness/worklog/.result
-.harness/worklog/.claude-out*   # per-phase live-output files: .claude-out.{build,audit}[.jsonl]
-.harness/worklog/.failures.buf
-.harness/worklog/.current.json
-.harness/worklog/STATUS.md
-.harness/worklog/*.log
-.harness/worklog/*.audit.md
-
 # Add your language's build / dependency output below, e.g.:
 # /target          # Rust
 # /node_modules    # Node
@@ -15,21 +6,8 @@
 # __pycache__/
 # *.pyc
 
-# harness: atomic-write temps (TASKS.json + the owner-overlay files never keep a crashed-mid-write file)
-.harness/tracking/*.tmp
-.harness/tracking/*.tmp.*
-
-# harness: ideas->tasks pipeline — ephemeral per-sweep scratch (the IDEAS.jsonl inbox itself IS
-# committed, so the inbox travels with the repo; the per-agent scratch dirs are ignored ENTIRELY —
-# not just *.json — so a stray .md / .tmp / any incidental file an agent drops there can never be
-# committed. The committed .gitkeep keeps each dir present in a fresh clone.
-.harness/.pending-tasks/*
-!.harness/.pending-tasks/.gitkeep
-.harness/.pending-questions/*
-!.harness/.pending-questions/.gitkeep
-
-# harness: scope-gap dismissals — check-task-scope.sh's per-task "already reviewed, false positive"
-# record, written by fix-scope-gaps. Local scratch, same shape as the pending-tasks/pending-questions
-# dirs above: never committed, invalidated by content (a specHash mismatch), not by deletion.
-.harness/.scope-gap-ignores/*
-!.harness/.scope-gap-ignores/.gitkeep
+# NOTE: the harness's OWN local-scratch ignores (loop scratch + status board, atomic-write temps, the
+# ideas->tasks pipeline dirs, scope-gap dismissals) are maintained automatically as a marker-delimited
+# "# >>> implementation-harness managed >>>" block, appended by .harness/scripts/ensure-gitignore.sh
+# (run on create and on every upgrade). Don't add those by hand here — put your own entries anywhere
+# OUTSIDE that block and they'll be left untouched.

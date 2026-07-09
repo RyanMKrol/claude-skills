@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.54.0 → 1.55.0 — root `.gitignore` harness-managed block is now auto-maintained (was a manual note)
+
+Harness-owned scratch ignores (`.pending-tasks/`, `.pending-questions/`, `.scope-gap-ignores/`, loop
+scratch + status board, atomic-write temps) used to reach an EXISTING install only as a one-time
+`manual attention:` note during the specific upgrade that introduced them — miss that version window and
+the block never landed, so a scratch file showed up untracked forever (real incident: a
+`.scope-gap-ignores/` file got auto-stashed because its ignore block never reached the project). New
+`scripts/ensure-gitignore.sh` owns a marker-delimited managed block in the repo-root `.gitignore` and is
+run by `create` (on scaffold) and by `upgrade` (Stage 4, EVERY run regardless of version range), so the
+block self-heals. It writes ONLY inside its own `# >>> implementation-harness managed >>>` markers —
+never the user's own lines. This narrows the "upgrade never writes root `.gitignore`" guardrail to "never
+writes OUTSIDE the managed markers."
+
+- new files: `scripts/ensure-gitignore.sh` — idempotent writer (`--check` for read-only drift report);
+  single source of truth for every harness-owned `.gitignore` entry (the heredoc block inside it).
+- mechanism: the `implementation-harness-upgrade` skill now RUNS `ensure-gitignore.sh` in Stage 4 (auto-
+  applied, additive-within-markers like a knob-add) and its guardrail/report language is updated to match.
+  (Skill logic, not a `templates/` file — no per-file diff on the target; it just takes effect.)
+- manual attention: repo-root `.gitignore` (user data) is now auto-maintained WITHIN the managed markers
+  by the upgrade — no action needed. Pre-existing installs that had the harness scratch lines scattered
+  inline keep those lines (harmless); they're now duplicated by the managed block and may be deleted by
+  hand. `templates/gitignore` was reduced to the user-facing build-artifact placeholder (the harness
+  entries moved into `ensure-gitignore.sh`); this affects FRESH installs only — existing root `.gitignore`
+  files are never overwritten, only appended-to within the markers.
+- breaking: none (purely additive; the managed block only adds ignore lines).
+
 ## 1.53.0 → 1.54.0 — dirty tree ALWAYS hard-stops loud; `LOOP_AUTORESET` retired
 
 The in-place loop's `LOOP_AUTORESET=1` opt-in used to *stash the dirty working tree and proceed to

@@ -146,5 +146,12 @@ migrates a fork onto this by extracting inline edits into `custom/`). Rules when
 - The scaffolded `.harness/.harness-version` marker is written by `create` (and re-stamped by `upgrade`)
   from `plugin.json`'s `version` — it's what lets an upgrade know the starting point. It's not a template
   file; don't add one.
+- **Harness-owned `.gitignore` entries live ONLY in `scripts/ensure-gitignore.sh`'s managed block** (the
+  heredoc between its `# >>> implementation-harness managed >>>` markers) — the single source of truth. Add
+  a new scratch-path ignore THERE, never in `templates/gitignore` (which now carries only the user-facing
+  build-artifact placeholder). `create` and `upgrade` both run `ensure-gitignore.sh`, which appends/refreshes
+  that block in the repo-root `.gitignore` inside its markers without touching the user's own lines — so a
+  new scratch ignore reaches existing installs automatically, no manual-attention note required. (Build the
+  block with `read -d ''`, not `$(cat <<EOF)` — bash 3.2 mis-parses a heredoc inside command substitution.)
 - Validate JSON (`jq empty`) before committing; keep `marketplace.json`'s plugin description roughly in sync
   with `plugin.json`'s.

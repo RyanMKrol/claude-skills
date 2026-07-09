@@ -246,7 +246,10 @@ Build each from the corresponding template, substituting the interview answers. 
   overrides still win.
 - **`.gitignore`** — from `$TPL/gitignore` (note: no dot in the template). Append the chosen
   build-artifact lines, de-duplicated against any pre-existing `.gitignore` in the target. Write
-  the result as `<target>/.gitignore`.
+  the result as `<target>/.gitignore`. Then run `bash "$T/.harness/scripts/ensure-gitignore.sh" "$T"`
+  to append the harness-managed scratch block (loop scratch, atomic-write temps, the ideas->tasks
+  pipeline dirs, scope-gap dismissals) inside its markers — the template file itself no longer carries
+  those entries; this script is their single source of truth and is what keeps them current on upgrade.
 - **`.harness/docs/HARNESS.md`** — leave it **pristine** (do NOT edit §5's example commands in place — an
   inline edit to a plugin-owned prose file breaks the clean-upgrade path). The authoritative DoD commands
   live in `.github/workflows/ci.yml` and `.harness/config/harness.env`; if the project wants its real
