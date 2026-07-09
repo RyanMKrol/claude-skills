@@ -186,6 +186,9 @@ while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")    # fallback if facets.json absent
 POLICY_FLOOR="$(blob config/facets.json | jq -r '.policy.floor // 0.75' 2>/dev/null)"; POLICY_FLOOR="${POLICY_FLOOR:-0.75}"
 POLICY_MINN="$(blob config/facets.json | jq -r '.policy.minN // 6' 2>/dev/null)"; POLICY_MINN="${POLICY_MINN:-6}"
+# Downward exploration (designs/difficulty-autotune.md): per-mille chance an eligible task probes one
+# untested rung below the policy's normal pick. 0 (default) preserves today's behavior exactly.
+POLICY_EXPLORE_PM="$(blob config/facets.json | jq -r '.policy.exploreProbabilityPM // 0' 2>/dev/null)"; POLICY_EXPLORE_PM="${POLICY_EXPLORE_PM:-0}"
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6). Read from origin/main via blob.
 AUDIT_START_N="$(blob config/facets.json | jq -r '.policy.auditStartN // 3' 2>/dev/null)"; AUDIT_START_N="${AUDIT_START_N:-3}"
 AUDIT_FLOOR_N="$(blob config/facets.json | jq -r '.policy.auditFloorN // 8' 2>/dev/null)"; AUDIT_FLOOR_N="${AUDIT_FLOOR_N:-8}"
@@ -239,11 +242,15 @@ rand_pm() {
   echo $(( r % 1000 ))
 }
 
-# pick_base <id> — the policy's chosen START tier INDEX: cheapest ladder tier whose
-# (layer × work-type) cell clears the floor with >= minN samples; else the harness.env MODEL/EFFORT
-# floor (cold-start prior). facets are the ONLY per-task difficulty signal — a stray hand-added
-# per-task "model"/"effort" field is deliberately ignored, never an override. Reads facets + ledger
-# from origin/main via `blob`. Robust: any gap → the prior.
+# pick_base <id> — prints TWO space-separated tokens: the policy's chosen START tier INDEX
+# (cheapest ladder tier whose (layer × work-type) cell clears the floor with >= minN samples; else
+# the harness.env MODEL/EFFORT floor / cold-start prior), and whether this call rolled into a
+# downward-exploration probe (1) or not (0) — the caller must capture BOTH via
+# `read -r cur_base cur_explored <<<"$(pick_base "$id")"`, never `cur_base="$(pick_base "$id")"`
+# alone (command substitution is a subshell; a variable set INSIDE this function cannot escape it,
+# which is why the explored flag is returned on stdout instead). facets are the ONLY per-task
+# difficulty signal — a stray hand-added per-task "model"/"effort" field is deliberately ignored,
+# never an override. Reads facets + ledger from origin/main via `blob`. Robust: any gap → the prior.
 pick_base() {
   local id="$1" layer wt cold tiers rows
   tiers="$(blob config/facets.json | jq -c '.tiers.ladder' 2>/dev/null)"
@@ -251,14 +258,21 @@ pick_base() {
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
   rows="$(blob ledgers/outcomes.jsonl | jq -s -c '.' 2>/dev/null)"
-  if [ -z "$layer" ] || [ -z "$wt" ] || [ -z "$tiers" ] || [ -z "$rows" ] || [ "$rows" = "[]" ]; then printf '%s' "$cold"; return; fi
+  if [ -z "$layer" ] || [ -z "$wt" ] || [ -z "$tiers" ] || [ -z "$rows" ] || [ "$rows" = "[]" ]; then printf '%s 0' "$cold"; return; fi
   local mf risk; mf="$(blob tracking/manual-fail.json)"; [ -n "$mf" ] || mf='{}'
   risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
-  jq -n --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
+  local chosen pm exploreIdx
+  read -r chosen pm exploreIdx <<<"$(jq -rn --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
      --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" --argjson coldIdx "$cold" \
-     --argjson manualFail "$mf" --argjson risk "$risk" \
+     --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
-     -f "$POLICY_JQ" 2>/dev/null || printf '%s' "$cold"
+     -f "$POLICY_JQ" 2>/dev/null)"
+  chosen="${chosen:-$cold}"; pm="${pm:-0}"; exploreIdx="${exploreIdx:--1}"
+  if [ "$exploreIdx" -ge 0 ] && [ "$(rand_pm)" -lt "$pm" ]; then
+    log "explore: $id cell (${layer:-?}×${wt:-?}) probing untested tier $exploreIdx (pm=${pm}) instead of calibrated tier $chosen"
+    printf '%s 1' "$exploreIdx"; return
+  fi
+  printf '%s 0' "$chosen"
 }
 
 # outcome_row <id> <blocked:true|false> [reason] — build ONE ledger JSON line (no I/O).
@@ -1011,9 +1025,18 @@ audit_gate() {
   risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
   count="$(blob ledgers/outcomes.jsonl | jq -s --arg l "$layer" --arg w "$wt" --argjson mf "$mf" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited" and ($mf[.id].failed!=true))]|length' 2>/dev/null || echo 0)"
   count="${count:-0}"
-  pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
-        --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
-        --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' 2>/dev/null || echo 1000)"
+  # A task started via downward exploration (cur_explored=1) is, by definition, untested ground —
+  # it always gets a mandatory audit, bypassing the cell's normal confirmed-success decay entirely,
+  # exactly like a risk-flagged task's mandatory audit above (designs/difficulty-autotune.md).
+  if [ "${cur_explored:-0}" = "1" ]; then
+    pm=1000
+    log "audit: $id cell (${layer:-?}×${wt:-?}) EXPLORE-forced mandatory audit (untested tier probed)"
+  else
+    pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
+          --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
+          --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' \
+          --argjson explorePM 0 2>/dev/null || echo 1000)"
+  fi
   pm="${pm:-1000}"
   if [ "$(rand_pm)" -ge "$pm" ]; then
     log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
@@ -1063,7 +1086,7 @@ fi
 acquire_lock
 trap 'release_lock' EXIT INT TERM
 
-cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"; hb_started=""
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; hb_started=""
 
 # ─── Resume an interrupted mid-climb from a leftover heartbeat ──────────────────────────────────
 # See the heartbeat block above for why a leftover file here means a genuine interruption. Bounded
@@ -1122,12 +1145,12 @@ block_task() {
   fi
   log "BLOCKED $id ($reason) — recorded on main; moving on to the next task."
   run_hook blocked "$id" "$reason"
-  heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+  heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
 }
 
 bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
   local t="$1" last
-  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; cur_base="$(pick_base "$t")"; }
+  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; read -r cur_base cur_explored <<<"$(pick_base "$t")"; }
   last=$(( $(ladder_len "$t") - 1 ))
   cur_attempts=$((cur_attempts + 1))
   log "soft failure $cur_attempts/$MAX_ATTEMPTS on $t (rung $cur_rung/$last)"
@@ -1177,7 +1200,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # (structural fail / CI red / blocked) must not inherit the previous task's "audited" into
       # its ledger row.
       cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"; hb_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
+      read -r cur_base cur_explored <<<"$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
     fi
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
@@ -1266,7 +1289,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       heartbeat integrating
       if integrate "$branch"; then
         record_outcome "$task" false                # difficulty auto-tuning: record the success on main (verification in the row)
-        log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        log "integrated $task → main (${cur_verification})"; cleanup_task "$branch"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
       else
         record_failure "$task" "integrate-race" "ff to main rejected"; bump "$task"
       fi

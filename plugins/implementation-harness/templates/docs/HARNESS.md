@@ -215,6 +215,14 @@ what a task actually ran on, always read `startModel`/`startEffort`/`finalModel`
 are permanent and never renumbered. No historical identity is ever lost; only the raw position label on
 old rows can drift from the live ladder's current shape.
 
+**Getting the new rung actually tried (`exploreProbabilityPM`).** Calibration-safe is not the same
+as calibration-*live* — a newly inserted rung has zero samples on any cell that's already calibrated
+to a pricier tier, so `pick_base()`'s normal "cheapest eligible tier" rule will never select it on
+its own; it has no way to distinguish "unproven" from "proven bad." To actually get it tested on
+established work, raise `.policy.exploreProbabilityPM` (per-mille, default `0`) in `config/facets.json`
+— see `docs/designs/difficulty-autotune.md` §2a for the full mechanism. The
+`implementation-harness-update-ladder` skill prompts for this after every insert.
+
 ---
 
 ## 4. Operating model — one iteration, end to end

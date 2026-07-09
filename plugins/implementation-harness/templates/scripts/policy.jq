@@ -3,7 +3,8 @@
 #   TIER selection ($auditCount < 0, the default): given the escalation ledger + a task's
 #   (layer × work-type) cell, return the index of the cheapest tier on the global ladder whose
 #   historical first-attempt success rate for that cell is >= floor with >= minN samples; else
-#   coldIdx (the authored difficulty / cold-start prior).
+#   coldIdx (the authored difficulty / cold-start prior). Output is a 3-field space-separated line
+#   "$chosen $explorePMOut $exploreIdx" — see "downward exploration" below.
 #
 #   AUDIT probability ($auditCount >= 0): given a cell's CONFIRMED-AUDITED success count, return the
 #   blocking-audit sampling probability as an integer PER-MILLE (0..1000) — so the loop can sample
@@ -14,10 +15,24 @@
 #                   --arg layer <L> --arg wt <W> --argjson floor 0.75 --argjson minN 6 \
 #                   --argjson coldIdx <N> --argjson auditCount -1 --argjson manualFail '<tracking/manual-fail.json>' \
 #                   --argjson risk '<this task's facets.risk array>' \
-#                   --argjson auditStartN 3 --argjson auditFloorN 8 --argjson auditFloorPM 100
+#                   --argjson auditStartN 3 --argjson auditFloorN 8 --argjson auditFloorPM 100 \
+#                   --argjson explorePM <per-mille, 0 = off>
 # Invoke (audit): same flags, but --argjson auditCount <confirmed-count> (>= 0); the tier-only flags
 #                 may be placeholders (rows '[]', tiers '[]', layer/wt '', etc.) — that branch is not
 #                 evaluated. Both invocations must DEFINE every $var (jq compiles both branches).
+#
+# $explorePM (downward exploration, designs/difficulty-autotune.md): inserting a cheaper rung below
+# an already-calibrated cell never gets it chosen — it has 0 samples, so it's excluded from the
+# eligible set outright, and can therefore never accumulate the evidence that would make it eligible.
+# This is a bounded, self-terminating epsilon-greedy probe: whenever the rung directly below $chosen
+# has < minN samples (genuinely untested, not tested-and-rejected), TIER mode also returns a nonzero
+# sampling probability for it (capped by the same risk-floor clamp $chosen itself uses) and its own
+# index, so the shell can occasionally start a task there instead. Once that rung reaches minN
+# samples, the probability is forced to 0 — self-termination, no separate bookkeeping — and the
+# UNMODIFIED tier-selection logic above takes it from there: promotes it on the very next call if its
+# rate cleared $floor, or excludes it permanently, exactly like any other rejected tier, if not.
+# $explorePM = 0 (the default) makes $explorePMOut always 0 — bit-for-bit identical to pre-exploration
+# behavior.
 #
 # $manualFail is the owner-overlay `tracking/manual-fail.json` ({id: {failed, reason, at}}) — a task
 # the owner has retroactively overturned from a false "done" is treated as a FAILURE at every rung it
@@ -71,6 +86,16 @@ else
         | $i
       ]
     | (min // $coldIdx)
-  ) as $chosen
-  | if ($risk | length) > 0 then ([$chosen, 1] | max) else $chosen end
+  ) as $rawChosen
+  | (if ($risk | length) > 0 then ([$rawChosen, 1] | max) else $rawChosen end) as $chosen
+  # --- downward exploration (see header comment) ---
+  | (if ($risk | length) > 0 then 1 else 0 end) as $floorIdx
+  | (if ($chosen - 1) >= $floorIdx then ($chosen - 1) else -1 end) as $exploreIdx
+  | ( if $exploreIdx >= 0
+      then ($ev | map(select(.idx == $exploreIdx)) | length)
+      else $minN
+      end
+    ) as $exploreN
+  | (if $exploreIdx >= 0 and $exploreN < $minN then $explorePM else 0 end) as $explorePMOut
+  | "\($chosen) \($explorePMOut) \($exploreIdx)"
 end

@@ -473,6 +473,9 @@ while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")     # fallback if facets.json absent
 POLICY_FLOOR="$(jq -r '.policy.floor // 0.75' "$FACETS" 2>/dev/null || echo 0.75)"
 POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
+# Downward exploration (designs/difficulty-autotune.md): per-mille chance an eligible task probes one
+# untested rung below the policy's normal pick. 0 (default) preserves today's behavior exactly.
+POLICY_EXPLORE_PM="$(jq -r '.policy.exploreProbabilityPM // 0' "$FACETS" 2>/dev/null || echo 0)"
 POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6).
 AUDIT_START_N="$(jq -r '.policy.auditStartN // 3' "$FACETS" 2>/dev/null || echo 3)"
@@ -511,25 +514,36 @@ rand_pm() {
   echo $(( r % 1000 ))
 }
 
-# pick_base <id> — the policy's chosen START tier INDEX: the cheapest ladder tier whose
-# (layer × work-type) cell historically clears the floor with >= minN samples; else the harness.env
-# MODEL/EFFORT floor (cold-start prior). facets are the ONLY per-task difficulty signal — a stray
-# hand-added per-task "model"/"effort" field is deliberately ignored, never an override. Robust:
-# missing facets / empty ledger / any error → the prior.
+# pick_base <id> — prints TWO space-separated tokens: the policy's chosen START tier INDEX
+# (cheapest ladder tier whose (layer × work-type) cell historically clears the floor with >= minN
+# samples; else the harness.env MODEL/EFFORT floor / cold-start prior), and whether this call rolled
+# into a downward-exploration probe (1) or not (0) — the caller must capture BOTH via
+# `read -r cur_base cur_explored <<<"$(pick_base "$id")"`, never `cur_base="$(pick_base "$id")"`
+# alone (command substitution is a subshell; a variable set INSIDE this function cannot escape it,
+# which is why the explored flag is returned on stdout instead). facets are the ONLY per-task
+# difficulty signal — a stray hand-added per-task "model"/"effort" field is deliberately ignored,
+# never an override. Robust: missing facets / empty ledger / any error → the prior.
 pick_base() {
   local id="$1" layer wt cold tiers
   tiers="$(jq -c '.tiers.ladder' "$FACETS" 2>/dev/null)"
   cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$MODEL" --arg e "$EFFORT" '($t|map(.model==$m and .effort==($e|if .=="" then null else . end))|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
-  if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s' "$cold"; return; fi
+  if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s 0' "$cold"; return; fi
   local mf risk; mf="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
   risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
-  jq -n -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
+  local chosen pm exploreIdx
+  read -r chosen pm exploreIdx <<<"$(jq -rn -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
      --arg layer "$layer" --arg wt "$wt" --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" \
-     --argjson coldIdx "$cold" --argjson manualFail "$mf" --argjson risk "$risk" \
+     --argjson coldIdx "$cold" --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
-     2>/dev/null || printf '%s' "$cold"
+     2>/dev/null)"
+  chosen="${chosen:-$cold}"; pm="${pm:-0}"; exploreIdx="${exploreIdx:--1}"
+  if [ "$exploreIdx" -ge 0 ] && [ "$(rand_pm)" -lt "$pm" ]; then
+    log "explore: $id cell (${layer:-?}×${wt:-?}) probing untested tier $exploreIdx (pm=${pm}) instead of calibrated tier $chosen"
+    printf '%s 1' "$exploreIdx"; return
+  fi
+  printf '%s 0' "$chosen"
 }
 
 # Rung machinery, now on the global ladder offset by cur_base (the policy's per-task start tier).
@@ -939,9 +953,18 @@ audit_gate() {
     count="$(jq -s --arg l "$layer" --arg w "$wt" --argjson mf "$mf" '[.[]|select(.facets!=null and .facets.layer==$l and .facets.workType==$w and .blocked==false and .verification=="audited" and ($mf[.id].failed!=true))]|length' "$OUTCOMES" 2>/dev/null || echo 0)"
   else count=0; fi
   count="${count:-0}"
-  pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
-        --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
-        --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' 2>/dev/null || echo 1000)"
+  # A task started via downward exploration (cur_explored=1) is, by definition, untested ground —
+  # it always gets a mandatory audit, bypassing the cell's normal confirmed-success decay entirely,
+  # exactly like a risk-flagged task's mandatory audit above (designs/difficulty-autotune.md).
+  if [ "${cur_explored:-0}" = "1" ]; then
+    pm=1000
+    log "audit: $id cell (${layer:-?}×${wt:-?}) EXPLORE-forced mandatory audit (untested tier probed)"
+  else
+    pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
+          --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
+          --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' \
+          --argjson explorePM 0 2>/dev/null || echo 1000)"
+  fi
   pm="${pm:-1000}"
   if [ "$(rand_pm)" -ge "$pm" ]; then
     log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → NOT sampled (ci-only)"; return 0
@@ -1010,7 +1033,7 @@ if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
   fi
 fi
 
-cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_verification="ci-only"; hb_started=""
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; hb_started=""
 
 # ─── Resume an interrupted mid-climb from a leftover heartbeat ──────────────────────────────────
 # See the heartbeat block above for why a leftover file here means a genuine interruption. Bounded
@@ -1058,12 +1081,12 @@ block_task() {
   git -C "$ROOT" push origin "HEAD:$MAIN_BRANCH" 2>/dev/null || log "WARN: couldn't push block marker for $id"
   log "BLOCKED $id ($reason) — recorded for a human; moving on to the next task."
   run_hook blocked "$id" "$reason"
-  heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+  heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
 }
 
 bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
   local t="$1" last
-  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; cur_base="$(pick_base "$t")"; }
+  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; read -r cur_base cur_explored <<<"$(pick_base "$t")"; }
   last=$(( $(ladder_len "$t") - 1 ))
   cur_attempts=$((cur_attempts + 1))
   log "soft failure $cur_attempts/$MAX_ATTEMPTS on $t (rung $cur_rung/$last)"
@@ -1115,7 +1138,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # (structural fail / CI red / blocked) must not inherit the previous task's "audited" into
       # its ledger row.
       cur_task="$task"; cur_attempts=0; cur_rung=0; cur_verification="ci-only"; hb_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      cur_base="$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
+      read -r cur_base cur_explored <<<"$(pick_base "$task")"          # difficulty auto-tuning: policy picks the start tier
     fi
     log "policy: $task → start tier $cur_base ($(gtier "$cur_base")), ladder rungs $(ladder_len "$task")"
   fi
@@ -1187,12 +1210,12 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # the whole CI_TIMEOUT, return indeterminate, and soft-retry forever. Short-circuit to done —
       # there is deliberately no CI to wait for (e.g. an operational / scope:[] task).
       if [ "$REQUIRE_CI" = "1" ] && git -C "$ROOT" log -1 --format=%s 2>/dev/null | grep -qF '[skip ci]'; then
-        mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH ([skip ci] build — no CI run expected)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
       elif [ "$REQUIRE_CI" = "1" ]; then
         heartbeat awaiting-ci
         ci_rc=0; wait_ci_green || ci_rc=$?
         if [ "$ci_rc" = 0 ]; then
-          mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH (CI green)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+          mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH (CI green)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
         elif [ "$ci_rc" = 1 ]; then
           # CI genuinely RED. NEVER halt the whole loop on one red: revert the pushed commit to restore
           # main, then soft-retry. If it keeps failing, bump eventually BLOCKS it and the loop moves on.
@@ -1212,7 +1235,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
           record_failure "$task" "ci-indeterminate" "CI produced no definitive result (cancelled/skipped/no-run)"; bump "$task"
         fi
       else
-        mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "marked $task done (REQUIRE_CI=0; local DoD only)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0
+        mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "marked $task done (REQUIRE_CI=0; local DoD only)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
       fi
       ;;
     failed:soft)    log "agent soft-failed $rtask: ${extra:-}"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;

@@ -63,6 +63,47 @@ rung anywhere in the ladder (not just at the ends) is safe for calibration: `tid
 correctly after the ladder's shape changes — see `docs/HARNESS.md`'s "Bumping the base model" section
 for what does and doesn't need touching when the ladder changes.
 
+## 2a. Downward exploration — testing a newly inserted, cheaper rung
+
+**The problem this solves.** `pick_base()` (§4) returns the cheapest tier with `>= minN` samples
+and a `>= floor` success rate for the task's cell. A brand-new rung inserted below an
+already-calibrated cell has **zero** samples, so it's excluded from that eligible set outright —
+not outcompeted, structurally unreachable. It can therefore never accumulate the evidence that
+would make it eligible: inserting a cheaper tier-0 rung has **no effect at all** on any cell that
+already clears the floor at a pricier tier, forever, even though the whole point of the ladder is
+"start cheap." Only escalation (walking **up** on failure) exists without this feature — nothing
+walks the ladder **down** to test an unproven, cheaper rung against work that's already calibrated.
+
+**The mechanism.** A bounded, self-terminating epsilon-greedy probe, controlled by
+`.policy.exploreProbabilityPM` (per-mille, default `0` = off). Whenever the rung directly below
+`$chosen` has fewer than `minN` samples for the task's cell (genuinely untested, not
+tested-and-rejected), `policy.jq`'s TIER mode also returns a nonzero sampling probability for that
+rung and its index; `loop.sh` rolls against it (the same `rand_pm()` helper already used for audit
+sampling) and, on a hit, starts the task there instead of at `$chosen`. The floor for how far down a
+probe may reach is clamped identically to `$chosen`'s own risk clamp — a risk-flagged task is never
+a vehicle for probing the cheapest rung, exactly as today.
+
+**Self-termination is free.** Once the probed rung reaches `minN` samples, `policy.jq` forces its
+probability back to `0` — no separate bookkeeping. If its success rate cleared `floor`, the
+**unmodified** tier-selection logic above already promotes it to the new `$chosen` on the very next
+call, since it's now the lowest eligible index. If it didn't clear the floor, it's excluded
+permanently, exactly like any other rejected tier. Either way the exploration mechanism's only job
+is to seed the sample count past `minN` — it hands off to existing, unmodified logic the moment
+that's done.
+
+**Cost is bounded and audited.** A task started via exploration is, by definition, running on
+untested ground — `audit_gate()` forces a mandatory audit for it (bypassing the cell's normal
+confirmed-success decay), the same treatment a risk-flagged task already gets. The total cost of
+finding out a newly inserted rung *doesn't* work is capped at `minN` mandatory audits per cell,
+one-time, to settle it permanently.
+
+**Practical note.** Inserting a rung (§2, "Effort-less rungs" paragraph) is calibration-*safe* on
+its own — `tidx()` re-matches fresh every run, no ledger migration needed — but that only means the
+new rung *won't corrupt* anything. Getting it actually **tried** on cells that are already
+calibrated to a pricier tier requires raising `exploreProbabilityPM` above `0` — see
+`docs/HARNESS.md`'s "Inserting a new rung" note and the `implementation-harness-update-ladder`
+skill, which prompts for this after an insert.
+
 ## 3. Capture — the ledger  *(in `loop.sh`)*
 
 `mark_done`/`block_task` append one JSON row per built task to **`outcomes.jsonl`**: facets, scope

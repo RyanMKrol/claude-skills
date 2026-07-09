@@ -42,6 +42,47 @@ Entry format:
 
 ---
 
+## 1.46.0 → 1.47.0 — downward exploration of under-sampled ladder rungs
+
+Inserting a cheaper rung into `.tiers.ladder` previously had no effect on any facet cell that
+already had enough evidence at a pricier tier — the new rung could never be chosen (0 samples means
+structurally excluded, not outcompeted), so it could never accumulate the evidence that would let it
+be chosen. This adds a bounded, self-terminating epsilon-greedy probe: whenever the rung directly
+below the policy's normal pick is genuinely under-sampled (`< minN`), the loop occasionally starts a
+task there instead, gated by a mandatory audit. Verified with a real-`policy.jq`, multi-round
+convergence simulation (`scripts/policy.test.sh`) proving both promotion-on-success and
+permanent-rejection-on-failure self-terminate correctly, plus a read-only empirical check against two
+real consumer installs' actual ledgers confirming the gap this fixes is real (every established cell
+in both, zero exceptions, has never once started on the inserted Haiku tier-0 rung).
+- mechanism: `scripts/policy.jq` — TIER mode's stdout changes from a bare integer to a 3-field
+  space-separated line (`chosen explorePM exploreIdx`); new required input `--argjson explorePM <N>`
+  (AUDIT-mode calls need a harmless placeholder `--argjson explorePM 0` too, per the file's own
+  "both branches must define every $var" rule). `scripts/loop.sh` and `scripts/loop.in-place.sh`
+  (kept in parity) — new `POLICY_EXPLORE_PM` knob read alongside the other policy knobs;
+  `pick_base()` threads it through, rolls `rand_pm()` against the returned probability, and now
+  prints TWO space-separated tokens (chosen index, explored flag) instead of one — **both existing
+  call sites in both files** change from `cur_base="$(pick_base "$t")"` to
+  `read -r cur_base cur_explored <<<"$(pick_base "$t")"` (a variable set inside a function called via
+  command substitution cannot escape that subshell, so the explored flag has to come back on stdout,
+  not via a side-effect assignment); `cur_explored` added to the task-state init/reset lines
+  alongside `cur_base`. `audit_gate()` forces a mandatory audit (`pm=1000`) whenever `cur_explored=1`,
+  bypassing the cell's normal confirmed-success decay — the same treatment a risk-flagged task
+  already gets.
+- config: `config/facets.json` → `.policy.exploreProbabilityPM` (new key, default `0`). ACTION:
+  purely additive; `0` preserves current behavior exactly (every new branch in `policy.jq`/the loop
+  scripts is a no-op at the default) — opt in per-project by raising it (recommend 50–150 per-mille)
+  after inserting a new cheap rung, via the `update-ladder` skill's new §3a reminder.
+- new files: `scripts/policy.test.sh` — hermetic, real-`policy.jq` test suite: static matrix
+  assertions (regression guard at the default, the literal established-cell bug reproduction, cold
+  cell, risk clamp, settled rejection, the ladder-reindexing case) plus a convergence simulation that
+  seeds synthetic ledger rows between successive real `policy.jq` calls to prove self-termination on
+  both the promotion and permanent-rejection paths.
+- renamed/removed: none.
+- manual attention: none — opt-in, no ledger migration, no existing behavior change at the default
+  (`exploreProbabilityPM=0`).
+- breaking: internal only — the `policy.jq` ↔ loop-script stdout contract changes shape (bare integer
+  → 3-field line); both files ship and upgrade as a pair, so this is safe as one atomic version bump.
+
 ## 1.45.0 → 1.46.0 — default cold-start floor + ladder tier-0 moves to Haiku
 Now that the ladder mechanism supports effort-less rungs (1.45.0), this makes Haiku the actual
 shipped default for NEW projects, not just a supported-but-unused option: it's the cheapest,

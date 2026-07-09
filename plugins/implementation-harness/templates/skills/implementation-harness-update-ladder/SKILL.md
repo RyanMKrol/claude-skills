@@ -7,9 +7,10 @@ description: >-
   (replace a model at a fixed position) or an INSERT/REMOVE (changes rung count, shifts positions),
   handles models with no effort parameter (e.g. Haiku) via `effort: null`, and walks the correct
   migration path for each — the "Bumping the base model" runbook for a swap, or a no-ledger-migration
-  note for an insert/remove. Requires the harness scaffolded, and harness version >= 1.45.0 for the
-  effort-less-rung path (older installs don't support `effort: null` yet — this skill checks and offers
-  to run the upgrade first).
+  note for an insert/remove (plus a reminder to raise `exploreProbabilityPM` so a newly inserted rung
+  doesn't sit inert on already-calibrated work). Requires the harness scaffolded, and harness version
+  >= 1.45.0 for the effort-less-rung path / >= 1.47.0 for downward exploration (older installs don't
+  support these yet — this skill checks and offers to run the upgrade first).
 argument-hint: "[optional: model id to add/change, e.g. claude-haiku-4-5 — omit to be asked]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -69,6 +70,21 @@ current ladder on every run, never a cached index. Tell the user explicitly: his
 `startModel`/`startEffort`/`finalModel`/`finalEffort` remain accurate forever; only the diagnostic
 `succeededRung`/`topRung` integers on old rows may no longer match the live ladder's position for that
 model — cosmetic only, never fed into policy decisions.
+
+### 3a. Getting the new rung actually tried (`exploreProbabilityPM`)
+
+An insert is calibration-*safe*, but that only means the new rung won't corrupt anything — it says
+nothing about whether it ever gets **used**. On any cell that's already calibrated to a pricier tier
+(has `>= minN` samples clearing the floor there), the new rung has zero samples and is therefore
+structurally excluded from ever being chosen — it can't accumulate the evidence that would make it
+eligible, so it sits permanently inert on established work (`docs/designs/difficulty-autotune.md`
+§2a). After every insert, ask the user whether they want the new rung actually tested on established
+cells, and if so, set `.policy.exploreProbabilityPM` in `config/facets.json` to a nonzero per-mille
+value (suggest 50–150 as a starting point) — this is what makes the loop occasionally start a task
+one rung below its normal pick specifically to gather that evidence. It's bounded (self-terminates
+once a cell hits `minN` explored samples) and audited (every explored task gets a mandatory audit).
+Requires harness version >= 1.47.0 — if older, offer to run the upgrade first, same as the
+effort-less-rung gate in §0.
 
 ## 4. Cold-start floor
 
