@@ -866,8 +866,11 @@ run_claude() {
   local rc
   local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
   set +e
-  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" "${eff[@]}" \
-      --output-format stream-json --include-partial-messages --verbose "${FLAGS[@]}" ) 2>&1 \
+  # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
+  # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude
+  # runs. That's exactly the effort-less cold-start floor (Haiku), so a fresh install crash-loops on task 1.
+  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
+      --output-format stream-json --include-partial-messages --verbose ${FLAGS[@]+"${FLAGS[@]}"} ) 2>&1 \
     | tee "$raw" \
     | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \
     > "$out"

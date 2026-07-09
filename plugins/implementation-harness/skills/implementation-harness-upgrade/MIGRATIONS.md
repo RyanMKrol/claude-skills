@@ -42,6 +42,27 @@ Entry format:
 
 ---
 
+## 1.55.0 → 1.55.1 — FIX: effort-less rung (Haiku floor) crash-looped run_claude on bash < 4.4 (macOS)
+
+`run_claude()` built its optional `--effort` flag as a bash array left EMPTY for effort-less models, then
+expanded it BARE as `"${eff[@]}"` (and likewise `"${FLAGS[@]}"`) under `set -euo pipefail`. On bash < 4.4
+— macOS's stock `/bin/bash` is frozen at 3.2.57 — expanding a declared-but-empty array under `set -u`
+throws `unbound variable`, crashing `run_claude` BEFORE claude ever runs. Since Haiku 4.5 (`effort=null`)
+became the default cold-start floor in 1.46.0, a fresh install on stock macOS bash crash-looped on its
+very first task; existing projects hit it whenever downward exploration probed an effort-less rung. The
+crash counts as a transient failure (NOT toward `MAX_ATTEMPTS`), so the task never escalated — it re-ran
+the broken rung until `MAX_ITERS` (~50 min of nothing). Fix: the `set -u`-safe guard
+`${arr[@]+"${arr[@]}"}` on both `eff` and `FLAGS`, in BOTH variants (`postflight*.sh` already used it).
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `run_claude()` now expands `eff`/`FLAGS`
+  with the `${arr[@]+"${arr[@]}"}` guard instead of a bare `"${arr[@]}"`. Behavior is byte-identical when
+  the arrays are non-empty; the guard only changes the empty-under-`nounset` case (crash → correct omit).
+- new files: `scripts/loop-nounset.test.sh` — plugin-source regression test (both variants). STATIC
+  assertion by design: the plugin's CI runs on bash >= 4.4 where the bug is invisible, so a runtime test
+  would pass even with the bug present. Not copied into a consumer `.harness/` (like the loop-extend /
+  scope-* plugin-source tests).
+- breaking: none. Pure fix; effortful rungs are unaffected.
+
 ## 1.54.0 → 1.55.0 — root `.gitignore` harness-managed block is now auto-maintained (was a manual note)
 
 Harness-owned scratch ignores (`.pending-tasks/`, `.pending-questions/`, `.scope-gap-ignores/`, loop
