@@ -42,6 +42,39 @@ Entry format:
 
 ---
 
+## 1.53.0 → 1.54.0 — dirty tree ALWAYS hard-stops loud; `LOOP_AUTORESET` retired
+
+The in-place loop's `LOOP_AUTORESET=1` opt-in used to *stash the dirty working tree and proceed to
+build* — a self-heal that silently relocated uncommitted work and relied on a human noticing one log
+line. Removed. The dirty-tree guard now **always** refuses: it prints a boxed `🛑 REFUSING TO RUN`
+banner, dumps `git status --short` so the offending files are visible, and `exit 3` — never stashing,
+resetting, or building. `supervise.sh` now treats that `exit 3` (and any prerequisite failure — missing
+`jq`, no `TASKS.json`) as a **terminal stop**: it prints its own banner and exits the whole supervised
+run instead of backing off and relaunching on a timer (which only re-buried the loop's refusal in retry
+noise). The worktree variant is unaffected (it builds in a sibling worktree and never touches the
+primary checkout).
+
+- mechanism: `scripts/loop.in-place.sh` — removed the `LOOP_AUTORESET` var + stash-and-proceed branch;
+  dirty guard is now an unconditional loud refusal (`exit 3`).
+- mechanism: `scripts/supervise.sh` — `exit 3` now hard-stops the supervised run (loud banner) instead
+  of `SUPERVISE_ERROR_BACKOFF` retry; header comments updated to match.
+- mechanism: `docs/HARNESS.md` — the `LOOP_AUTORESET` paragraph replaced with the "always refuses on a
+  dirty tree" description.
+- mechanism: `docs/LIMITATIONS.md` — removed the `LOOP_AUTORESET=1 can stash unrelated local work` row.
+- mechanism: `harness-CLAUDE.md` — dropped the `under LOOP_AUTORESET=1 it can also stash …` clause.
+- config: `config/harness.env` — ACTION: the `LOOP_AUTORESET` knob (the `─── Dirty-tree self-heal ───`
+  block + `: "${LOOP_AUTORESET:=0}"`) is **removed** from the template. The upgrade does NOT delete a
+  user's existing line — it is now inert (the loop ignores it); a user may delete it by hand.
+- manual attention: repo-root `CLAUDE.md` §4a (user data — upgrade never touches it) was reworded to
+  drop the "auto-stashes on start" mechanism (now: refuses on a dirty startup tree, resets between
+  attempts). Apply by hand if you keep your root `CLAUDE.md` in sync with the template.
+- breaking: anyone running `LOOP_AUTORESET=1` on a dedicated in-place checkout **loses unattended
+  self-heal** — the loop now refuses on a dirty startup tree instead of stashing and proceeding. This
+  fails SAFE (it never destroys or relocates work), but an unattended run can now WEDGE on leftover
+  dirty state until a human clears it. Manual step: ensure the loop's checkout is clean at startup
+  (commit/stash/discard), or clear it before (re)starting; delete the now-inert `LOOP_AUTORESET` line
+  from your `harness.env`.
+
 ## 1.52.0 → 1.53.0 — scope-matching supports single-level `dir/*.ext` (was silent permanent failure)
 
 A `scope` entry written as an extension glob (`dashboard/app/components/*.tsx`) reads as valid, is

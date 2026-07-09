@@ -84,7 +84,6 @@ VISUAL_VERIFY_LAYERS="${VISUAL_VERIFY_LAYERS:-frontend}"                   # fac
 VISUAL_VERIFY_SKIP_WORKTYPES="${VISUAL_VERIFY_SKIP_WORKTYPES:-docs config logging}"   # workTypes with no visual surface — never auto-trigger on a VISUAL_VERIFY_LAYERS layer
 SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"       # optional space-separated extra path prefixes structural_checks always allows, beyond worklog+tests
 PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
-LOOP_AUTORESET="${LOOP_AUTORESET:-0}"              # opt-in: self-heal (stash+reset) a dirty tree at startup instead of refusing — dedicated checkouts only
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 # Rate-limit-aware handling: when Claude hits a usage/session limit, resume the SAME task. A PARSED
@@ -1075,22 +1074,23 @@ acquire_lock
 trap 'release_lock' EXIT INT TERM
 
 # SAFETY: the in-place loop cold-resets the working tree (`git reset --hard origin/main`) between
-# every attempt, which DISCARDS any uncommitted work in this checkout. If the tree is dirty at
-# startup, that's external work the loop must NOT destroy — refuse to run (commit/stash first),
-# UNLESS LOOP_AUTORESET=1 (opt-in, default off): appropriate ONLY for a checkout dedicated solely
-# to this loop, where a dirty tree at startup is virtually always orphaned partial work from an
-# interrupted prior run, not a human's in-progress edits. Default-off preserves the safe behavior
-# for anyone who hasn't deliberately opted in; this guard exists because of a real incident (a
-# forced task id + a destructive cold_reset once destroyed real uncommitted work).
+# every attempt, which DISCARDS any uncommitted work in this checkout. So a dirty tree at startup is
+# work the loop must NEVER touch: it HARD-STOPS here, loudly, and does nothing else — it does not
+# stash, does not reset, does not build. Recovery is a deliberate HUMAN action (commit, stash, or
+# discard, then re-run); the loop will not decide it for you, precisely so nothing depends on a human
+# spotting a buried log line. (History: a `LOOP_AUTORESET=1` opt-in once stashed-and-proceeded here —
+# removed, because a self-heal that silently relocates your work and then keeps building is exactly
+# the "did something, hope someone noticed" failure mode this guard now forecloses. This also traces
+# to a real incident: a forced task id + a destructive cold-reset once destroyed uncommitted work.)
 if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
-  if [ "${LOOP_AUTORESET:-0}" = "1" ]; then
-    stash_ref="loop-autoreset-$(date -u +%Y%m%dT%H%M%SZ)"
-    log "LOOP_AUTORESET=1: '$ROOT' is dirty — stashing as '$stash_ref' (recoverable via git stash) and self-healing."
-    git -C "$ROOT" stash push -u -m "$stash_ref" >/dev/null 2>&1 || true
-  else
-    log "REFUSING TO RUN: '$ROOT' has uncommitted changes. The in-place loop cold-resets (git reset --hard) and would discard them. Commit or stash first, or set LOOP_AUTORESET=1 if this checkout is dedicated solely to the loop."
-    exit 3
-  fi
+  log "══════════════════════════════════════════════════════════════════════"
+  log "🛑 REFUSING TO RUN — the working tree at '$ROOT' has UNCOMMITTED changes."
+  log "   The in-place loop cold-resets (git reset --hard origin/$MAIN_BRANCH) between attempts and"
+  log "   would DESTROY this work. It will NOT stash, reset, or build while the tree is dirty."
+  log "   → Commit, stash, or discard the changes below, then re-run. Nothing here was touched."
+  log "══════════════════════════════════════════════════════════════════════"
+  git -C "$ROOT" status --short >&2 2>/dev/null || true
+  exit 3
 fi
 
 cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; hb_started=""

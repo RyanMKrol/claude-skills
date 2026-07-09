@@ -87,12 +87,6 @@ keep them here so the design's compromises live in one place alongside your proj
   *Revisit:* extend `SENSITIVE_RE`/keep secrets out of the tree; prefer the worktree variant when the
   build doesn't need local state.
 
-- **`LOOP_AUTORESET=1` can stash unrelated local work.**
-  *Why:* it lets the in-place loop self-heal a dirty checkout (assumed to be orphaned partial work)
-  instead of refusing to start.
-  *Impact:* if the checkout is *also* used by hand, a dirty tree at startup gets stashed.
-  *Revisit:* leave it OFF (default) unless the checkout is dedicated solely to the loop.
-
 ### Field notes — traps learned operating this harness in production
 
 Distilled from real incidents in the harnesses this design grew out of. The *mechanism* fixes are

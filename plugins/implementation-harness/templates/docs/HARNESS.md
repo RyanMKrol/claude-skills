@@ -403,11 +403,14 @@ worker is therefore instructed to stage files **explicitly** (never `git add -A`
 other work happens there (unlike the worktree loop). Choose it only when the local-state
 requirement forces it; prefer the worktree variant otherwise.
 
-**`LOOP_AUTORESET` (opt-in, in-place only, default off).** The loop refuses to start on a dirty
-tree by default (§9 incident). Set `LOOP_AUTORESET=1` ONLY for a checkout dedicated solely to the
-loop — then a dirty tree at startup is almost always orphaned partial work from an interrupted
-prior run, and the loop stashes it (recoverable via `git stash`) and self-heals instead of
-refusing. The worktree variant never needs this — its worktrees are always freshly torn down.
+**Dirty-tree refusal (in-place only).** The in-place loop cold-resets the working tree
+(`git reset --hard origin/main`) between every attempt, so it **always** hard-refuses to start if the
+checkout is dirty (§9 incident) — it prints a loud banner listing the offending files and exits `3`,
+and it **never** stashes, resets, or builds. Recovery is a deliberate human action (commit, stash, or
+discard, then re-run); the loop will not decide it for you, so nothing depends on someone spotting a
+buried log line. (`supervise.sh` treats that `exit 3` as a terminal stop rather than retrying on a
+timer.) The worktree variant never needs this — it builds in a sibling worktree and never touches the
+primary checkout.
 
 **`PUSH_COOLDOWN_SECONDS` (optional, both variants, default 0/off).** Enforces a minimum
 wall-clock gap between successful integration pushes to `main`, for projects whose deploy webhook

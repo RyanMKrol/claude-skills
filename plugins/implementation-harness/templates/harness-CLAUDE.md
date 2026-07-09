@@ -78,8 +78,7 @@ A `needs-human` task's completion mechanism **is** the interactive session: do t
 mark it done with `scripts/mark-done.sh TNNN` (which writes the owner overlay the loop reconciles).
 **Do NOT** run `loop.sh TNNN` at an already-built gate/needs-human task to "finish" it — the loop
 builds every task COLD from its spec and, on an `expectsTest:true` task with nothing left to do, will
-escalate up the ladder forever; under `LOOP_AUTORESET=1` it can also stash unrelated local work. The
-loop is for buildable tasks; gates are for you.
+escalate up the ladder forever. The loop is for buildable tasks; gates are for you.
 
 ## Capturing & converting ideas
 
