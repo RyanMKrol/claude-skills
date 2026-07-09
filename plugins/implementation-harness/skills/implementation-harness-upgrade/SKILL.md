@@ -259,6 +259,7 @@ skills delisted from the global plugin as of 1.32.0; kept in sync here instead):
 | `implementation-harness-loop-recover/SKILL.md` | `implementation-harness-loop-recover/SKILL.md` |
 | `implementation-harness-pre-loop-checkin/SKILL.md` | `implementation-harness-pre-loop-checkin/SKILL.md` |
 | `implementation-harness-review-failed/SKILL.md` | `implementation-harness-review-failed/SKILL.md` |
+| `implementation-harness-update-ladder/SKILL.md` | `implementation-harness-update-ladder/SKILL.md` |
 
 **Config/schema files (reconcile *additively* only — never overwrite the user's values):**
 `config/harness.env` (new knobs), `config/facets.json` (schema/vocabulary changes the ledger calls out).
@@ -385,7 +386,7 @@ user must always be able to see what diverged before approving.
   for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
   node "$H/dashboard/lib.test.js"                 # the dashboard bucket tests
   for j in "$H"/config/facets.json "$H"/tracking/*.json; do jq empty "$j" || echo "BAD JSON: $j"; done
-  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed; do
+  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed update-ladder; do
     f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
     [ -f "$f" ] && grep -q "^name: implementation-harness-$s\$" "$f" || echo "WARN: project-local skill $s missing or malformed after upgrade"
   done

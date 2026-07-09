@@ -214,7 +214,7 @@ plugin-name colon prefix) — a distinct Claude Code mechanism from plugin-regis
 
 ```bash
 mkdir -p "$T/.claude/skills"
-for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed; do
+for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed update-ladder; do
   mkdir -p "$T/.claude/skills/implementation-harness-$s"
   cp -p "$TPL/skills/implementation-harness-$s/SKILL.md" "$T/.claude/skills/implementation-harness-$s/SKILL.md"
 done
@@ -302,7 +302,7 @@ grep -q '.harness/.scope-gap-ignores' "$T/.gitignore" || echo "WARN: scope-gap-i
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
 for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done
-for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed; do
+for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed update-ladder; do
   f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
   test -f "$f" || echo "FAIL: project-local skill implementation-harness-$s missing at .claude/skills/"
   grep -q "^name: implementation-harness-$s\$" "$f" || echo "FAIL: $f frontmatter name mismatch or missing"

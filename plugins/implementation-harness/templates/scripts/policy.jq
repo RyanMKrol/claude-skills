@@ -34,6 +34,10 @@
 #     historical calibration would otherwise let index 0 clear the floor for this cell. Escalation
 #     above that floor on real failure is unaffected — this only raises the FLOOR, not the ceiling.
 
+# A rung's `effort` (and a ledger row's startEffort/finalEffort) may be JSON null for a model with no
+# effort parameter (e.g. Haiku) — jq's `==` treats null == null as true, so tidx() matches an
+# effort-less rung correctly with no special-casing, as long as both sides are real null (not the
+# string "null" or ""). The loop scripts normalize to real null at the ledger-write boundary.
 def tidx($m; $e): ($tiers | map(.model == $m and .effort == $e) | index(true)) // -1;
 
 # audit per-mille from a cell's confirmed-audited success count.

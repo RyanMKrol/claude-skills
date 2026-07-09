@@ -265,7 +265,8 @@ record_outcome() {
       --arg verif "${cur_verification:-ci-only}" \
       -c '.tasks[]|select(.id==$id)|{
         id:$id, ts:$ts, facets:(.facets // null), scopeSize:(.scope|length),
-        startModel:$sm, startEffort:$se, finalModel:$fm, finalEffort:$fe,
+        startModel:$sm, startEffort:(if $se=="" then null else $se end),
+        finalModel:$fm, finalEffort:(if $fe=="" then null else $fe end),
         succeededRung:(if $blocked then null else $rung end), topRung:$rung,
         attemptsAtRung:$atr, totalSoftFails:$total, blocked:$blocked, reason:$reason,
         verification:$verif
@@ -468,7 +469,7 @@ visual_verify_block() {
 # global ladder is the safety net; the cold-start prior is just the cheapest tier. See .harness/docs/HARNESS.md §6.
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
-  < <(jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' "$FACETS" 2>/dev/null)
+  < <(jq -r '.tiers.ladder[] | "\(.model) \(.effort // "")"' "$FACETS" 2>/dev/null)
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")     # fallback if facets.json absent
 POLICY_FLOOR="$(jq -r '.policy.floor // 0.75' "$FACETS" 2>/dev/null || echo 0.75)"
 POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
@@ -518,7 +519,7 @@ rand_pm() {
 pick_base() {
   local id="$1" layer wt cold tiers
   tiers="$(jq -c '.tiers.ladder' "$FACETS" 2>/dev/null)"
-  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$MODEL" --arg e "$EFFORT" '($t|map(.model==$m and .effort==$e)|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
+  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$MODEL" --arg e "$EFFORT" '($t|map(.model==$m and .effort==($e|if .=="" then null else . end))|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
   if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s' "$cold"; return; fi
@@ -695,8 +696,9 @@ run_claude() {
   local raw="$WORKLOG/.claude-out.${phase}.jsonl"   # raw stream events — dashboard's live tail
   local out="$WORKLOG/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
+  local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
   set +e
-  ( cd "$ROOT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" \
+  ( cd "$ROOT" && "$CLAUDE_BIN" -p "$pr" --model "$model" "${eff[@]}" \
       --output-format stream-json --include-partial-messages --verbose "${FLAGS[@]}" ) 2>&1 \
     | tee "$raw" \
     | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \

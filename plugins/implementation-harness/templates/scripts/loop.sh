@@ -182,7 +182,7 @@ task_spec_rel() { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.spec // empty'
 POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
 TIER_TUPLES=()   # portable (bash 3.2 — no mapfile): read the ladder into an array
 while IFS= read -r _t; do TIER_TUPLES+=("$_t"); done \
-  < <(blob config/facets.json | jq -r '.tiers.ladder[] | "\(.model) \(.effort)"' 2>/dev/null)
+  < <(blob config/facets.json | jq -r '.tiers.ladder[] | "\(.model) \(.effort // "")"' 2>/dev/null)
 [ "${#TIER_TUPLES[@]}" -gt 0 ] || TIER_TUPLES=("$MODEL $EFFORT")    # fallback if facets.json absent
 POLICY_FLOOR="$(blob config/facets.json | jq -r '.policy.floor // 0.75' 2>/dev/null)"; POLICY_FLOOR="${POLICY_FLOOR:-0.75}"
 POLICY_MINN="$(blob config/facets.json | jq -r '.policy.minN // 6' 2>/dev/null)"; POLICY_MINN="${POLICY_MINN:-6}"
@@ -247,7 +247,7 @@ rand_pm() {
 pick_base() {
   local id="$1" layer wt cold tiers rows
   tiers="$(blob config/facets.json | jq -c '.tiers.ladder' 2>/dev/null)"
-  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$MODEL" --arg e "$EFFORT" '($t|map(.model==$m and .effort==$e)|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
+  cold="$(jq -n --argjson t "${tiers:-[]}" --arg m "$MODEL" --arg e "$EFFORT" '($t|map(.model==$m and .effort==($e|if .=="" then null else . end))|index(true)) // 1' 2>/dev/null)"; cold="${cold:-0}"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
   rows="$(blob ledgers/outcomes.jsonl | jq -s -c '.' 2>/dev/null)"
@@ -275,7 +275,8 @@ outcome_row() {
      --arg verif "${cur_verification:-ci-only}" \
      -c '.tasks[]|select(.id==$id)|{
        id:$id, ts:$ts, facets:(.facets // null), scopeSize:(.scope|length),
-       startModel:$sm, startEffort:$se, finalModel:$fm, finalEffort:$fe,
+       startModel:$sm, startEffort:(if $se=="" then null else $se end),
+       finalModel:$fm, finalEffort:(if $fe=="" then null else $fe end),
        succeededRung:(if $blocked then null else $rung end), topRung:$rung,
        attemptsAtRung:$atr, totalSoftFails:$total, blocked:$blocked, reason:$reason,
        verification:$verif
@@ -845,8 +846,9 @@ run_claude() {
   local raw="$LOOP_WT/.harness/worklog/.claude-out.${phase}.jsonl"   # raw stream events — dashboard's live tail
   local out="$LOOP_WT/.harness/worklog/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
+  local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
   set +e
-  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" --effort "$effort" \
+  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" "${eff[@]}" \
       --output-format stream-json --include-partial-messages --verbose "${FLAGS[@]}" ) 2>&1 \
     | tee "$raw" \
     | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \

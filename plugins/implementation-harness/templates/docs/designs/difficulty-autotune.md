@@ -50,6 +50,19 @@ cold-start prior is the `harness.env` `MODEL`/`EFFORT` floor (per-task `model`/`
 ignored — facets are the only per-task difficulty signal). `MAX_ATTEMPTS` soft failures per tier before
 escalating (default 2 — the ladder is fine-grained).
 
+**Effort-less rungs.** A rung's `effort` may be explicit `null` for a model with no effort parameter
+at the API level (e.g. Claude Haiku 4.5 as of this writing) — `run_claude()` omits `--effort` entirely
+for such a rung. `policy.jq`'s `tidx()` matches rungs with `.model == $m and .effort == $e`, and jq's
+`==` treats `null == null` as `true`, so calibration matches an effort-less rung correctly with no
+special-casing — **as long as both sides are real JSON `null`**, not the string `"null"` or `""`. The
+loop scripts' ladder parser normalizes null/missing effort to an empty string at read time (`.effort //
+""`, so `TIER_TUPLES` stays a clean space-separated pair bash can `read`), then convert that empty
+string back to real JSON `null` when writing `startEffort`/`finalEffort` to the ledger. Inserting a new
+rung anywhere in the ladder (not just at the ends) is safe for calibration: `tidx()` re-matches fresh by
+`(model, effort)` on every run, never against a cached index, so historical rows keep resolving
+correctly after the ladder's shape changes — see `docs/HARNESS.md`'s "Bumping the base model" section
+for what does and doesn't need touching when the ladder changes.
+
 ## 3. Capture — the ledger  *(in `loop.sh`)*
 
 `mark_done`/`block_task` append one JSON row per built task to **`outcomes.jsonl`**: facets, scope

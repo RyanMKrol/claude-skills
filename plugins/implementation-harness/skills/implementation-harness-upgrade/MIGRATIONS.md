@@ -42,6 +42,49 @@ Entry format:
 
 ---
 
+## 1.44.0 → 1.45.0 — effort-less tier ladder rungs (e.g. Haiku) + new `update-ladder` skill
+Some models (e.g. Claude Haiku 4.5) have no `effort` parameter at the API level — passing one is a
+400. The tier ladder, loop scripts, and calibration all assumed every rung was a `(model, effort)`
+pair; this adds first-class support for a rung with `"effort": null`, fully generic (no model named in
+mechanism code), plus a new project-local skill for walking a ladder change end to end.
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` (kept in parity) — the ladder parser now
+  normalizes null/missing effort to an empty string at the jq boundary (`.effort // ""`) so `TIER_TUPLES`
+  stays a clean space-separated pair; `run_claude()` only passes `--effort` when non-empty;
+  `outcome_row()`/`record_outcome()` convert the empty-string sentinel back to real JSON `null` for
+  `startEffort`/`finalEffort` so `policy.jq`'s `tidx()` (`.effort == $e`, and jq's `null == null` is
+  `true`) matches correctly; `pick_base()`'s cold-start index lookup gets the same null/empty-string
+  normalization for consistency. `policy.jq` itself needed no logic change — added one comment
+  documenting why. `dashboard/server.js` — every model/effort label (the live "Now" strip, the tier
+  ladder legend, and the calibration internals table) now omits the `/effort` suffix when effort is
+  falsy (the completed-task pill already did this).
+- mechanism: `docs/designs/difficulty-autotune.md` — new paragraph on effort-less rungs and the
+  null-equality/normalization convention. `docs/HARNESS.md` — new "Inserting a new rung" note next to
+  "Bumping the base model": inserting a rung is calibration-safe (`tidx()` re-matches fresh by
+  `(model, effort)` every run, never a cached index — no ledger migration needed), but a ledger row's
+  `succeededRung`/`topRung` are diagnostic-only integers that may not match the *current* ladder
+  position after an edit; `startModel`/`startEffort`/`finalModel`/`finalEffort` remain the permanent,
+  authoritative record. `skills/implementation-harness-loop-recover/SKILL.md` — wording pass noting
+  effort may be `null` and pointing at the model/effort fields (not the rung integers) as source of truth.
+  `harness-CLAUDE.md` — "Operating the loop" now covers five operational skills, not four; added a
+  bullet for `update-ladder`. `skills/implementation-harness-create/SKILL.md` and
+  `skills/implementation-harness-upgrade/SKILL.md`'s own scaffold/verify loops and reconciliation
+  table now include it too.
+- new files: `skills/implementation-harness-update-ladder/SKILL.md` — project-local skill
+  (`.claude/skills/`, bare `/update-ladder`) that interviews for which model to add/swap/remove on the
+  ladder, branches to the existing "Bumping the base model" runbook for a same-position swap or the new
+  no-migration-needed path for an insert/remove, reminds about the cold-start floor, and checks
+  `.harness/.harness-version` >= 1.45.0 before offering an effort-less rung (older installs don't have
+  the mechanism support above — it offers to run the upgrade first instead).
+- config: `config/facets.json` — `.tiers._about` gained one sentence documenting that a rung's
+  `effort` may be explicit `null` for a model with no effort parameter. ACTION: purely additive wording
+  to the `_about` doc string; the actual `.tiers.ladder` array is untouched (still project-tailored,
+  never clobbered).
+- renamed/removed: none.
+- manual attention: none — this is fully backward compatible. Every new branch above is a no-op for a
+  real, non-empty effort string, so an existing all-effort ladder and its `outcomes.jsonl` history are
+  byte-for-byte unaffected. No existing project's ledger needs touching.
+- breaking: none.
+
 ## 1.43.1 → 1.44.0 — dashboard overview chips are now clickable, scroll to their section
 The three summary chips ("need your action", "failed, pending review", "done") above the backlog
 sections were static `<div>`s. They're now `<button>`s that expand (if collapsed) and smooth-scroll to

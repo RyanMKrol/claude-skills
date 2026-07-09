@@ -194,6 +194,26 @@ stops matching any ladder tier (`tidx()` returns `-1` and the row is dropped fro
 the practical effect is silent, partial data loss: every cell's calibration quietly resets to its
 cold-start prior instead of carrying forward what the harness had already learned.
 
+### Inserting a new rung (as opposed to swapping one in place)
+
+The runbook above covers **swapping** a model at a fixed ladder position — same rung count and order.
+**Inserting** a brand-new rung (e.g. adding a cheaper tier-0, or a rung between two existing ones)
+shifts every subsequent rung's index, but this needs **no ledger migration at all**: `tidx()` re-matches
+a ledger row's `(startModel, startEffort)`/`(finalModel, finalEffort)` against the *current* ladder
+fresh, every single time it runs — it never trusts a cached index. A historical row that resolved to
+index 0 last month will simply resolve to its new (correct) index after the insertion, and the
+success-rate math for that `(layer × work-type)` cell keeps working without any migration step.
+
+What *does* go stale, cosmetically: each ledger row also stamps `succeededRung`/`topRung` — raw
+integers recording the rung reached *at write time*. These are **diagnostic-only** — `policy.jq` never
+reads them, and the dashboard's completed-task display already reads `finalModel`/`finalEffort`
+instead. After an insertion, an old row's `succeededRung`/`topRung` may no longer match the *current*
+ladder's position for that model/effort pair — e.g. a row written when `sonnet/low` was rung 0 will
+still say `succeededRung: 0` even after a rung is inserted ahead of it. For the authoritative record of
+what a task actually ran on, always read `startModel`/`startEffort`/`finalModel`/`finalEffort` — those
+are permanent and never renumbered. No historical identity is ever lost; only the raw position label on
+old rows can drift from the live ladder's current shape.
+
 ---
 
 ## 4. Operating model — one iteration, end to end

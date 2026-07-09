@@ -753,7 +753,7 @@ function renderNow(data) {
   let h = '';
   if (lock.held && lock.alive) {
     if (cur && cur.task) {
-      const tier = cur.model ? ' · ' + esc(cur.model) + '/' + esc(cur.effort) : '';
+      const tier = cur.model ? ' · ' + esc(cur.model) + (cur.effort ? '/' + esc(cur.effort) : '') : '';
       h += '<span class="nowpill run">▶ ' + esc(cur.task) + ' — ' + esc(cur.phase || 'working')
          + ' (rung ' + esc(String(cur.rung)) + ', attempt ' + esc(String(+cur.attempt + 1)) + tier + ')</span>';
     } else {
@@ -871,7 +871,7 @@ function renderHarness(data) {
   let h = '';
   h += '<div class="htitle">Model tiers &amp; policy</div><div class="refgrid">';
   h += '<div class="refcard"><b>Tier ladder</b> — cheapest → priciest<ol>' +
-       L.map(function (t) { return '<li class="model-tag">' + esc(t.model) + ' / ' + esc(t.effort) + '</li>'; }).join('') + '</ol></div>';
+       L.map(function (t) { return '<li class="model-tag">' + esc(t.model) + (t.effort ? ' / ' + esc(t.effort) : '') + '</li>'; }).join('') + '</ol></div>';
   h += '<div class="refcard"><b>Policy knobs</b>' +
        knob('pass floor', Math.round((p.floor || 0) * 100) + '% first-attempt') +
        knob('min samples', p.minN) +
@@ -896,7 +896,7 @@ function renderHarness(data) {
        + '<th class="num">⚠ fails <span class="qtip" tabindex="0" data-tip="Failed attempts recorded before a task in this cell eventually succeeded or was blocked — see Failure health below for a kind breakdown.">?</span></th>'
        + '</tr></thead><tbody>';
     for (const c of cells) {
-      const model = c.chosenModel ? esc(c.chosenModel) + ' / ' + esc(c.chosenEffort) : '—';
+      const model = c.chosenModel ? esc(c.chosenModel) + (c.chosenEffort ? ' / ' + esc(c.chosenEffort) : '') : '—';
       const cold = (c.chosenModel && !c.hasHistory) ? '<span class="cold-tag">cold</span>' : '';
       const audit = (c.auditPct != null) ? c.auditPct + '%' : '—';
       const observed = c.successes ? Math.round((c.audited / c.successes) * 100) + '% <span class="cold-tag">' + c.audited + '/' + c.successes + '</span>' : '—';

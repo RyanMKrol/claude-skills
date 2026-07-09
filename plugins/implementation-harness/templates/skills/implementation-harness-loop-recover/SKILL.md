@@ -140,18 +140,22 @@ jq '(.tasks[]|select(.id=="T<id>")|.status)="done"' .harness/tracking/TASKS.json
 ```
 Outcome-row rules:
 - `facets` copied from the task in TASKS.json; `scopeSize` = its `.scope|length`.
-- start/final model+effort and `succeededRung`/`topRung`: use what **actually happened** if recoverable
-  (a loop console line, or the audit file). With no escalation evidence, default to the **cold-start
-  tier** (`MODEL`/`EFFORT` from `harness.env`, rung 0). **Never fabricate escalations, and never record
-  soft-fails caused by a harness/framework bug** (e.g. a scope-matcher glitch) — excluding them keeps
-  the difficulty calibration honest.
+- start/final model+effort — the authoritative record of what actually ran — and `succeededRung`/
+  `topRung` (diagnostic-only position labels, not read by `policy.jq`): use what **actually happened**
+  if recoverable (a loop console line, or the audit file). With no escalation evidence, default to the
+  **cold-start tier** (`MODEL`/`EFFORT` from `harness.env`, rung 0). A rung's effort may be `null` for
+  a model with no effort parameter (e.g. Haiku) — write real JSON `null`, not the string `"null"` or
+  `""`, so it matches the ladder. **Never fabricate escalations, and never record soft-fails caused by
+  a harness/framework bug** (e.g. a scope-matcher glitch) — excluding them keeps the difficulty
+  calibration honest.
 - `verification`: `"audited"` ONLY if a real `<id>.audit.md` exists with a PASS; else `"ci-only"`.
 - The task's `worklog/<id>.md` is usually already in the code commit — confirm it's sane; don't clobber a good one.
 
 ## 5. Clean ledger noise
 
 - Remove **stale/wrong** `outcomes.jsonl` rows (e.g. a `blocked` row for a task later re-scoped and
-  actually done, or rows whose `(model, effort)` tuple is no longer on the ladder). Keep the file valid
+  actually done, or rows whose `(model, effort)` tuple is no longer on the ladder — `effort` may
+  legitimately be `null` here, that alone is not a sign of staleness). Keep the file valid
   (`jq -e . .harness/ledgers/outcomes.jsonl`), one JSON object per line.
 - Leave the harmless revert / build-summary churn commits in history (see guardrails).
 
