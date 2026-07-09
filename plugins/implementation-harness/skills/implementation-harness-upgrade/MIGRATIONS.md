@@ -42,6 +42,31 @@ Entry format:
 
 ---
 
+## 1.47.0 → 1.47.1 — fix dashboard compile error from 1.47.0's policy.jq change
+
+1.47.0 changed `policy.jq`'s TIER-mode output from a bare integer to a required `$explorePM` input
+plus a 3-field string output, but only updated `policy.jq`'s two CALLERS in `loop.sh`/
+`loop.in-place.sh` — `dashboard/server.js`'s own two `policy.jq` invocations (in `buildHarnessState()`,
+used to show each cell's chosen tier + audit rate) were missed entirely. Any install that upgraded to
+1.47.0 and then ran the dashboard hit a hard jq compile error (`$explorePM is not defined`) on every
+single cell, breaking the harness-internals view completely. Caught via a live bug report from two
+real running installs immediately after their dashboards were restarted post-upgrade.
+- mechanism: `dashboard/server.js` — both `runPolicy()` call sites in `buildHarnessState()` gain
+  `--argjson explorePM <value>` (the TIER-mode call passes the real configured
+  `.policy.exploreProbabilityPM`, matching the "dashboard shows the SAME numbers the loop uses"
+  principle already stated in that function's own header comment; the AUDIT-mode call passes the
+  harmless placeholder `0`, matching its existing placeholder-tier-args pattern). Also fixed a second,
+  related bug this exposed: `runPolicy()`'s output parser expected a bare number, but TIER mode's
+  output is now a 3-field string — added `-r` to the jq invocation and changed the parse to take only
+  the first whitespace-separated token (a no-op for AUDIT mode's still-bare-number output, correctly
+  extracts `chosenIdx` for TIER mode).
+- config: none.
+- new files: none. renamed/removed: none.
+- manual attention: none — this was a straight regression from 1.47.0, this patch just completes
+  that change's caller sweep. Any install already on 1.47.0 should upgrade to 1.47.1 promptly if its
+  dashboard is in use.
+- breaking: none.
+
 ## 1.46.0 → 1.47.0 — downward exploration of under-sampled ladder rungs
 
 Inserting a cheaper rung into `.tiers.ladder` previously had no effect on any facet cell that
