@@ -38,6 +38,8 @@ that command only ever reports raw warnings; this one is where they get resolved
   source of truth for what gets added; don't add anything based on your own independent guess.
 - **One commit for the whole sweep**, staging only `.harness/tracking/TASKS.json` — mirrors
   `/implementation-harness-loop-recover`'s own git-hygiene convention (never `git add -A`).
+  `.harness/.scope-gap-ignores/*.json` (step 6) is gitignored local scratch — never staged, never
+  committed, same as `.pending-tasks/*.json` never being committed.
 - **Judge subagents are read-only** — they return a verdict, they never edit `TASKS.json` themselves.
   Applying fixes happens once, single-threaded, after every subagent has returned — parallel subagents
   editing the same JSON file would race each other.
@@ -57,9 +59,12 @@ A live process or a lock held by a live PID → STOP, tell the owner, do not pro
 ```bash
 bash .harness/scripts/check-task-scope.sh $ARGUMENTS
 ```
-Parse every `WARN: <id> — spec mentions \`<path>\` ...` line into `(task_id, path)` pairs (the two WARN
-phrasings — "not in this task's declared scope" and "no scope entry's filename matches it" — both carry
-the same two fields). No warnings → report "all clear, nothing to triage", stop here.
+`check-task-scope.sh` already consults `.harness/.scope-gap-ignores/<id>.json` itself and suppresses
+anything already validly dismissed (spec unchanged since) — so what comes back here is only genuinely
+new or spec-changed-since-dismissal warnings; nothing to filter yourself. Parse every `WARN: <id> —
+spec mentions \`<path>\` ...` line into `(task_id, path)` pairs (the two WARN phrasings — "not in this
+task's declared scope" and "no scope entry's filename matches it" — both carry the same two fields).
+No warnings → report "all clear, nothing to triage", stop here.
 
 ## 3. Judge fan-out — one subagent per pair, launched in parallel
 
@@ -80,14 +85,16 @@ a time) — each call:
 
 ## 4. Aggregate verdicts (single-threaded, after every subagent has returned)
 
-- `FALSE_POSITIVE` (any confidence) → drop. No owner action, no mutation, don't mention it further than
-  a count in the final report.
-- `REAL_GAP` + `high` confidence → stage `(task_id, path)` for auto-apply.
+- `FALSE_POSITIVE` (any confidence) → stage `(task_id, path, reason)` to be recorded as a dismissal
+  (step 6) — no owner action needed, but it DOES get written so this exact warning doesn't resurface
+  on the next `pre-loop-checkin`/`fix-scope-gaps` run against the same spec content.
+- `REAL_GAP` + `high` confidence → stage `(task_id, path)` for auto-apply (step 5).
 - `REAL_GAP` + `low` confidence, or a subagent whose output didn't parse as a clean verdict line →
   collect for a single **batched `AskUserQuestion`** (one question per still-ambiguous pair, or grouped
   if there are many — mirror `/implementation-harness-upgrade`'s batched-question pattern rather than
   asking one at a time) so the owner only spends attention on what a cheap model genuinely couldn't
-  resolve, not on everything `check-task-scope.sh` flagged.
+  resolve, not on everything `check-task-scope.sh` flagged. The owner's answer to each resolves it the
+  same way: "add to scope" → step 5, "false positive / leave it" → step 6.
 
 ## 5. Apply confirmed fixes
 
@@ -103,14 +110,33 @@ jq --arg id "$task_id" --arg p "$path" '
 ```
 Apply all confirmed pairs, THEN validate once (`jq -e '.tasks|length' .harness/tracking/TASKS.json`),
 THEN make **one commit** covering every fix in this sweep (stage only `.harness/tracking/TASKS.json`),
-and push.
+and push. No real gaps this run → skip the commit, move on to step 6.
 
-## 6. Report
+## 6. Record dismissals (false positives, so they stop resurfacing)
+
+For every `(task_id, path, reason)` staged in step 4, write/update that task's dismissal file — this
+is what makes `check-task-scope.sh` (and therefore `pre-loop-checkin`) stop re-flagging it, without
+ever needing to be actively deleted:
+```bash
+mkdir -p .harness/.scope-gap-ignores
+f=".harness/.scope-gap-ignores/$task_id.json"
+spec_path="$(jq -r --arg id "$task_id" '.tasks[]|select(.id==$id)|.spec' .harness/tracking/TASKS.json)"
+spec_hash="$(command -v sha256sum >/dev/null 2>&1 && sha256sum "$spec_path" | awk '{print $1}' || shasum -a 256 "$spec_path" | awk '{print $1}')"
+existing="$( [ -f "$f" ] && cat "$f" || echo '{"dismissed":[]}' )"
+printf '%s' "$existing" | jq --arg p "$path" --arg h "$spec_hash" --arg r "$reason" --arg d "$(date +%Y-%m-%d)" '
+  .dismissed = ((.dismissed // []) | map(select(.path != $p)) + [{"path":$p,"specHash":$h,"reason":$r,"at":$d}])
+' > "$f.tmp" && mv "$f.tmp" "$f"
+```
+This is local, gitignored scratch — **no commit, no push** for this step (see guardrails). Replacing
+any existing entry for the same `path` (rather than appending a duplicate) keeps the file from growing
+unbounded across repeated runs.
+
+## 7. Report
 
 - **Auto-fixed** (high-confidence real gaps applied): task id, path, the judge's one-line reason.
 - **Owner-confirmed and applied** (if any low-confidence cases were confirmed): same shape.
-- **Dismissed as false positive**: a count (list them too if the owner would find it useful — don't
-  hide the reasoning, just don't force them to read it).
-- **Commit SHA**, or "nothing to commit" if every warning was a false positive.
+- **Recorded as false positive** (won't resurface unless the spec changes): task id, path, reason —
+  don't hide the reasoning, but make clear these needed no owner action.
+- **Commit SHA** for the scope fixes, or "nothing to commit" if every warning was a false positive.
 - If the loop-running guardrail stopped you at step 1, that's the whole report — say so plainly and
   stop; don't proceed with any of the later steps.

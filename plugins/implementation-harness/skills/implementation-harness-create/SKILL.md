@@ -156,7 +156,7 @@ it to invoke the add-to-backlog skill).
 ```bash
 T="<target>"          # the REPO ROOT
 H="$T/.harness"       # the self-contained harness folder (everything but ci.yml lives here)
-mkdir -p "$H/config" "$H/custom" "$H/dashboard" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$H/.pending-tasks" "$H/.pending-questions" "$T/.github/workflows"
+mkdir -p "$H/config" "$H/custom" "$H/dashboard" "$H/docs/designs" "$H/ledgers" "$H/scripts" "$H/tasks" "$H/tracking" "$H/worklog" "$H/.pending-tasks" "$H/.pending-questions" "$H/.scope-gap-ignores" "$T/.github/workflows"
 # Install the loop variant chosen in step 0 — BOTH install as .harness/scripts/loop.sh.
 if [ "${ISOLATION:-worktree}" = in-place ]; then
   cp -p "$TPL/scripts/loop.in-place.sh" "$H/scripts/loop.sh"
@@ -169,7 +169,7 @@ cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/poli
 cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$H/scripts/"
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
 cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack)
-touch "$H/.pending-tasks/.gitkeep" "$H/.pending-questions/.gitkeep"
+touch "$H/.pending-tasks/.gitkeep" "$H/.pending-questions/.gitkeep" "$H/.scope-gap-ignores/.gitkeep"
 cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + tier ladder + policy knobs (tailored below)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/docs/"
 cp -p "$TPL/docs/designs/"*.md "$H/docs/designs/"
@@ -297,6 +297,7 @@ node --check "$T/.harness/dashboard/lib.js" 2>/dev/null || echo "FAIL: dashboard
 node "$T/.harness/dashboard/lib.test.js" >/dev/null 2>&1 || echo "FAIL: dashboard/lib.test.js failed"
 node --check "$T/.harness/scripts/consolidate-ideas.mjs" 2>/dev/null || echo "FAIL: consolidate-ideas.mjs has a syntax error"
 grep -q '.harness/.pending-tasks' "$T/.gitignore" && grep -q '.harness/.pending-questions' "$T/.gitignore" || echo "WARN: ideas-pipeline scratch not git-ignored"
+grep -q '.harness/.scope-gap-ignores' "$T/.gitignore" || echo "WARN: scope-gap-ignores scratch not git-ignored"
 [ -f "$T/.harness/tracking/IDEAS.jsonl" ] || echo "WARN: tracking/IDEAS.jsonl inbox missing (should be a committed starter)"
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"

@@ -27,3 +27,9 @@
 !.harness/.pending-tasks/.gitkeep
 .harness/.pending-questions/*
 !.harness/.pending-questions/.gitkeep
+
+# harness: scope-gap dismissals — check-task-scope.sh's per-task "already reviewed, false positive"
+# record, written by fix-scope-gaps. Local scratch, same shape as the pending-tasks/pending-questions
+# dirs above: never committed, invalidated by content (a specHash mismatch), not by deletion.
+.harness/.scope-gap-ignores/*
+!.harness/.scope-gap-ignores/.gitkeep

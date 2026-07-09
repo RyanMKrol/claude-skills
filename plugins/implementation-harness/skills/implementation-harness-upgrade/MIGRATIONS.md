@@ -42,6 +42,39 @@ Entry format:
 
 ---
 
+## 1.41.1 → 1.41.2 — scope-gap dismissals now persist (gitignored per-task scratch, not a re-flag loop)
+Walking the actual owner workflow — `pre-loop-checkin` → `fix-scope-gaps` → `pre-loop-checkin` again —
+found `check-task-scope.sh` was completely stateless: every dismissed false positive resurfaced on the
+very next run, forcing another NO-GO and another judge fan-out for something already resolved. Fixed
+with the same convention `convert-ideas`/`review-failed` already use for this kind of hand-off:
+`.harness/.pending-tasks/` / `.harness/.pending-questions/` — a gitignored, per-item scratch directory
+(contents ignored, `.gitkeep` committed) rather than a permanent committed ledger.
+- mechanism: `scripts/check-task-scope.sh` — new `sha256_of_file`/`is_dismissed` helpers; consults
+  `.harness/.scope-gap-ignores/<id>.json` before printing each WARN, suppressing anything already
+  dismissed AND still valid (the recorded `specHash` matches the spec file's current content) — a
+  stale dismissal (spec edited since) simply stops matching and the warning re-surfaces, nothing
+  actively deletes it. This is the only change `pre-loop-checkin` needed — it calls this script
+  directly and inherits the suppression for free.
+- mechanism: `skills/implementation-harness-fix-scope-gaps/SKILL.md` — new step 6 writes a dismissal
+  entry for every `FALSE_POSITIVE` verdict (auto or owner-declined); gathering warnings (step 2)
+  already excludes previously-dismissed pairs for free via the script change above. Dismissal writes
+  are gitignored local scratch — no commit, no push (only the `TASKS.json` scope-array fixes still get
+  the existing one-commit-per-sweep treatment).
+- mechanism: `skills/implementation-harness-create/SKILL.md` — scaffolds
+  `.harness/.scope-gap-ignores/` (`mkdir`, `.gitkeep`, gitignore-verify check), matching
+  `.pending-tasks/`/`.pending-questions/` exactly.
+- mechanism: `gitignore` — new `.harness/.scope-gap-ignores/*` + `!.gitkeep` block, same shape as the
+  existing pending-tasks/pending-questions entries.
+- config: none. new files: none (the ledger directory is user-data scratch, not a template file — same
+  as `.pending-tasks/` itself has no committed contents). renamed/removed: none. manual attention: an
+  EXISTING project's root `.gitignore` won't get this new block automatically (root `.gitignore` is
+  user-data, upgrade never touches it) — add the two lines above by hand if you want the suppression
+  to survive a `git clean`/fresh clone; the feature works either way, it just re-creates the directory
+  lazily on first dismissal if missing.
+- breaking: none.
+
+---
+
 ## 1.41.0 → 1.41.1 — fix-scope-gaps is now `user-invocable: false`
 It's meant to be run as the deliberate follow-up when pre-loop-checkin flags a scope-gap advisory (or
 on direct request), not something an owner stumbles into typing blind from the `/` menu — Claude can

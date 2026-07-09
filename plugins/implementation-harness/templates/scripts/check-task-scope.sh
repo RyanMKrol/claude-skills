@@ -14,7 +14,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
 BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
+IGNORES_DIR="$HARNESS_DIR/.scope-gap-ignores"
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 3; }
+
+sha256_of_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# is_dismissed <id> <path> <spec_hash> — true if fix-scope-gaps already judged <path> a false
+# positive for <id> AND the spec hasn't changed since (specHash still matches). A gitignored,
+# per-task scratch file (.harness/.scope-gap-ignores/<id>.json) — never committed, so this is local
+# suppression state; a stale entry (spec since edited) just silently stops matching, nothing deletes
+# it. See implementation-harness-fix-scope-gaps, the only writer.
+is_dismissed() {
+  local id="$1" path="$2" spec_hash="$3" f="$IGNORES_DIR/$id.json"
+  [ -f "$f" ] || return 1
+  jq -e --arg p "$path" --arg h "$spec_hash" '.dismissed[]? | select(.path==$p and .specHash==$h)' "$f" >/dev/null 2>&1
+}
 
 # in_scope <file> <scope-newline-list> — exact path or directory-prefix match, same rule the real
 # structural scope gate in loop.sh / loop.in-place.sh uses. For a FULL repo-relative path candidate.
@@ -50,12 +68,13 @@ SCOPE
 }
 
 check_one() {
-  local id="$1" spec_rel spec_path scope full_paths bare_names p
+  local id="$1" spec_rel spec_path scope full_paths bare_names p spec_hash
   spec_rel="$(jq -r --arg id "$id" '.tasks[]|select(.id==$id)|.spec // empty' "$BACKLOG")"
   [ -n "$spec_rel" ] || return 0
   spec_path="$ROOT/$spec_rel"
   [ -f "$spec_path" ] || { echo "WARN: $id — spec file $spec_rel is missing"; return 0; }
   scope="$(jq -r --arg id "$id" '.tasks[]|select(.id==$id)|.scope[]?' "$BACKLOG")"
+  spec_hash="$(sha256_of_file "$spec_path")"
 
   # Extract candidate paths from the spec prose: backtick-quoted repo-relative paths (src/...,
   # .harness/..., public/...) and bare backtick-quoted filenames (`Foo.js`) — checked separately
@@ -72,7 +91,7 @@ check_one() {
 
   while IFS= read -r p; do
     [ -z "$p" ] && continue
-    if ! in_scope "$p" "$scope"; then
+    if ! in_scope "$p" "$scope" && ! is_dismissed "$id" "$p" "$spec_hash"; then
       echo "WARN: $id — spec mentions \`$p\` but it is not in this task's declared scope"
     fi
   done <<FULLPATHS
@@ -81,7 +100,7 @@ FULLPATHS
 
   while IFS= read -r p; do
     [ -z "$p" ] && continue
-    if ! basename_in_scope "$p" "$scope"; then
+    if ! basename_in_scope "$p" "$scope" && ! is_dismissed "$id" "$p" "$spec_hash"; then
       echo "WARN: $id — spec mentions \`$p\` but no scope entry's filename matches it"
     fi
   done <<BARENAMES
