@@ -72,8 +72,8 @@ case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make 
 . "$SCRIPT_DIR/repo-lock.sh"
 
 NAME="$(basename "$ROOT")"                       # repo dir name → worktree + lock naming
-MODEL="${MODEL:-claude-sonnet-5}"              # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here (pin the full id; the bare alias drifts)
-EFFORT="${EFFORT:-low}"                           # low|medium|high|xhigh|max — cheapest by default (bias-cheap; the ladder escalates on failure)
+MODEL="${MODEL:-claude-haiku-4-5}"              # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here (pin the full id; the bare alias drifts)
+EFFORT="${EFFORT:-}"                              # low|medium|high|xhigh|max, or empty for a model with no effort param (e.g. the default floor, Haiku) — the ladder escalates on failure
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"                 # soft failures per rung before escalating (2: the global ladder is fine-grained, so fewer tries per rung bounds the total attempt budget)
 MAX_ITERS="${MAX_ITERS:-100}"                     # global iteration cap (backstop)
 WAIT_SECONDS="${WAIT_SECONDS:-30}"               # backoff between retries / CI polls

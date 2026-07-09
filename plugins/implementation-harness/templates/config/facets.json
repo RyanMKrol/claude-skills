@@ -113,8 +113,12 @@
     "auditorEffort": "medium"
   },
   "tiers": {
-    "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). The default is a deliberately SHORT 4-tier ladder — Sonnet low→medium→high, then Opus/high — so a stuck task blocks to a human after at most ladder_length × MAX_ATTEMPTS attempts (4×2=8). Extend the top (e.g. opus/xhigh, opus/max) ONLY if you'd genuinely want the hardest tasks built unsupervised — every extra rung is extra spend a stuck task grinds through before it asks for help. A rung's `effort` may be explicit `null` for a model with no effort parameter at the API level (e.g. Claude Haiku 4.5 as of this writing) — the loop omits `--effort` entirely for such a rung, and calibration matches it correctly (jq's null == null) without any special-casing.",
+    "_about": "The GLOBAL difficulty ladder, cheapest → most expensive. The policy chooses a START tier from here per task; escalation walks UP it. The authored model/effort is the cold-start start tier. PROJECT-SPECIFIC — set this to the models your project actually uses (cheapest → priciest). The default is a deliberately SHORT 5-tier ladder — Haiku, then Sonnet low→medium→high, then Opus/high — so a stuck task blocks to a human after at most ladder_length × MAX_ATTEMPTS attempts (5×2=10). Extend the top (e.g. opus/xhigh, opus/max) ONLY if you'd genuinely want the hardest tasks built unsupervised — every extra rung is extra spend a stuck task grinds through before it asks for help. A rung's `effort` may be explicit `null` for a model with no effort parameter at the API level (e.g. Claude Haiku 4.5, the default tier-0 rung) — the loop omits `--effort` entirely for such a rung, and calibration matches it correctly (jq's null == null) without any special-casing.",
     "ladder": [
+      {
+        "model": "claude-haiku-4-5",
+        "effort": null
+      },
       {
         "model": "claude-sonnet-5",
         "effort": "low"

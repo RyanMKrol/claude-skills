@@ -102,12 +102,14 @@ Use `AskUserQuestion`, batching related questions. Gather:
 6. **Cold-start difficulty floor** — the model/effort a task STARTS at *before* difficulty
    auto-tuning has data. It lives in `harness.env` (`MODEL`/`EFFORT`) — the SINGLE source; it is
    NOT mirrored into `TASKS.json`.
-   **Default to the CHEAPEST tier — `claude-sonnet-5` / `low`** (bias-cheap). Explain why: the
-   policy starts every task at this floor and ESCALATES up the global tier ladder
-   (`facets.json .tiers.ladder`) on repeated failure, then *learns* the cheapest tier that reliably
-   builds each kind of task (faceted calibration). So there is **no per-task model guessing and no
-   per-task escalation ladder** any more — the global ladder + the calibrated policy own model
-   choice. Only raise this floor if you have a concrete reason; otherwise take the cheap default.
+   **Default to the CHEAPEST tier — `claude-haiku-4-5`, no effort** (bias-cheap; Haiku has no
+   `effort` parameter at the API level, so `EFFORT` is left empty). Explain why: the policy starts
+   every task at this floor and ESCALATES up the global tier ladder (`facets.json .tiers.ladder`) on
+   repeated failure, then *learns* the cheapest tier that reliably builds each kind of task (faceted
+   calibration). So there is **no per-task model guessing and no per-task escalation ladder** any
+   more — the global ladder + the calibrated policy own model choice. Only raise this floor if you
+   have a concrete reason (e.g. the project's work is consistently too hard for Haiku's one fixed
+   reasoning depth); otherwise take the cheap default.
 7. **Caps** — `MAX_ATTEMPTS` (2), `MAX_ITERS` (100). Defaults are fine; only ask if they care.
 8. **Empirical Verify step** — "Is there a way to run the app / a backtest to watch it behave?"
    If yes, capture the command and a short label (e.g. `run-app`). This seeds `Verify:` on relevant
@@ -257,7 +259,7 @@ Build each from the corresponding template, substituting the interview answers. 
 
 From `$TPL/tracking/TASKS.json`, keep the top-level shape (`_doc`, `version`) and **replace the
 illustrative T001–T005 in `.tasks`** with a minimal real backlog. The cold-start floor lives in
-`config/harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-sonnet-5` / `low`), NOT in `TASKS.json`. A
+`config/harness.env` (`MODEL`/`EFFORT`, cheapest — `claude-haiku-4-5` / no effort), NOT in `TASKS.json`. A
 task carries NO per-task `model`/`effort`/`escalation`; difficulty is auto-tuned from `facets` + the
 outcomes ledger.
 

@@ -42,6 +42,36 @@ Entry format:
 
 ---
 
+## 1.45.0 → 1.46.0 — default cold-start floor + ladder tier-0 moves to Haiku
+Now that the ladder mechanism supports effort-less rungs (1.45.0), this makes Haiku the actual
+shipped default for NEW projects, not just a supported-but-unused option: it's the cheapest,
+fastest current-gen model, and the ladder's whole design is "start cheap, escalate on failure" —
+Haiku is a better fit for that role than Sonnet/low. A task never cold-starts below the configured
+floor (the policy only escalates UP from it based on ledger history), so both the ladder's tier-0
+rung AND the cold-start floor default had to move together, or Haiku would sit on the ladder unused.
+- config: `config/facets.json` — `.tiers.ladder` gains a new tier-0 rung `{model:
+  "claude-haiku-4-5", effort: null}` ahead of the existing 4 rungs (now 5 total); `.tiers._about`
+  updated (5-tier, 5×2=10 max cold attempts). `config/harness.env` — cold-start floor defaults
+  changed: `MODEL:=claude-haiku-4-5`, `EFFORT:=` (empty — Haiku has no effort param). ACTION: purely
+  a shipped DEFAULT change for NEW installs — the upgrade must **NOT** touch an existing install's
+  `.tiers.ladder` or its `harness.env` `MODEL`/`EFFORT` values (both project-tailored, never
+  clobbered — same rule as the 1.24.0 → 1.25.0 ladder-trim precedent).
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — the built-in `MODEL`/`EFFORT` fallback
+  (used only if `harness.env` is somehow absent) updated to match. `docs/HARNESS.md` — "Keep the
+  ladder short on purpose" callout updated to describe the 5-tier default and 5×2=10 attempts.
+  `skills/implementation-harness-create/SKILL.md` — interview step 6's suggested cold-start floor
+  now recommends Haiku/no-effort instead of Sonnet/low, with the rationale; §6's `TASKS.json`
+  section's floor mention updated to match.
+- new files: none. renamed/removed: none.
+- manual attention: existing installs keep their own ladder and `harness.env` values untouched —
+  nothing to do unless you explicitly want to adopt the new default, in which case use the
+  `update-ladder` skill (added 1.45.0) to insert Haiku and move your floor, following its
+  cold-start-floor reminder.
+- breaking: none for existing installs (additive-only config reconciliation, see ACTION above). For
+  brand-new projects created after this version, tasks now cold-start on a materially weaker model
+  by default (Haiku's one fixed reasoning depth vs Sonnet/low) — expect more escalations until
+  calibration data accumulates; this is the intended cost/quality trade-off of the new default.
+
 ## 1.44.0 → 1.45.0 — effort-less tier ladder rungs (e.g. Haiku) + new `update-ladder` skill
 Some models (e.g. Claude Haiku 4.5) have no `effort` parameter at the API level — passing one is a
 400. The tier ladder, loop scripts, and calibration all assumed every rung was a `(model, effort)`
