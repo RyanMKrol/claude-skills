@@ -18,6 +18,7 @@ for skills and plugins I use, so they can be shared and installed anywhere.
 | Plugin | What it does |
 |---|---|
 | [`implementation-harness`](./plugins/implementation-harness) | Scaffolds a Ralph-style single-loop, CI-gated `TASKS.json` implementation harness into a project's self-contained `.harness/` folder, authors its backlog, and operates it via skills — data-driven difficulty auto-tuning, a portable dashboard, an ideas-to-tasks pipeline, and an upgrade skill that reconciles an existing install with newer plugin versions. See the [plugin's own README](./plugins/implementation-harness/README.md) for the full skill list and design. |
+| [`xquik-x-data`](./plugins/xquik-x-data) | Source-backed planning for Xquik REST API and remote MCP workflows for X data research, monitoring, exports, and automation. |
 
 ## Layout
 
