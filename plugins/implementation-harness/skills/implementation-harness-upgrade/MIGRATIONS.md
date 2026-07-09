@@ -42,6 +42,19 @@ Entry format:
 
 ---
 
+## 1.43.1 → 1.44.0 — dashboard overview chips are now clickable, scroll to their section
+The three summary chips ("need your action", "failed, pending review", "done") above the backlog
+sections were static `<div>`s. They're now `<button>`s that expand (if collapsed) and smooth-scroll to
+the matching section, with the same brief highlight-flash already used for dependency-link navigation
+(`openTask`) — an owner glancing at the counts can jump straight to the relevant list instead of
+scrolling/searching manually.
+- mechanism: `dashboard/server.js` — `.summary-chip` gained `cursor:pointer`/hover styling; each chip
+  is now a `<button onclick="scrollToSection('<name>')">`; each section's `<details>` gained
+  `id="section-<name>"` so it's a scroll target; new `scrollToSection(name)` client function (expand +
+  scrollIntoView + flash, mirroring `openTask`'s pattern). No `lib.js` change — pure presentation/wiring.
+- manual attention: none.
+- breaking: none.
+
 ## 1.43.0 → 1.43.1 — pre-loop-checkin offers its scope-gap fix via `AskUserQuestion`, not a typed reply
 `implementation-harness-pre-loop-checkin`'s final report used to end a check-(e) scope-gap advisory with
 a prose question ("want me to run it?") the owner had to answer by typing. Replaced with one
