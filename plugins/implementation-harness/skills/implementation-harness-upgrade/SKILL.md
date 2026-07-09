@@ -6,7 +6,9 @@ description: >-
   latest harness changes", "is my harness up to date", "/upgrade-harness". Reconciles the installed
   `.harness/` against the plugin's bundled reference: refreshes plugin-owned mechanism files and adds new
   `harness.env` knobs, REPORTING first and asking before every change, and NEVER touching the backlog,
-  worklog, ledgers, or the user's config values. Also ADOPTS legacy or hand-forked installs (no version
+  worklog, ledgers, or the user's config values. Commits AND PUSHES the result by default once applied —
+  unless told otherwise this conversation or by the project's own CLAUDE.md, in which case it leaves the
+  change uncommitted as before. Also ADOPTS legacy or hand-forked installs (no version
   marker, hand-maintained since install, or a pre-plugin hand-ported harness) — classifying each
   difference as plugin-newer vs local-bespoke vs conflict before anything is overwritten. Requires a
   harness already scaffolded (use implementation-harness:implementation-harness-create for a fresh install).
@@ -388,15 +390,27 @@ user must always be able to see what diverged before approving.
     [ -f "$f" ] && grep -q "^name: implementation-harness-$s\$" "$f" || echo "WARN: project-local skill $s missing or malformed after upgrade"
   done
   ```
-  If anything fails, report it prominently — the upgrade left the harness in a broken state and the user
-  should revert (all changes are uncommitted).
+  If anything fails, report it prominently, and **do not commit or push anything** — leave the broken
+  state uncommitted for the user to revert, regardless of the commit/push behavior below.
+- **Commit AND push by default.** Everything Stage 4 wrote was already individually approved by the
+  owner (Stage 3 reports, Stage 4 asks, before any write happens — nothing reaching this point is
+  unreviewed), so once validation above passes, stage it all (mechanism-file refreshes, config knob
+  additions, the re-stamped `.harness-version`) and commit + push — don't leave it sitting uncommitted
+  for a separate manual step the owner has to remember to do. **Check first for an explicit reason not
+  to**: something the owner said earlier in this conversation, or the target project's own root
+  `CLAUDE.md` / `.harness/custom/CLAUDE.md` stating a different git-push convention (e.g. "don't push
+  without asking", "always confirm before pushing", "never push automatically") — reading either file
+  for this is informational only, not the read-to-modify the `custom/` guardrail below forbids. If either
+  applies,
+  fall back to the old behavior instead — leave every change uncommitted, tell the owner plainly why
+  (naming what you found), and remind them to `git add -A && git commit` (and push) themselves when
+  satisfied. Otherwise, commit with a message summarizing the version transition and what changed (the
+  same content as the report below), then push, then report the SHA.
 - **Summarize:** split "files refreshed" into (a) auto-upgraded — "N files auto-upgraded: verified
   byte-identical to a prior shipped version, no local edits detected" — and (b) user-approved — "M files
   refreshed on your approval"; plus knobs added (noting how many were auto-applied vs. approved), files
-  skipped/kept, manual-attention items still open, and the version transition (`CUR_VERSION` →
-  `REF_VERSION`).
-- **Do NOT commit.** Leave every change uncommitted so the user can review the diff and commit themselves
-  (all changes are git-revertible). Remind them to `git add -A && git commit` (and push) when satisfied.
+  skipped/kept, manual-attention items still open, the version transition (`CUR_VERSION` → `REF_VERSION`),
+  and whether the change was committed/pushed (with the SHA) or left uncommitted (and why).
 - **Surface new customization features.** New plugin versions often add opt-in `custom/` extension points
   the user has never seen. After re-stamping, **invoke `implementation-harness:implementation-harness-customize --since <CUR_VERSION>`**
   (the version they upgraded FROM) to walk them through **just the features new since their install**,
@@ -418,7 +432,10 @@ user must always be able to see what diverged before approving.
   `CLAUDE.md` / `.gitignore` / `ci.yml` / `README.md`. This means never diffing or writing to them — it
   does NOT mean staying silent about them: a ledger's `manual attention:` note about one of these
   files still belongs in stage 3's report (see there).
-- **No auto-commit.** Leave the working tree dirty for the user to review.
+- **Commit + push by default (see Stage 5) — but never on a failed validation, no matter what.** A
+  validation failure always means uncommitted + reverted, even if the owner's preference or CLAUDE.md
+  says to auto-push everything else. Auto-push is an opt-OUT default (commit unless told not to), not
+  something to apply blindly regardless of state.
 
 ## What this is NOT
 
@@ -427,4 +444,6 @@ user must always be able to see what diverged before approving.
 - Not a re-personalization — it does not re-run the setup interview or rewrite the user's DoD commands,
   model tiers, or facet layers. It carries plugin changes forward and preserves personalization.
 - Not a backlog tool — it never touches tasks, worklog, ledgers, or reviews.
-- Not a committer — it reports and leaves the diff for the user.
+- Not a silent committer — it reports and gets approval BEFORE writing anything (Stage 3/4); committing
+  and pushing after that approval is the default (Stage 5), but only when validation passes and nothing
+  said otherwise — never an unreviewed write.
