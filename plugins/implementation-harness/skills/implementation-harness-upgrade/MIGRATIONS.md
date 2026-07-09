@@ -42,6 +42,33 @@ Entry format:
 
 ---
 
+## 1.55.1 → 1.56.0 — dashboard: per-attempt model in Recent Activity, a Pending Review section, wider layout
+
+Three dashboard UX changes (all in the mechanism dashboard files — the upgrade content-diffs and, on
+approval, overwrites them):
+
+- **Recent Activity** now shows the **model/effort behind each attempt** as a pill, and lays each row
+  out in fixed columns (time · id · status · facet · model · detail) so fields line up vertically
+  instead of the facet shifting with the preceding pill's width. Escalations are now legible — the
+  duplicate rows for a failed→retried task visibly differ by the rung they ran on.
+- **New "Pending Review" section + bucket.** `computeBacklog` splits the old `done` bucket into `done`
+  (reviewed) and `donePendingReview` (built-but-not-yet-reviewed). The dashboard renders a `👀 Pending
+  Review` section between "Failed — Pending Review" and "Done"; marking a task reviewed moves it into
+  Done and un-reviewing it (removing its `reviews.json` entry) moves it back — the reviewed flag IS the
+  bucket boundary. The now-redundant Done "Show reviewed / not reviewed" filter was removed.
+- **Wider content** (`.container` max-width 1000px → 1200px) — roughly a third less side gutter.
+
+- mechanism: `dashboard/lib.js` — `computeBacklog` adds the `donePendingReview` bucket; `recentActivity`
+  adds a per-event `model` field (outcomes → finalModel/finalEffort, failures → model/effort).
+- mechanism: `dashboard/server.js` — counts + summary + chips + a new `renderSection('donePendingReview',
+  …)`; Recent Activity grid + model pill; `.container` max-width; the done-family pills / failed-attempt
+  suppression / "Mark failed" / bulk "Mark reviewed" / checkbox logic all extended to `donePendingReview`;
+  removed the dead Done filter (`setDoneFilter`, `state.doneFilter`).
+- mechanism: `dashboard/lib.test.js` — done-bucket tests updated for the split (+ a recentActivity model
+  test). 39 pass.
+- breaking: none (pure dashboard rendering; no schema/config/ledger change — a project's existing
+  `reviews.json` drives the split unchanged).
+
 ## 1.55.0 → 1.55.1 — FIX: effort-less rung (Haiku floor) crash-looped run_claude on bash < 4.4 (macOS)
 
 `run_claude()` built its optional `--effort` flag as a bash array left EMPTY for effort-less models, then

@@ -160,6 +160,7 @@ function loadState() {
       waiting: buckets.waiting.length,
       needsHuman: buckets.needsHuman.length,
       failedPendingReview: buckets.failedPendingReview.length,
+      donePendingReview: buckets.donePendingReview.length,
       done: buckets.done.length,
     },
     buckets,
@@ -522,7 +523,7 @@ function renderPage() {
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-  .container{max-width:1000px;margin:0 auto;padding:26px 20px 72px;}
+  .container{max-width:1200px;margin:0 auto;padding:26px 20px 72px;}   /* wider content → ~1/3 less side gutter on a typical laptop viewport */
   h1{font-size:22px;font-weight:700;margin:0 0 4px;}
   .sub{color:var(--muted);margin:0 0 14px;font-size:13px;}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
@@ -658,9 +659,12 @@ function renderPage() {
   .refcard ol{margin:6px 0 0;padding-left:22px} .refcard li{margin:2px 0;font-size:12px}
   .refcard .knob{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:2px 0;color:var(--muted)} .refcard .knob b{color:var(--text);font-weight:600;text-align:right}
   .recent{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:4px 14px}
-  .recent .ev{display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px} .recent .ev:last-child{border-bottom:none}
+  .recent .ev{display:grid;grid-template-columns:120px 44px 118px 132px 180px 1fr;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px} .recent .ev:last-child{border-bottom:none}
   .recent .ev .t{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
   .recent .ev .eid{font-weight:700;min-width:42px}
+  .recent .ev .pill{margin-left:0}                                      /* pills fill from the column's left edge, not offset by .pill's default left margin */
+  .recent .ev .c-facet{overflow:hidden;text-overflow:ellipsis}
+  .recent .ev .c-detail{min-width:0;overflow-wrap:anywhere}             /* let the flexible detail column wrap/shrink instead of overflowing the grid */
 </style>
 </head>
 <body>
@@ -695,7 +699,7 @@ function renderPage() {
 </div>
 <script>
 const HARNESS_PROJECT_KEY = ${JSON.stringify(NAME)};
-const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), doneFilter: 'all', lastClicked: null, lastData: null, lastFetchedJson: null, openIdeas: new Set(), lastIdeasData: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: { build: false, audit: false } };
+const state = { activeView: 'backlog', open: new Set(), openLogs: new Set(), closedSections: new Set(), selected: new Set(), lastClicked: null, lastData: null, lastFetchedJson: null, openIdeas: new Set(), lastIdeasData: null, lastIdeasJson: null, lastHarnessJson: null, lastNowJson: null, nowLogOpen: { build: false, audit: false } };
 
 function switchView(name) {
   state.activeView = name;
@@ -936,10 +940,17 @@ function renderHarness(data) {
     h += '<div class="recent">' + recent.map(function (e) {
       const when = (e.ts || '').slice(0, 16).replace('T', ' ');
       const cls = e.type === 'failure' ? 'pill blocked' : 'pill done';
-      return '<div class="ev"><span class="t">' + esc(when) + '</span><span class="eid mono">' + esc(e.id) + '</span>' +
-             '<span class="' + cls + '">' + esc(e.label) + '</span>' +
-             '<span class="t">' + esc(e.facet) + '</span>' +
-             (e.detail ? '<span>' + esc(e.detail) + '</span>' : '') + '</div>';
+      // Fixed grid columns (time · id · status · facet · model · detail) so each field lines up
+      // vertically across rows instead of shifting with the preceding pill's width. Every column cell
+      // is always emitted (empty when absent) to keep the grid aligned.
+      return '<div class="ev">' +
+             '<span class="t">' + esc(when) + '</span>' +
+             '<span class="eid mono">' + esc(e.id) + '</span>' +
+             '<span class="c-status"><span class="' + cls + '">' + esc(e.label) + '</span></span>' +
+             '<span class="c-facet t">' + esc(e.facet) + '</span>' +
+             '<span class="c-model">' + (e.model ? '<span class="pill model-tag" title="The model/effort behind this attempt (escalation makes a retried task\\'s rows differ here)">' + esc(e.model) + '</span>' : '') + '</span>' +
+             '<span class="c-detail">' + (e.detail ? esc(e.detail) : '') + '</span>' +
+             '</div>';
     }).join('') + '</div>';
   }
   el.innerHTML = h;
@@ -952,7 +963,7 @@ function depLinks(ids) {
 }
 
 function failPill(task, bucketName) {
-  if (bucketName === 'done' || !task.buildFailures || !task.buildFailures.count) return '';
+  if (bucketName === 'done' || bucketName === 'donePendingReview' || !task.buildFailures || !task.buildFailures.count) return '';
   const bf = task.buildFailures, n = bf.count;
   const tip = esc((bf.latestKind || '') + (bf.latestDetail ? ': ' + bf.latestDetail : ''));
   return \`<span class="pill blocked" title="\${tip}">⚠ \${n} failed attempt\${n === 1 ? '' : 's'}</span>\`;
@@ -976,7 +987,7 @@ function pillsFor(task, bucketName) {
     pills += task.status === 'blocked'
       ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
       : '<span class="pill blocked">⚠ failed — awaiting review</span>';
-  } else if (bucketName === 'done') {
+  } else if (bucketName === 'done' || bucketName === 'donePendingReview') {
     pills += task.reviewed ? '<span class="pill reviewed">👁 reviewed</span>' : '<span class="pill">not reviewed</span>';
     pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill done">✓ done</span>';
     if (task.completedWith) {
@@ -1014,18 +1025,18 @@ function renderTask(task, bucketName) {
     if (task.audit) detail += lg('audit', 'audit', task.audit);
     detail += '<div class="bar" style="margin-top:10px">';
     if (bucketName === 'needsHuman') detail += \`<button class="act" onclick="markDone('\${task.id}')">Mark done</button>\`;
-    if (bucketName === 'done' && !task.failed) detail += \`<button class="act danger" onclick="markFailed('\${task.id}')">Mark failed</button>\`;
+    if ((bucketName === 'done' || bucketName === 'donePendingReview') && !task.failed) detail += \`<button class="act danger" onclick="markFailed('\${task.id}')">Mark failed</button>\`;
     if (!task.reviewed) detail += \`<button class="act" onclick="markReviewed('\${task.id}')">Mark reviewed</button>\`;
     detail += '</div></div>';
   }
   // Only offer a bulk-select checkbox where bulk actions exist: needsHuman (mark-done),
   // not-yet-reviewed done tasks, and failedPendingReview tasks (mark-reviewed) — mirrors the three
   // bulk-action groups.
-  const showCheckbox = bucketName === 'needsHuman' || (bucketName === 'done' && !task.reviewed) || bucketName === 'failedPendingReview';
+  const showCheckbox = bucketName === 'needsHuman' || bucketName === 'donePendingReview' || bucketName === 'failedPendingReview';
   const checkbox = showCheckbox
     ? \`<input type="checkbox" \${checked} data-id="\${task.id}" data-bucket="\${bucketName}" onclick="event.stopPropagation(); rangeSelect(event, this)" onchange="toggleSelect(this)">\`
     : '';
-  const hidden = (bucketName === 'done' && state.doneFilter !== 'all' && ((state.doneFilter === 'reviewed') !== !!task.reviewed)) ? ' style="display:none"' : '';
+  const hidden = '';
   return \`<div class="taskrow" id="task-\${task.id}"\${hidden}>
     <div class="row" onclick="toggleOpen('\${task.id}')">
       \${checkbox}<span class="caret">\${open ? '▾' : '▸'}</span>
@@ -1040,7 +1051,7 @@ function renderTask(task, bucketName) {
 function renderSection(name, emoji, label, desc, tasks, countStr) {
   const openAttr = state.closedSections.has(name) ? '' : ' open';
   let bar = '';
-  if (name === 'needsHuman' || name === 'done' || name === 'failedPendingReview') {
+  if (name === 'needsHuman' || name === 'donePendingReview' || name === 'failedPendingReview') {
     const selectable = tasks.filter(t => name === 'needsHuman' || !t.reviewed).map(t => t.id);
     const n = selectable.filter(id => state.selected.has(id)).length;
     const allSel = selectable.length > 0 && n === selectable.length;
@@ -1050,17 +1061,12 @@ function renderSection(name, emoji, label, desc, tasks, countStr) {
           + \`<button class="act" onclick="bulkAction('\${name}')" \${n ? '' : 'disabled'}>Mark \${n} \${verb}</button></div>\`;
     }
   }
-  let filterBar = '';
-  if (name === 'done') {
-    const mk = (mode, text) => \`<button class="barbtn\${state.doneFilter === mode ? ' on' : ''}" onclick="setDoneFilter('\${mode}')">\${text}</button>\`;
-    filterBar = \`<div class="section-toolbar"><span class="barlabel">Show</span>\${mk('all', 'All')}\${mk('reviewed', 'Reviewed')}\${mk('unreviewed', 'Not reviewed')}</div>\`;
-  }
   const rows = tasks.length ? tasks.map(t => renderTask(t, name)).join('') : '<p class="empty">None.</p>';
   const descHtml = desc ? \`<p class="section-desc">\${desc}</p>\` : '';
   return \`<details id="section-\${name}" class="section"\${openAttr} ontoggle="onSectionToggle('\${name}', this)">
     <summary class="section-heading">\${emoji} \${label} <span class="count">(\${countStr})</span></summary>
     <div class="section-body">
-      \${descHtml}\${filterBar}\${bar}
+      \${descHtml}\${bar}
       <div class="panel">\${rows}</div>
     </div>
   </details>\`;
@@ -1069,21 +1075,22 @@ function renderSection(name, emoji, label, desc, tasks, countStr) {
 function renderBacklog(data) {
   state.lastData = data;   // cache so pure-UI actions (expand, filter, select) re-render without a refetch
   const b = data.buckets, c = data.counts;
-  const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.failedPendingReview.length + b.done.length;
-  const reviewed = b.done.filter(t => t.reviewed).length;
+  const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.failedPendingReview.length + b.donePendingReview.length + b.done.length;
   document.getElementById('summary').innerHTML =
     'The harness task list (<span class="mono">.harness/tracking/TASKS.json</span>), rendered. '
-    + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.failedPendingReview} failed (pending review) · \${c.done} done (\${reviewed} reviewed). Auto-refreshes.\`;
+    + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.failedPendingReview} failed (pending review) · \${c.donePendingReview} pending review · \${c.done} done. Auto-refreshes.\`;
   document.getElementById('summary-chips').innerHTML =
     \`<button class="summary-chip action" onclick="scrollToSection('needsHuman')"><span class="n">\${c.needsHuman}</span><span class="lbl">need your action</span></button>\`
     + \`<button class="summary-chip review" onclick="scrollToSection('failedPendingReview')"><span class="n">\${c.failedPendingReview}</span><span class="lbl">failed, pending review</span></button>\`
-    + \`<button class="summary-chip done" onclick="scrollToSection('done')"><span class="n">\${c.done} <small>· \${reviewed} reviewed</small></span><span class="lbl">done</span></button>\`;
+    + \`<button class="summary-chip review" onclick="scrollToSection('donePendingReview')"><span class="n">\${c.donePendingReview}</span><span class="lbl">pending review</span></button>\`
+    + \`<button class="summary-chip done" onclick="scrollToSection('done')"><span class="n">\${c.done}</span><span class="lbl">done</span></button>\`;
   document.getElementById('sections').innerHTML =
     renderSection('ready', '🤖', 'Ready', 'Everything the harness can build with no human involved — either right now, or once an earlier, equally-buildable task in its chain lands.', b.ready, b.ready.length)
     + renderSection('waiting', '⏳', 'Waiting on Human Tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
     + renderSection('needsHuman', '🔒', 'Human Tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
     + renderSection('failedPendingReview', '🩹', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
-    + renderSection('done', '✅', 'Done', null, b.done, \`\${b.done.length} · \${reviewed} reviewed · \${b.done.length - reviewed} not reviewed\`);
+    + renderSection('donePendingReview', '👀', 'Pending Review', 'Built and integrated on green CI, but not yet human-reviewed. Look over the result, then mark it reviewed to move it into Done — un-reviewing a task moves it back here.', b.donePendingReview, b.donePendingReview.length)
+    + renderSection('done', '✅', 'Done', 'Built, integrated, and human-reviewed — closed out.', b.done, \`\${b.done.length}\`);
 }
 
 // Re-render from cached data (no network) — for expand/collapse, filter, and selection changes.
@@ -1129,7 +1136,6 @@ function scrollToSection(name) {
   setTimeout(() => el.classList.remove('flash'), 1500);
 }
 
-function setDoneFilter(mode) { state.doneFilter = mode; rerender(); }
 
 // Shift-click range-select: tracks the last checkbox clicked (by id + bucket). Shift-clicking a
 // second checkbox in the SAME bucket selects every checkbox in between to match the just-clicked
@@ -1180,7 +1186,7 @@ async function bulkAction(bucket) {
     if (!confirm('Mark ' + ids.length + ' task(s) done? Writes human-done.json, commits + pushes.')) return;
     ok = await post('/api/mark-done', { ids });
   }
-  if (bucket === 'done' || bucket === 'failedPendingReview') ok = await post('/api/mark-reviewed', { ids });
+  if (bucket === 'donePendingReview' || bucket === 'failedPendingReview') ok = await post('/api/mark-reviewed', { ids });
   if (ok) { state.selected.clear(); refreshActive(); }
 }
 

@@ -83,7 +83,7 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
     return result;
   }
 
-  const buckets = { ready: [], waiting: [], needsHuman: [], failedPendingReview: [], done: [] };
+  const buckets = { ready: [], waiting: [], needsHuman: [], failedPendingReview: [], donePendingReview: [], done: [] };
 
   for (const task of tasks) {
     const failed = isFailed(task, overlays);
@@ -103,7 +103,12 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
       continue;
     }
     if (isTerminalDone(task, overlays) || failed) {
-      buckets.done.push({ ...task, failed, reviewed });
+      // Reviewed → Done; genuinely-done-but-not-yet-reviewed work gets its own "Pending review"
+      // bucket so it isn't buried under a long history of already-checked tasks. (A failed task that
+      // reaches here is failed AND reviewed — the failed-and-unreviewed case already went to
+      // failedPendingReview above.) The reviewed flag IS the boundary, so marking a task reviewed
+      // moves it into Done and un-reviewing it moves it back here, automatically, on the next render.
+      (reviewed ? buckets.done : buckets.donePendingReview).push({ ...task, failed, reviewed });
       continue;
     }
     if (isNeedsHuman(task, blockedIds)) {
@@ -126,12 +131,11 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
     }
   }
 
-  // done-bucket sort: not-reviewed items first, then ascending numeric task id within each group —
-  // keeps the done list from burying unreviewed work under a long history of already-checked tasks.
-  buckets.done.sort((a, b) => {
-    if (a.reviewed !== b.reviewed) return a.reviewed ? 1 : -1;
-    return numericId(a.id) - numericId(b.id);
-  });
+  // Both done-family buckets sort by ascending numeric task id — the reviewed/not-reviewed split is
+  // now the bucket boundary itself (Done is uniformly reviewed; Pending review is uniformly not).
+  const byNumericId = (a, b) => numericId(a.id) - numericId(b.id);
+  buckets.done.sort(byNumericId);
+  buckets.donePendingReview.sort(byNumericId);
 
   return buckets;
 }
@@ -218,14 +222,19 @@ function failureKinds(failures) {
 function recentActivity(outcomes, failures, limit) {
   limit = limit || 20;
   const facetStr = (f) => (f && f.layer ? f.layer + '/' + f.workType : '');
+  // The model/effort behind this one attempt. Outcomes carry finalModel/finalEffort (the tier that
+  // actually completed — or was blocked at — after any escalation); failure rows carry model/effort
+  // (the tier that attempt ran at). Rendering each row's model is what makes an escalation legible —
+  // the duplicate rows for a failed→retried task then visibly differ by the rung they ran on.
+  const modelStr = (m, e) => (m ? String(m) + (e ? '/' + e : '') : '');
   const ev = [];
   for (const r of (outcomes || [])) {
     ev.push({ ts: r.ts || '', id: r.id || '', type: 'outcome',
       label: r.blocked ? 'blocked' : (r.verification === 'audited' ? 'built · audited' : 'built'),
-      detail: r.reason || '', facet: facetStr(r.facets) });
+      detail: r.reason || '', facet: facetStr(r.facets), model: modelStr(r.finalModel, r.finalEffort) });
   }
   for (const r of (failures || [])) {
-    ev.push({ ts: r.ts || '', id: r.id || '', type: 'failure', label: r.kind || 'failure', detail: r.detail || '', facet: facetStr(r.facets) });
+    ev.push({ ts: r.ts || '', id: r.id || '', type: 'failure', label: r.kind || 'failure', detail: r.detail || '', facet: facetStr(r.facets), model: modelStr(r.model, r.effort) });
   }
   ev.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
   return ev.slice(0, limit);
