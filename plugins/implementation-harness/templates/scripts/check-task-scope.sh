@@ -112,7 +112,14 @@ BARENAMES
 if [ "${1:-}" != "" ]; then
   check_one "$1"
 else
-  for id in $(jq -r '.tasks[]|select(.status!="done")|select(.gate!="needs-human")|.id' "$BACKLOG"); do
+  # Only tasks PENDING EXECUTION — the ones the loop will actually build (the dashboard's Ready /
+  # Waiting / Waiting-on-Human buckets, all `status:"pending"`). Terminal tasks (`done`, `failed`,
+  # `blocked`) are excluded: the loop never re-selects them, so a scope-authoring gap on one can't
+  # affect any run — flagging it is pure noise. (`failed`/`blocked` are NOT `done`, so the old
+  # `status!="done"` filter wrongly swept them.) needs-human tasks are the human-step gate itself,
+  # never loop-built, so they're excluded too — a pending task merely *waiting* on one is still
+  # `status:"pending"`/`gate:null` and IS scanned.
+  for id in $(jq -r '.tasks[]|select(.status=="pending")|select(.gate!="needs-human")|.id' "$BACKLOG"); do
     check_one "$id"
   done
 fi

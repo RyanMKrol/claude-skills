@@ -144,14 +144,12 @@ this task's declared scope` line into the report verbatim (task id + file) — d
 the linter's own output. This check is heuristic and false-positive-tolerant (it can't tell "edit this
 file" from "read this file for context" in spec prose).
 
-**Split the WARNs by the flagged task's status** — `check-task-scope.sh` sweeps the WHOLE backlog,
-including terminal tasks the loop will never select. Look up each WARN'd id's `status` in `TASKS.json`:
-- A WARN on a **pending, `gate:null`** task (one the loop can actually pick) is a **NO-GO (scope-gap
-  advisory — inspect the flagged file(s); override if it's a false positive)** rather than a silent
-  downgrade — an owner should see and judge it, not have it disappear into an informational note.
-- A WARN on a **terminal task** (`failed`/`done`) or a **needs-human** task is **backlog-hygiene only,
-  not run-blocking** — the loop never selects it, so the WARN can't affect the upcoming run. Report it
-  as a note (worth cleaning up someday), not a NO-GO.
+`check-task-scope.sh` scans **only tasks pending execution** (`status:"pending"`, non-needs-human — the
+loop's Ready / Waiting / Waiting-on-Human buckets); it does **not** look at terminal (`done`/`failed`/
+`blocked`) tasks, since a scope gap on a task the loop will never re-select can't affect a run. So every
+WARN it emits is on a task that WILL be built at some point — treat each as a **NO-GO (scope-gap
+advisory — inspect the flagged file(s); override if it's a false positive)** rather than a silent
+downgrade: an owner should see and judge it, not have it disappear into an informational note.
 
 Offer
 to triage and fix them via `implementation-harness-fix-scope-gaps` (it fans out a cheap-model judge per
@@ -172,8 +170,8 @@ Consolidate into ONE glance-able report before the owner starts a run:
 - **Dependency short-circuits**: list or "none found".
 - **Task definition quality**: tasks with issues (+ which check, a–e), or "all clear".
 - **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO**, or **GO with
-  notes** (clean and runnable, but informational notes like short-circuits, hygiene-only scope WARNs on
-  terminal tasks, or unresolved needs-human blockers with other work still eligible). A verdict is
+  notes** (clean and runnable, but informational notes like dependency short-circuits or unresolved
+  needs-human blockers with other work still eligible). A verdict is
   **NO-GO only** when one of these would actually break or stall the next run — name it + what to do:
   - **Nothing to build** — 0 eligible tasks (every remaining task is gated/blocked); resolve a
     needs-human task or unmet dependency first (e.g. "mark T012 done in the dashboard first").

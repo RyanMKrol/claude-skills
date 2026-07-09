@@ -42,6 +42,29 @@ Entry format:
 
 ---
 
+## 1.51.0 → 1.52.0 — check-task-scope.sh scans only pending tasks (not failed/done/blocked)
+
+The scope-authoring linter's sweep filter was `status != "done"`, which still swept `failed` and
+`blocked` tasks (neither is `done`) — so terminal tasks the loop will never re-select produced
+scope-gap WARNs, pure noise in the pre-loop check-in. Its own usage comment already said "pending",
+so the code never matched its documented intent. Fixed the filter to `status == "pending"` (the
+dashboard's Ready / Waiting / Waiting-on-Human buckets — every task actually pending execution;
+needs-human tasks stay excluded, but a pending task merely *waiting* on one is still scanned). With
+terminal tasks never swept, the pre-loop-checkin's check-(e) "split WARNs by status" branch (added
+1.51.0) is now unreachable, so it's simplified back to "every WARN is on a pending task → NO-GO
+advisory".
+- mechanism: `scripts/check-task-scope.sh` — sweep filter `select(.status!="done")` →
+  `select(.status=="pending")` (+ explanatory comment). Behavior: `failed`/`blocked` tasks no longer
+  emit WARNs.
+- operational skills: `skills/implementation-harness-pre-loop-checkin/SKILL.md` — check (e) reworded
+  to state the linter only scans pending tasks (removed the now-dead terminal-vs-pending split and the
+  matching "hygiene-only scope WARNs on terminal tasks" phrase in the verdict bullet).
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none — strictly fewer, more-relevant WARNs.
+
 ## 1.50.0 → 1.51.0 — pre-loop-checkin: needs-human blockers no longer force a NO-GO
 
 The check-in treated any unresolved needs-human task as a NO-GO, even when the loop still had other
