@@ -42,6 +42,20 @@ Entry format:
 
 ---
 
+## 1.43.0 → 1.43.1 — pre-loop-checkin offers its scope-gap fix via `AskUserQuestion`, not a typed reply
+`implementation-harness-pre-loop-checkin`'s final report used to end a check-(e) scope-gap advisory with
+a prose question ("want me to run it?") the owner had to answer by typing. Replaced with one
+`AskUserQuestion` call (clickable Yes/No) — on Yes it invokes `implementation-harness-fix-scope-gaps` via
+the `Skill` tool right then; on No it stops, same as before. Read-only guardrail is unchanged: the
+check-in itself still never mutates anything — the fix only runs as an explicit, owner-confirmed
+follow-up.
+- mechanism: `skills/implementation-harness-pre-loop-checkin/SKILL.md` — `allowed-tools` gained
+  `AskUserQuestion, Skill`; final-report section now ends with the `AskUserQuestion` confirmation flow
+  instead of a prose question.
+- manual attention: none (project-local operational skill, content-diffed/checksum-fast-pathed like any
+  other mechanism file).
+- breaking: none.
+
 ## 1.42.0 → 1.42.1 — dashboard restyled: overview chips, card sections, Ink is now the default theme
 Ported the visual language from an earlier mockup artifact onto the real, already-functionally-complete
 dashboard — a presentation-only change, verified running against real data (`ryankrol.co.uk`, 336 tasks)

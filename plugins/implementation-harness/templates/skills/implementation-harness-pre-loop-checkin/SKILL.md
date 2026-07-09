@@ -8,7 +8,7 @@ description: >-
   a plain GO / NO-GO verdict. Strictly READ-ONLY — it never edits, commits, or pushes anything.
   Requires the harness scaffolded.
 argument-hint: "[optional: a task id to focus on, e.g. T042 — omit for a full sweep]"
-allowed-tools: Read, Bash, Glob
+allowed-tools: Read, Bash, Glob, AskUserQuestion, Skill
 ---
 
 # Pre-loop check-in (read-only GO/NO-GO)
@@ -121,10 +121,11 @@ advisory — inspect the flagged file(s); override if it's a false positive)** r
 downgrade — an owner should see and judge it, not have it disappear into an informational note. Offer
 to triage and fix them via `implementation-harness-fix-scope-gaps` (it fans out a cheap-model judge per
 warning and only asks about genuinely ambiguous cases) — that skill is `user-invocable: false` (not in
-the owner's own `/` menu; a deliberate follow-up step, not something to run blind), so surface it as an
-offer here rather than a command to type themselves, the same way this command already points at
-`/implementation-harness-loop-recover` (which IS directly invocable) for other fixable categories; this
-command itself never fixes anything, it only reports.
+the owner's own `/` menu; a deliberate follow-up step, not something to run blind), so surface the offer
+via the `AskUserQuestion` flow in the Final report section below rather than a command to type
+themselves, the same way this command already points at `/implementation-harness-loop-recover` (which IS
+directly invocable) for other fixable categories; this command itself never fixes anything, it only
+reports — any fix only happens as an explicit follow-up step once the owner confirms.
 
 ## Final report — GO / NO-GO
 
@@ -136,8 +137,27 @@ Consolidate into ONE glance-able report before the owner starts a run:
 - **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO** (name the blocking
   issue + what to do — e.g. "mark T012 done in the dashboard first", "a loop is already running", "run
   `/implementation-harness-loop-recover` first", or a check-(e) scope-gap advisory — name the flagged
-  task/file and offer to triage and fix it via `implementation-harness-fix-scope-gaps`), or **GO with notes**
-  (clean, but informational notes like short-circuits or auto-resolving blockers exist).
+  task/file), or **GO with notes** (clean, but informational notes like short-circuits or auto-resolving
+  blockers exist).
 
-Remember: **you changed nothing.** If asked to fix anything found here, direct the owner to
-`/implementation-harness-loop-recover` or a manual edit — never mutate from this command.
+## Offer any fix via `AskUserQuestion` — don't make the owner type it out
+
+If the verdict names a concrete follow-up fix the owner could run right now (today that's only the
+check-(e) scope-gap advisory → `implementation-harness-fix-scope-gaps`, since that's the one companion
+skill this command knows about), close the report with **one `AskUserQuestion` call** instead of ending
+on a prose question the owner has to answer by typing — a clickable option is strictly easier than
+composing a reply:
+- Question: something like "Scope-gap advisory on N task(s) — triage and fix now?"
+- Options: `Yes, triage and fix them` (recommended, first) / `No, I'll review manually`. Mention in each
+  option's description what happens (`Yes` → runs `implementation-harness-fix-scope-gaps`, which mutates
+  `TASKS.json` scope arrays and pushes to main; `No` → nothing changes, verdict stands as NO-GO).
+- If the owner picks **Yes**, invoke the `Skill` tool for `implementation-harness-fix-scope-gaps` right
+  then (it's `user-invocable: false` — not in the `/` menu — but still directly invocable by you once the
+  owner has explicitly confirmed via the question). Report back what it did.
+- If **No** (or any other blocking issue with no companion skill, e.g. "a loop is already running"),
+  stop here — don't ask again, don't fix anything yourself. Point at `/implementation-harness-loop-recover`
+  or a manual edit as before.
+
+Remember: **this check-in itself changes nothing.** Any mutation only ever happens as an explicit
+follow-up the owner opted into via the question above, through a separate skill — never silently, and
+never as a side effect of running this command.
