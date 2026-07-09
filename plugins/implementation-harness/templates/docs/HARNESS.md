@@ -223,6 +223,15 @@ established work, raise `.policy.exploreProbabilityPM` (per-mille, default `0`) 
 — see `docs/designs/difficulty-autotune.md` §2a for the full mechanism. The
 `implementation-harness-update-ladder` skill prompts for this after every insert.
 
+**A rejected rung isn't stuck forever (`exploreCooldownN`).** If a probed rung fails its trial,
+it isn't excluded permanently — task difficulty can drift over a project's life (a codebase
+maturing, gaining conventions/helpers), and a rung that failed early on might succeed later.
+`.policy.exploreCooldownN` (rows of *other* cell activity since the rung's last touch, default
+`40`) controls how long a rejected rung stays quiet before it's offered a fresh batch of trials
+again — a pure row-count check, not calendar time. See "Periodic recheck" in
+`docs/designs/difficulty-autotune.md` §2a for the full mechanism, including how a resulting
+promotion can itself quietly fall back if the rung starts failing for real later.
+
 ---
 
 ## 4. Operating model — one iteration, end to end

@@ -476,6 +476,9 @@ POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
 # Downward exploration (designs/difficulty-autotune.md): per-mille chance an eligible task probes one
 # untested rung below the policy's normal pick. 0 (default) preserves today's behavior exactly.
 POLICY_EXPLORE_PM="$(jq -r '.policy.exploreProbabilityPM // 0' "$FACETS" 2>/dev/null || echo 0)"
+# Periodic recheck of a rejected exploration rung: rows of other cell activity that must land since
+# that rung's last touch before it's offered again (batch-boundary judgment — see policy.jq header).
+POLICY_EXPLORE_COOLDOWN_N="$(jq -r '.policy.exploreCooldownN // 40' "$FACETS" 2>/dev/null || echo 40)"
 POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6).
 AUDIT_START_N="$(jq -r '.policy.auditStartN // 3' "$FACETS" 2>/dev/null || echo 3)"
@@ -535,7 +538,7 @@ pick_base() {
   local chosen pm exploreIdx
   read -r chosen pm exploreIdx <<<"$(jq -rn -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
      --arg layer "$layer" --arg wt "$wt" --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" \
-     --argjson coldIdx "$cold" --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" \
+     --argjson coldIdx "$cold" --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" --argjson exploreCooldownN "$POLICY_EXPLORE_COOLDOWN_N" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
      2>/dev/null)"
   chosen="${chosen:-$cold}"; pm="${pm:-0}"; exploreIdx="${exploreIdx:--1}"
@@ -963,7 +966,7 @@ audit_gate() {
     pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
           --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
           --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' \
-          --argjson explorePM 0 2>/dev/null || echo 1000)"
+          --argjson explorePM 0 --argjson exploreCooldownN 0 2>/dev/null || echo 1000)"
   fi
   pm="${pm:-1000}"
   if [ "$(rand_pm)" -ge "$pm" ]; then

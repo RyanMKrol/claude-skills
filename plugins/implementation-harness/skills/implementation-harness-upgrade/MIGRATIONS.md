@@ -42,6 +42,47 @@ Entry format:
 
 ---
 
+## 1.47.1 → 1.48.0 — periodic recheck for rejected downward-exploration rungs
+
+Downward exploration (1.47.0) was a one-way ratchet: once a candidate cheap rung accumulated `minN`
+samples, its fate was sealed forever — promoted if it cleared `floor`, permanently excluded if not.
+Task difficulty can drift over a project's life (a codebase maturing, gaining conventions/helpers a
+cheap model could lean on later), so a rung that failed early might genuinely succeed later — but a
+rejected rung stopped accumulating ANY new samples the instant it was rejected, unlike the currently
+-chosen tier, which keeps collecting fresh data on every use. This adds a bounded recheck: once
+`.policy.exploreCooldownN` (default 40) more rows land on the cell since a rejected rung's last
+touch, it's offered a fresh batch of trials again — judged via a continuously re-evaluated trailing
+window of its most recent `minN` touches, never blended with older, stale ones, so a fresh batch's
+verdict is never diluted by a prior rejection. A resulting promotion is itself re-evaluated fresh on
+every call (not a persisted flag) and can quietly fall back to the prior tier if it starts failing
+for real later — self-correcting, complementing (not replacing) ordinary per-task escalation.
+Verified with 68 assertions in `scripts/policy.test.sh`, run against the real `policy.jq`, including
+a caught-and-fixed design bug (an early draft evaluated promotion only at fixed batch boundaries,
+which would have made a promoted rung flicker back to the stale tier on every non-boundary call).
+- mechanism: `scripts/policy.jq` — `$ev`'s construction gains a `row:` field (each touch's
+  chronological position, via `to_entries` on the now-named `$cellRows`) so a candidate rung's
+  touches can be ordered without a second span computation; fully backward-compatible (every
+  existing consumer only reads `.idx`/`.ok`). The `$exploreN`/`$explorePMOut` tail is replaced with a
+  verdict block computing `$chosenOut`/`$exploreIdxOut`/`$explorePMOut` — promotion is a continuous
+  trailing-window check (every call); retry offering (when not promoted) is gated at fixed batch
+  boundaries so a single retry campaign gets a full clean run of up to `minN` trials once unlocked,
+  without re-arming the cooldown after each individual touch. New required input `--argjson
+  exploreCooldownN <N>` (AUDIT-mode calls need a harmless placeholder `0`, same rule as
+  `explorePM`). `scripts/loop.sh`/`loop.in-place.sh` (kept in parity) — new `POLICY_EXPLORE_COOLDOWN_N`
+  knob read alongside `POLICY_EXPLORE_PM`, threaded into `pick_base()`'s existing jq invocation; no
+  control-flow changes (a promoted rung arrives as a normal `chosenOut` with `exploreIdxOut=-1`, so
+  `pick_base()`/`audit_gate()` treat it as a full graduate — ordinary audit decay, not a forced
+  audit — while a cooldown-elapsed retry still arrives via the explore branch, mandatory audit, same
+  as any first-time probe). `dashboard/server.js` — both `runPolicy()` call sites (already fixed for
+  `explorePM` in 1.47.1) get `--argjson exploreCooldownN` too, proactively, to avoid repeating that
+  regression.
+- config: `config/facets.json` → `.policy.exploreCooldownN` (new key, default `40`). ACTION: purely
+  additive; existing installs' values are never touched. `.policy._about` extended with one sentence.
+- new files: none. renamed/removed: none.
+- manual attention: none — opt-in in practice (inert unless `exploreProbabilityPM` is already
+  nonzero, since a rung can't be rejected in the first place if it's never explored).
+- breaking: none. `policy.jq`'s stdout contract (3-field line) is unchanged in shape from 1.47.0.
+
 ## 1.47.0 → 1.47.1 — fix dashboard compile error from 1.47.0's policy.jq change
 
 1.47.0 changed `policy.jq`'s TIER-mode output from a bare integer to a required `$explorePM` input

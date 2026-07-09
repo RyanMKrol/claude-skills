@@ -189,6 +189,9 @@ POLICY_MINN="$(blob config/facets.json | jq -r '.policy.minN // 6' 2>/dev/null)"
 # Downward exploration (designs/difficulty-autotune.md): per-mille chance an eligible task probes one
 # untested rung below the policy's normal pick. 0 (default) preserves today's behavior exactly.
 POLICY_EXPLORE_PM="$(blob config/facets.json | jq -r '.policy.exploreProbabilityPM // 0' 2>/dev/null)"; POLICY_EXPLORE_PM="${POLICY_EXPLORE_PM:-0}"
+# Periodic recheck of a rejected exploration rung: rows of other cell activity that must land since
+# that rung's last touch before it's offered again (batch-boundary judgment — see policy.jq header).
+POLICY_EXPLORE_COOLDOWN_N="$(blob config/facets.json | jq -r '.policy.exploreCooldownN // 40' 2>/dev/null)"; POLICY_EXPLORE_COOLDOWN_N="${POLICY_EXPLORE_COOLDOWN_N:-40}"
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6). Read from origin/main via blob.
 AUDIT_START_N="$(blob config/facets.json | jq -r '.policy.auditStartN // 3' 2>/dev/null)"; AUDIT_START_N="${AUDIT_START_N:-3}"
 AUDIT_FLOOR_N="$(blob config/facets.json | jq -r '.policy.auditFloorN // 8' 2>/dev/null)"; AUDIT_FLOOR_N="${AUDIT_FLOOR_N:-8}"
@@ -264,7 +267,7 @@ pick_base() {
   local chosen pm exploreIdx
   read -r chosen pm exploreIdx <<<"$(jq -rn --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
      --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" --argjson coldIdx "$cold" \
-     --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" \
+     --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" --argjson exploreCooldownN "$POLICY_EXPLORE_COOLDOWN_N" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
      -f "$POLICY_JQ" 2>/dev/null)"
   chosen="${chosen:-$cold}"; pm="${pm:-0}"; exploreIdx="${exploreIdx:--1}"
@@ -1035,7 +1038,7 @@ audit_gate() {
     pm="$(jq -n -f "$POLICY_JQ" --argjson auditCount "$count" --argjson risk "$risk" \
           --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
           --argjson rows '[]' --argjson tiers '[]' --arg layer '' --arg wt '' --argjson floor 0 --argjson minN 0 --argjson coldIdx 0 --argjson manualFail '{}' \
-          --argjson explorePM 0 2>/dev/null || echo 1000)"
+          --argjson explorePM 0 --argjson exploreCooldownN 0 2>/dev/null || echo 1000)"
   fi
   pm="${pm:-1000}"
   if [ "$(rand_pm)" -ge "$pm" ]; then

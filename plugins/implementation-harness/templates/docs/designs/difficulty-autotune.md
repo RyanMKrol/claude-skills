@@ -86,16 +86,44 @@ a vehicle for probing the cheapest rung, exactly as today.
 **Self-termination is free.** Once the probed rung reaches `minN` samples, `policy.jq` forces its
 probability back to `0` — no separate bookkeeping. If its success rate cleared `floor`, the
 **unmodified** tier-selection logic above already promotes it to the new `$chosen` on the very next
-call, since it's now the lowest eligible index. If it didn't clear the floor, it's excluded
-permanently, exactly like any other rejected tier. Either way the exploration mechanism's only job
-is to seed the sample count past `minN` — it hands off to existing, unmodified logic the moment
-that's done.
+call, since it's now the lowest eligible index. If it didn't clear the floor, it's excluded — not
+forever, though; see "Periodic recheck" below for how a rejected rung eventually gets another look.
+Either way the exploration mechanism's only job is to seed the sample count past `minN` — it hands
+off to existing, unmodified logic the moment that's done.
+
+**Periodic recheck (rejected rungs aren't frozen forever).** The currently-*chosen* tier keeps
+collecting fresh data on every use and can react to task difficulty drifting over a project's life;
+a *rejected* candidate stops accumulating samples the instant `explorePMOut` is forced to `0`, so on
+its own it could never notice a codebase maturing enough that it would succeed later. Two separate,
+continuously re-evaluated checks close this gap, both scoped to the single candidate rung directly
+below `$chosen` (never any other tier):
+- **Promote** — a TRAILING WINDOW of exactly the candidate's most recent `minN` touches (never
+  blended with older, stale ones — a batch that failed long ago can't drag down a genuinely fresh
+  run of successes). Re-checked fresh on *every* call, not on a fixed schedule, so a promotion is
+  durable for as long as recent performance holds, and self-corrects — quietly falling back to the
+  prior, pricier `$chosen` — the moment it doesn't. No persisted flag, no separate state.
+- **Offer** (only reached when not promoted) — whether to sample a new retry right now, gated by
+  `.policy.exploreCooldownN` (default `40`) rows of *other* cell activity since the rung's last
+  touch — a pure row-count check, no timestamps. To avoid re-arming a full cooldown after every
+  single retry (which could take `minN × exploreCooldownN` rows to gather one batch), this is
+  computed only at fixed BATCH BOUNDARIES — multiples of `minN` touches, counted from the
+  candidate's first-ever touch. Off-boundary (mid-batch), offering continues unthrottled: once
+  unlocked, a retry campaign gets a full clean run of up to `minN` trials before the next gate.
+- This is distinct from, and complements, ordinary per-task escalation (§ Escalation, unaffected by
+  any of this): a struggling task still escalates up the ladder in real time regardless of which
+  tier it started on. Escalation failures are exactly the data that can eventually trigger this
+  calibration-level fallback — two layers of self-correction, one per-task and one per-cell.
+- A recheck-offered retry is untested-under-current-conditions ground, same as any first-time probe
+  — it gets the identical mandatory audit treatment described below, never the normal decay.
 
 **Cost is bounded and audited.** A task started via exploration is, by definition, running on
 untested ground — `audit_gate()` forces a mandatory audit for it (bypassing the cell's normal
-confirmed-success decay), the same treatment a risk-flagged task already gets. The total cost of
-finding out a newly inserted rung *doesn't* work is capped at `minN` mandatory audits per cell,
-one-time, to settle it permanently.
+confirmed-success decay), the same treatment a risk-flagged task already gets. The cost of finding
+out a newly inserted rung *doesn't* work (yet) is capped at `minN` mandatory audits per cell, per
+recheck cycle — not permanently one-time, since the periodic recheck above means a rejected rung
+can surface again, but each individual cycle is still bounded and gated `exploreCooldownN` rows
+apart, so the audit cost stays proportional to how much the cell's own work actually grows over
+time, never a tight, repeated re-test loop.
 
 **Practical note.** Inserting a rung (§2, "Effort-less rungs" paragraph) is calibration-*safe* on
 its own — `tidx()` re-matches fresh every run, no ledger migration needed — but that only means the

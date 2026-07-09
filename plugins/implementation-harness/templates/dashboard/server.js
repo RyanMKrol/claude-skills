@@ -219,6 +219,7 @@ function buildHarnessState() {
   const auditFloorN = pol.auditFloorN != null ? pol.auditFloorN : 8;
   const auditFloorPM = Math.round((pol.auditFloor != null ? pol.auditFloor : 0.10) * 1000);
   const explorePM = pol.exploreProbabilityPM != null ? pol.exploreProbabilityPM : 0;
+  const exploreCooldownN = pol.exploreCooldownN != null ? pol.exploreCooldownN : 40;
 
   const key = mtimeKey([OUTCOMES_PATH, FAILURES_PATH, FACETS_PATH, OVERLAY_PATHS.manualFail, TASKS_PATH]);
   if (_harnessCache.key === key && _harnessCache.value) return _harnessCache.value;
@@ -243,7 +244,7 @@ function buildHarnessState() {
           ['--argjson', 'manualFail', mfJson], ['--argjson', 'risk', '[]'],
           ['--argjson', 'auditCount', '-1'], ['--argjson', 'auditStartN', String(auditStartN)],
           ['--argjson', 'auditFloorN', String(auditFloorN)], ['--argjson', 'auditFloorPM', String(auditFloorPM)],
-          ['--argjson', 'explorePM', String(explorePM)],
+          ['--argjson', 'explorePM', String(explorePM)], ['--argjson', 'exploreCooldownN', String(exploreCooldownN)],
         ]);
         const tier = (chosenIdx != null && ladder[chosenIdx]) || null;
         c.chosenModel = tier ? tier.model : null;
@@ -259,7 +260,7 @@ function buildHarnessState() {
           ['--argjson', 'auditStartN', String(auditStartN)], ['--argjson', 'auditFloorN', String(auditFloorN)], ['--argjson', 'auditFloorPM', String(auditFloorPM)],
           ['--argjson', 'rows', '[]'], ['--argjson', 'tiers', '[]'], ['--arg', 'layer', ''], ['--arg', 'wt', ''],
           ['--argjson', 'floor', '0'], ['--argjson', 'minN', '0'], ['--argjson', 'coldIdx', '0'], ['--argjson', 'manualFail', '{}'],
-          ['--argjson', 'explorePM', '0'],
+          ['--argjson', 'explorePM', '0'], ['--argjson', 'exploreCooldownN', '0'],
         ]);
         c.auditPct = pm != null ? Math.round(pm / 10) : null;
       } catch (_err) { /* one bad cell shouldn't blank the rest; leave its calibration fields undefined */ }

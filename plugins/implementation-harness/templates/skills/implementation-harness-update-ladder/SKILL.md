@@ -8,9 +8,11 @@ description: >-
   handles models with no effort parameter (e.g. Haiku) via `effort: null`, and walks the correct
   migration path for each — the "Bumping the base model" runbook for a swap, or a no-ledger-migration
   note for an insert/remove (plus a reminder to raise `exploreProbabilityPM` so a newly inserted rung
-  doesn't sit inert on already-calibrated work). Requires the harness scaffolded, and harness version
-  >= 1.45.0 for the effort-less-rung path / >= 1.47.0 for downward exploration (older installs don't
-  support these yet — this skill checks and offers to run the upgrade first).
+  doesn't sit inert on already-calibrated work, and `exploreCooldownN` so a rejected rung eventually
+  gets rechecked instead of staying excluded forever). Requires the harness scaffolded, and harness
+  version >= 1.45.0 for the effort-less-rung path / >= 1.47.0 for downward exploration / >= 1.48.0
+  for the recheck cooldown (older installs don't support these yet — this skill checks and offers to
+  run the upgrade first).
 argument-hint: "[optional: model id to add/change, e.g. claude-haiku-4-5 — omit to be asked]"
 allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 ---
@@ -85,6 +87,15 @@ one rung below its normal pick specifically to gather that evidence. It's bounde
 once a cell hits `minN` explored samples) and audited (every explored task gets a mandatory audit).
 Requires harness version >= 1.47.0 — if older, offer to run the upgrade first, same as the
 effort-less-rung gate in §0.
+
+A rejection isn't permanent, either — `.policy.exploreCooldownN` (rows of *other* cell activity
+since the rung's last touch, default `40`) controls how long a rejected rung waits before it's
+offered a fresh batch of trials again, useful if task difficulty is likely to drift over the
+project's life (a codebase maturing, gaining conventions/helpers a cheap model could lean on later).
+Mention this alongside `exploreProbabilityPM` when discussing an insert — most users setting one
+will want to know about the other. Requires harness version >= 1.48.0 for the recheck mechanism
+specifically (older installs support `exploreProbabilityPM` but a rejection there is permanent) —
+same upgrade-first offer as above if the installed version predates it.
 
 ## 4. Cold-start floor
 
