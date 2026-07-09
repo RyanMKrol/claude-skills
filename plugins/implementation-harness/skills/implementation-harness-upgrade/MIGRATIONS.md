@@ -42,6 +42,29 @@ Entry format:
 
 ---
 
+## 1.50.0 → 1.51.0 — pre-loop-checkin: needs-human blockers no longer force a NO-GO
+
+The check-in treated any unresolved needs-human task as a NO-GO, even when the loop still had other
+eligible work to build — an overly strict verdict, since the loop simply skips a gated branch and
+makes progress elsewhere. Reworked the verdict logic so a run is refused only when it would actually
+stall or be unsafe: (1) check 1 now computes the **eligible-now task count** (pending, `gate:null`,
+all deps done, with an auto-reconcile caveat for owner-marked-done needs-human deps) — a needs-human
+blocker is **GO-with-notes** when ≥1 task is eligible, and **NO-GO ("nothing to build")** only when
+zero are; (2) check (e) scope WARNs now split by the flagged task's status — a WARN on a **pending,
+buildable** task stays a NO-GO scope-gap advisory, while a WARN on a **terminal/needs-human** task
+(which the loop never selects) is downgraded to a backlog-hygiene note; (3) the Final report / verdict
+taxonomy is rewritten to match (NO-GO = nothing-to-build | loop-already-running/live-lock |
+scope-gap-on-a-buildable-task). Instruction-only change to one operational skill.
+- operational skills: `skills/implementation-harness-pre-loop-checkin/SKILL.md` — check 1 rewritten
+  (adds the eligible-now jq), check (e) WARN triage split by status, Final-report verdict rules
+  updated. Content-diffed + overwritten on approval like any operational skill (target
+  `$T/.claude/skills/implementation-harness-pre-loop-checkin/SKILL.md`).
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none — a strictly looser verdict; anything that was GO stays GO.
+
 ## 1.49.0 → 1.50.0 — navigable outline sidebar on the ideas/review relay Artifact
 
 The reference Artifact that `convert-ideas` and `review-failed` publish before asking the owner

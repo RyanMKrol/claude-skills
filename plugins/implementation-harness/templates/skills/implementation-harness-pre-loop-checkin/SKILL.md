@@ -34,9 +34,24 @@ exists (zero-token). This command adds the pre-run **quality validation + a GO/N
 - If you find something that needs fixing, **report it** — don't fix it here. Point the owner at
   `/implementation-harness-loop-recover` (interrupt-shaped state damage) or a manual edit.
 
-## 1. Needs-human tasks blocking buildable work
+## 1. Runnable work + needs-human blockers
+
+The question that decides this axis is **"does the loop have anything it can build on its next
+pass?"** — NOT "is every branch of the DAG unblocked?". A needs-human task gating *some* tasks is
+fine: the loop simply skips that branch and builds other eligible work. An unresolved needs-human
+blocker is therefore a **note, not a stop** — it only becomes a NO-GO when it (together with unmet
+dependencies) leaves the loop with **nothing at all to run**.
 
 ```bash
+# tasks the loop could pick and build RIGHT NOW (pending, not needs-human-gated, every dep done)
+jq -r '
+  (.tasks | map({(.id): .status}) | add) as $st
+  | [ .tasks[]
+      | select(.status=="pending" and .gate==null)
+      | select((.dependsOn // []) | map($st[.] == "done") | all) ]
+  | (length|tostring) + " eligible: " + ([ .[].id ] | join(", "))
+' .harness/tracking/TASKS.json
+
 # every needs-human task id
 jq -r '.tasks[]|select(.gate=="needs-human")|.id' .harness/tracking/TASKS.json
 # for a given needs-human id NH, its buildable (pending, gate:null) dependents:
@@ -44,12 +59,23 @@ jq -r --arg nh "T<id>" '.tasks[]|select(.status=="pending" and .gate==null and (
 # is NH already owner-marked done (about to auto-reconcile on the loop's next pre-flight)?
 jq -r --arg nh "T<id>" '.[$nh].done // false' .harness/tracking/human-done.json 2>/dev/null || echo "false"
 ```
-For each needs-human blocker with ≥1 buildable dependent, report: the blocker id + which tasks it
-blocks; whether `human-done.json` already has `done:true` for it (if so, it will auto-reconcile to
-`status:"done"` on the loop's next pre-flight via `reconcile_overlays` and unblock its dependents **on
-its own — no action needed**); if NOT yet marked done, flag it as **owner action needed now**, else the
-loop idles on that branch of the DAG for the whole run. If `$ARGUMENTS` names a task, narrow to blockers
-that (transitively) gate it.
+
+Interpretation:
+- **≥1 eligible task → the loop has work → needs-human blockers are GO-with-notes, not NO-GO.** Still
+  report each blocker: its id, which tasks it gates, and whether `human-done.json` already has
+  `done:true` for it (if so, it auto-reconciles to `status:"done"` on the loop's next pre-flight via
+  `reconcile_overlays` and unblocks its dependents on its own — no action needed). The point of the
+  note is that the owner *may* want to resolve it to open up more of the backlog over a long run — but
+  the run is safe to start either way.
+- **0 eligible tasks → NO-GO ("nothing to build").** Every remaining task is either done, terminal, or
+  gated/blocked, so the loop would idle immediately. Name the needs-human task(s) and/or unmet-dependency
+  chains that gate all remaining work — resolving one is what gives the next run something to do.
+- **Auto-reconcile caveat when counting eligibility:** if a task's *only* unmet dependency is a
+  needs-human task already marked `done:true` in `human-done.json`, treat that task as effectively
+  eligible — the overlay reconciles to `status:"done"` before selection, so the loop *will* have work
+  and it's not a NO-GO. Don't let the raw jq count (which keys off `status` alone) trigger a false
+  "nothing to build".
+- If `$ARGUMENTS` names a task, narrow the needs-human reporting to blockers that (transitively) gate it.
 
 ## 2. Session hygiene — uncommitted / unpushed work, running loop, lock
 
@@ -116,9 +142,18 @@ explicitly instructs touching — `check-task-scope.sh` catches that gap by cros
 own prose against its own `scope`. Fold every `WARN: <id> — spec mentions \`<file>\` but it is not in
 this task's declared scope` line into the report verbatim (task id + file) — don't re-derive or suppress
 the linter's own output. This check is heuristic and false-positive-tolerant (it can't tell "edit this
-file" from "read this file for context" in spec prose), so treat each WARN as a **NO-GO (scope-gap
-advisory — inspect the flagged file(s); override if it's a false positive)** rather than a silent
-downgrade — an owner should see and judge it, not have it disappear into an informational note. Offer
+file" from "read this file for context" in spec prose).
+
+**Split the WARNs by the flagged task's status** — `check-task-scope.sh` sweeps the WHOLE backlog,
+including terminal tasks the loop will never select. Look up each WARN'd id's `status` in `TASKS.json`:
+- A WARN on a **pending, `gate:null`** task (one the loop can actually pick) is a **NO-GO (scope-gap
+  advisory — inspect the flagged file(s); override if it's a false positive)** rather than a silent
+  downgrade — an owner should see and judge it, not have it disappear into an informational note.
+- A WARN on a **terminal task** (`failed`/`done`) or a **needs-human** task is **backlog-hygiene only,
+  not run-blocking** — the loop never selects it, so the WARN can't affect the upcoming run. Report it
+  as a note (worth cleaning up someday), not a NO-GO.
+
+Offer
 to triage and fix them via `implementation-harness-fix-scope-gaps` (it fans out a cheap-model judge per
 warning and only asks about genuinely ambiguous cases) — that skill is `user-invocable: false` (not in
 the owner's own `/` menu; a deliberate follow-up step, not something to run blind), so surface the offer
@@ -130,15 +165,23 @@ reports — any fix only happens as an explicit follow-up step once the owner co
 ## Final report — GO / NO-GO
 
 Consolidate into ONE glance-able report before the owner starts a run:
-- **Needs-human blockers**: blocker id → blocked ids → auto-resolving (yes/no).
+- **Runnable work**: the eligible-now count + ids (what the loop will build next pass).
+- **Needs-human blockers**: blocker id → blocked ids → auto-resolving (yes/no). Mark whether the run
+  still has other eligible work (note) or the blocker gates *all* remaining work (NO-GO).
 - **Session hygiene**: dirty tree? ahead/behind? loop already running / lock held?
 - **Dependency short-circuits**: list or "none found".
 - **Task definition quality**: tasks with issues (+ which check, a–e), or "all clear".
-- **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO** (name the blocking
-  issue + what to do — e.g. "mark T012 done in the dashboard first", "a loop is already running", "run
-  `/implementation-harness-loop-recover` first", or a check-(e) scope-gap advisory — name the flagged
-  task/file), or **GO with notes** (clean, but informational notes like short-circuits or auto-resolving
-  blockers exist).
+- **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO**, or **GO with
+  notes** (clean and runnable, but informational notes like short-circuits, hygiene-only scope WARNs on
+  terminal tasks, or unresolved needs-human blockers with other work still eligible). A verdict is
+  **NO-GO only** when one of these would actually break or stall the next run — name it + what to do:
+  - **Nothing to build** — 0 eligible tasks (every remaining task is gated/blocked); resolve a
+    needs-human task or unmet dependency first (e.g. "mark T012 done in the dashboard first").
+  - **A loop is already running / a live lock is held** — don't start a second one; run
+    `/implementation-harness-loop-recover` first if the lock is stale.
+  - **A scope-gap advisory on a pending, buildable task** (check (e)) — name the flagged task/file.
+  An unresolved needs-human blocker on its own, when other work is still eligible, is **GO with notes**,
+  not NO-GO.
 
 ## Offer any fix via `AskUserQuestion` — don't make the owner type it out
 
