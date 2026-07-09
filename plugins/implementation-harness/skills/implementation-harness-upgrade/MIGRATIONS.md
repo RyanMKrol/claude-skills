@@ -42,6 +42,30 @@ Entry format:
 
 ---
 
+## 1.42.0 → 1.42.1 — dashboard restyled: overview chips, card sections, Ink is now the default theme
+Ported the visual language from an earlier mockup artifact onto the real, already-functionally-complete
+dashboard — a presentation-only change, verified running against real data (`ryankrol.co.uk`, 336 tasks)
+before shipping, per the owner's explicit request to see it locally first.
+- mechanism: `dashboard/server.js` — new summary-chip overview strip above the sections (needs-your-action
+  / failed-pending-review / done+reviewed counts, derived from data `renderBacklog()` already computes —
+  no `lib.js` change); sections restyled as bordered/rounded cards with a header divided from the body by
+  a border (`renderSection()` gained a `.section-body` wrapper); bulk-select/filter toolbars moved off
+  the shared `.bar` class onto a new `.section-toolbar` class (`.bar` stays exactly as it was — it's also
+  used inside each task's expand-detail action-button row and the Ideas tab's expand-all button; reusing
+  it for the new toolbar look would have wrongly restyled those too); row hover polish. All new/changed
+  CSS uses the existing per-theme custom properties + `color-mix()` derivations already used elsewhere in
+  this file — none of the four `[data-theme="..."]` blocks needed new variables.
+  Follow-up polish from the same owner review: description text no longer clipped to a fixed
+  `max-width`; the Failed section's icon changed from ⚠ to 🩹 (matching the mockup); "Waiting on human
+  tasks"/"Human tasks" capitalized to "Waiting on Human Tasks"/"Human Tasks"; theme order changed to
+  Ink, Forest, Plum, Amber (was Amber, Ink, Forest, Plum) and the default (both `:root`'s CSS and the
+  no-saved-preference JS fallback) changed from Amber to Ink.
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none — a project with a saved theme preference in `localStorage` keeps it; only the
+  no-preference-yet default changes, and only for a fresh browser/clean `localStorage`.
+
+---
+
 ## 1.41.2 → 1.42.0 — convert-ideas / review-failed publish a Claude Artifact during relay
 Real pain point: the DoD-confirmation `AskUserQuestion` only ever showed a one-line recap and a
 one-sentence restatement — the actual drafted `specOverview`/`specDo`/`specDoneWhen` being confirmed

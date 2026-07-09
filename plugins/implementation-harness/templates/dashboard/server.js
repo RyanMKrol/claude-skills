@@ -493,12 +493,7 @@ function renderPage() {
      at +10% brightness over the originally-workshopped values. Semantic colors (green/red/yellow/
      human) are tuned per theme for contrast, not swapped for the accent — they mean the same thing
      (done/failed/blocked/needs-human) in every theme. */
-  :root, [data-theme="amber"]{
-    --bg:#3d2a15; --panel:#483414; --panel-2:#543717; --border:#73511d;
-    --text:#f5e9d6; --muted:#ba9a69; --accent:#ffa629;
-    --green:#6bd453; --red:#ff5c5c; --yellow:#f0c33e; --amber:#ffa629; --human:#5b9bff;
-  }
-  [data-theme="ink"]{
+  :root, [data-theme="ink"]{
     --bg:#1a2b45; --panel:#203453; --panel-2:#273d65; --border:#3c537a;
     --text:#e9eefb; --muted:#9fafcd; --accent:#ff7a54;
     --green:#4ad991; --red:#ff5c6e; --yellow:#ffcf5c; --amber:#ff9d4d; --human:#b98bff;
@@ -513,14 +508,29 @@ function renderPage() {
     --text:#f1e9f8; --muted:#b8a5cf; --accent:#ff5ec4;
     --green:#5fd18a; --red:#ff5c6e; --yellow:#f0c14a; --amber:#f2b53c; --human:#6fa8ff;
   }
+  [data-theme="amber"]{
+    --bg:#3d2a15; --panel:#483414; --panel-2:#543717; --border:#73511d;
+    --text:#f5e9d6; --muted:#ba9a69; --accent:#ffa629;
+    --green:#6bd453; --red:#ff5c5c; --yellow:#f0c33e; --amber:#ffa629; --human:#5b9bff;
+  }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
   .container{max-width:1000px;margin:0 auto;padding:26px 20px 72px;}
   h1{font-size:22px;font-weight:700;margin:0 0 4px;}
-  .sub{color:var(--muted);margin:0 0 22px;font-size:13px;}
+  .sub{color:var(--muted);margin:0 0 14px;font-size:13px;}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
   a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
   button{cursor:pointer;font:inherit}
+
+  /* ---- overview strip: at-a-glance counts above the sections ---- */
+  .summary-strip{display:flex;gap:10px;margin:0 0 22px;flex-wrap:wrap;}
+  .summary-chip{flex:1 1 160px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;}
+  .summary-chip .n{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;line-height:1.1;}
+  .summary-chip .n small{color:var(--muted);font-weight:500;font-size:14px;}
+  .summary-chip .lbl{font-size:11.5px;color:var(--muted);letter-spacing:.02em;}
+  .summary-chip.action .n{color:var(--human);}
+  .summary-chip.review .n{color:var(--red);}
+  .summary-chip.done .n{color:var(--green);}
 
   .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);white-space:nowrap;margin-left:4px;}
   .pill.buildable{color:var(--amber);background:color-mix(in srgb, var(--amber) 14%, transparent);border-color:color-mix(in srgb, var(--amber) 40%, transparent);}
@@ -530,17 +540,22 @@ function renderPage() {
   .pill.failed{color:var(--red);background:color-mix(in srgb, var(--red) 12%, transparent);border-color:color-mix(in srgb, var(--red) 35%, transparent);}
   .pill.reviewed{color:var(--green);background:color-mix(in srgb, var(--green) 14%, transparent);border-color:color-mix(in srgb, var(--green) 35%, transparent);}
 
-  details.section{margin:0 0 26px;}
-  summary.section-heading{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:pointer;list-style:none;user-select:none;display:flex;align-items:center;gap:9px;padding:4px 0;}
+  /* ---- section-as-card: one bordered/rounded container, header divided from body by a border ---- */
+  details.section{margin:0 0 22px;background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+  summary.section-heading{display:flex;align-items:flex-start;gap:10px;padding:16px 18px 14px;cursor:pointer;list-style:none;user-select:none;font-size:14.5px;font-weight:650;color:var(--text);}
   summary.section-heading::-webkit-details-marker{display:none}
-  summary.section-heading::before{content:'\\203A';font-size:20px;font-weight:900;color:var(--accent);transform:rotate(90deg);transition:transform .2s;line-height:1;}
-  details:not([open]) > summary.section-heading::before{transform:rotate(0)}
-  details[open] > summary.section-heading{color:var(--text)}
-  .section-desc{color:var(--muted);font-size:13px;margin:2px 0 10px 30px;}
-  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:0 14px;}
+  summary.section-heading::before{content:'▾';font-size:11px;color:var(--muted);margin-top:3px;transition:transform .15s;flex-shrink:0;}
+  details.section:not([open]) > summary.section-heading::before{transform:rotate(-90deg)}
+  summary.section-heading .count{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;color:var(--muted);font-weight:500;font-size:13px;margin-left:2px;}
+  .section-desc{color:var(--muted);font-size:12.5px;padding:14px 18px 12px;margin:0;font-weight:400;}
+  .section-body{border-top:1px solid var(--border);}
+  .panel{padding:0 18px;}
   .empty{color:var(--muted);padding:11px 2px;}
 
-  .taskrow .row{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:6px 0;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);}
+  .section-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border);background:color-mix(in srgb, black 12%, transparent);}
+
+  .taskrow .row{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:9px 0;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);}
+  .taskrow .row:hover{background:color-mix(in srgb, var(--text) 3%, transparent);}
   .panel > .taskrow:last-child .row{border-bottom:none}
   .caret{color:var(--muted);font-size:10px;min-width:10px}
   .tid{font-weight:700;min-width:46px}
@@ -650,15 +665,16 @@ function renderPage() {
     <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
   </nav>
   <div class="themepicker" title="Dashboard theme — saved in this browser only">
-    <button type="button" class="swatch" data-theme="amber" style="background:#3d2a15" title="Amber" onclick="setTheme('amber')"></button>
     <button type="button" class="swatch" data-theme="ink" style="background:#1a2b45" title="Ink" onclick="setTheme('ink')"></button>
     <button type="button" class="swatch" data-theme="forest" style="background:#1e3c2e" title="Forest" onclick="setTheme('forest')"></button>
     <button type="button" class="swatch" data-theme="plum" style="background:#2f1f45" title="Plum" onclick="setTheme('plum')"></button>
+    <button type="button" class="swatch" data-theme="amber" style="background:#3d2a15" title="Amber" onclick="setTheme('amber')"></button>
   </div>
 </div>
 <div id="nowbar" class="nowbar"></div>
 <div id="view-backlog" class="view">
   <p class="sub" id="summary"></p>
+  <div id="summary-chips" class="summary-strip"></div>
   <div id="sections"></div>
 </div>
 <div id="view-ideas" class="view" hidden>
@@ -1022,21 +1038,23 @@ function renderSection(name, emoji, label, desc, tasks, countStr) {
     const allSel = selectable.length > 0 && n === selectable.length;
     if (selectable.length) {
       const verb = name === 'needsHuman' ? 'done' : 'reviewed';
-      bar = \`<div class="bar"><label class="sel"><input type="checkbox" \${allSel ? 'checked' : ''} onclick="toggleAll('\${name}', this.checked)"> select all (\${selectable.length})</label>\`
+      bar = \`<div class="section-toolbar"><label class="sel"><input type="checkbox" \${allSel ? 'checked' : ''} onclick="toggleAll('\${name}', this.checked)"> select all (\${selectable.length})</label>\`
           + \`<button class="act" onclick="bulkAction('\${name}')" \${n ? '' : 'disabled'}>Mark \${n} \${verb}</button></div>\`;
     }
   }
   let filterBar = '';
   if (name === 'done') {
     const mk = (mode, text) => \`<button class="barbtn\${state.doneFilter === mode ? ' on' : ''}" onclick="setDoneFilter('\${mode}')">\${text}</button>\`;
-    filterBar = \`<div class="bar"><span class="barlabel">Show</span>\${mk('all', 'All')}\${mk('reviewed', 'Reviewed')}\${mk('unreviewed', 'Not reviewed')}</div>\`;
+    filterBar = \`<div class="section-toolbar"><span class="barlabel">Show</span>\${mk('all', 'All')}\${mk('reviewed', 'Reviewed')}\${mk('unreviewed', 'Not reviewed')}</div>\`;
   }
   const rows = tasks.length ? tasks.map(t => renderTask(t, name)).join('') : '<p class="empty">None.</p>';
   const descHtml = desc ? \`<p class="section-desc">\${desc}</p>\` : '';
   return \`<details class="section"\${openAttr} ontoggle="onSectionToggle('\${name}', this)">
-    <summary class="section-heading">\${emoji} \${label} (\${countStr})</summary>
-    \${descHtml}\${filterBar}\${bar}
-    <div class="panel">\${rows}</div>
+    <summary class="section-heading">\${emoji} \${label} <span class="count">(\${countStr})</span></summary>
+    <div class="section-body">
+      \${descHtml}\${filterBar}\${bar}
+      <div class="panel">\${rows}</div>
+    </div>
   </details>\`;
 }
 
@@ -1048,11 +1066,15 @@ function renderBacklog(data) {
   document.getElementById('summary').innerHTML =
     'The harness task list (<span class="mono">.harness/tracking/TASKS.json</span>), rendered. '
     + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.failedPendingReview} failed (pending review) · \${c.done} done (\${reviewed} reviewed). Auto-refreshes.\`;
+  document.getElementById('summary-chips').innerHTML =
+    \`<div class="summary-chip action"><span class="n">\${c.needsHuman}</span><span class="lbl">need your action</span></div>\`
+    + \`<div class="summary-chip review"><span class="n">\${c.failedPendingReview}</span><span class="lbl">failed, pending review</span></div>\`
+    + \`<div class="summary-chip done"><span class="n">\${c.done} <small>· \${reviewed} reviewed</small></span><span class="lbl">done</span></div>\`;
   document.getElementById('sections').innerHTML =
     renderSection('ready', '🤖', 'Ready', 'Everything the harness can build with no human involved — either right now, or once an earlier, equally-buildable task in its chain lands.', b.ready, b.ready.length)
-    + renderSection('waiting', '⏳', 'Waiting on human tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
-    + renderSection('needsHuman', '🔒', 'Human tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
-    + renderSection('failedPendingReview', '⚠', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
+    + renderSection('waiting', '⏳', 'Waiting on Human Tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
+    + renderSection('needsHuman', '🔒', 'Human Tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
+    + renderSection('failedPendingReview', '🩹', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
     + renderSection('done', '✅', 'Done', null, b.done, \`\${b.done.length} · \${reviewed} reviewed · \${b.done.length - reviewed} not reviewed\`);
 }
 
@@ -1149,7 +1171,7 @@ async function bulkAction(bucket) {
 // open-ended color input — picking a good palette from unlimited options is fiddly; a small
 // curated set is not.
 const THEME_STORAGE_KEY = 'harness-dashboard-theme:' + HARNESS_PROJECT_KEY;
-const THEME_NAMES = ['amber', 'ink', 'forest', 'plum'];
+const THEME_NAMES = ['ink', 'forest', 'plum', 'amber'];
 function markActiveTheme(name) {
   document.querySelectorAll('.swatch').forEach(function (b) {
     b.classList.toggle('active', b.dataset.theme === name);
@@ -1163,7 +1185,7 @@ function setTheme(name) {
 function initThemePicker() {
   if (!document.querySelector('.swatch')) return;
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  const theme = THEME_NAMES.includes(saved) ? saved : 'amber';
+  const theme = THEME_NAMES.includes(saved) ? saved : 'ink';
   document.documentElement.setAttribute('data-theme', theme);
   markActiveTheme(theme);
 }
