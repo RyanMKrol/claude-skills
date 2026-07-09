@@ -12,7 +12,7 @@ description: >-
   it. Reuses the ideas-pipeline machinery (consolidate-ideas.sh + the pending-tasks / pending-questions
   relay); never touches IDEAS.jsonl. Requires the harness scaffolded.
 argument-hint: "[optional: a single task id, e.g. T042 — omit for a full sweep]"
-allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage
+allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage, Artifact
 ---
 
 # Review failed / blocked tasks → better-specified follow-ups
@@ -221,11 +221,29 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 ## Stage 3 — relay questions (summarize each review first), consolidate, then close out
 
 Every authored follow-up left a `.pending-questions/<slug>.json` (Stage 2 step 4b or 4c), so this relay
-runs on essentially every sweep. Read them all, then **summarize before asking**: first emit a short
-markdown recap — one line per review: its `ideaSummary` (and the `<TNNN>` it concerns) — then make ONE
-`AskUserQuestion` batching **every** question from **every** file (each may carry several — a
-definition-of-done confirmation, a `close-without-followup` confirmation, plus other build-changing
-decisions), each with a `<TNNN>`-naming header/label. Fold each answer back to its `(slug, question)`:
+runs on essentially every sweep. Read them all, then:
+
+**Publish a reference Artifact before asking anything** — the owner can't confirm a definition of done
+they can't see. Load the `artifact-design` skill first (its own required process), then build ONE page
+covering every currently-unresolved `.pending-questions/<slug>.json`: one section per review, headed by
+its `ideaText` (the `<TNNN>` + original title) and `ideaSummary` (the root cause + proposed follow-up),
+then every unit from that slug's matching `.pending-tasks/<slug>.json` in full — title, `specOverview`,
+`specDo`, and `specDoneWhen` called out visually distinct from the rest — followed by that slug's own
+pending `questions` text, so the owner reads the exact draft (or, for a `close-without-followup`
+question, the exact investigation report) a question refers to right next to the question itself. This
+is a **utilitarian reference doc for a decision in progress**, not a landing page — clean hierarchy and
+real spacing, no hero, no marketing framing; build it from the REAL current content, never placeholder
+text. Write the page to your own scratchpad directory and call the `Artifact` tool (favicon 🔍) to
+publish it. **If the relay loops across multiple rounds**, regenerate and redeploy to the SAME file path
+each round — the owner keeps one tab open for the whole sweep instead of chasing a new link every round.
+Zero pending questions → skip this entirely, nothing to relay.
+
+**Summarize before asking**: emit a short markdown recap — one line per review: its `ideaSummary` (and
+the `<TNNN>` it concerns) — plus the artifact URL from above ("Full drafted context: `<url>` — keep this
+open while answering below") — then make ONE `AskUserQuestion` batching **every** question from **every**
+file (each may carry several — a definition-of-done confirmation, a `close-without-followup`
+confirmation, plus other build-changing decisions), each with a `<TNNN>`-naming header/label. Fold each
+answer back to its `(slug, question)`:
 for a `definition-of-done` answer, update that follow-up's `.pending-tasks/<slug>.json` `specDoneWhen` if
 the owner adjusted it (resume the agent via `SendMessage`, or edit the file yourself), else leave the
 draft; for a `close-without-followup` answer, either leave the `{ "units": [] }` draft as-is (owner

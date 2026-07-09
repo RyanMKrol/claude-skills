@@ -42,6 +42,24 @@ Entry format:
 
 ---
 
+## 1.41.2 → 1.42.0 — convert-ideas / review-failed publish a Claude Artifact during relay
+Real pain point: the DoD-confirmation `AskUserQuestion` only ever showed a one-line recap and a
+one-sentence restatement — the actual drafted `specOverview`/`specDo`/`specDoneWhen` being confirmed
+was never visible anywhere the owner could reference while answering (concretely: idea #8 in a real
+run). `review-failed`'s Stage 3 has the identical relay pattern (explicitly built on the same
+`.pending-tasks/<slug>.json` shape) and would hit the same wall.
+- mechanism: `skills/implementation-harness-convert-ideas/SKILL.md` — `allowed-tools` gains `Artifact`;
+  §4 now publishes a reference Artifact (one section per pending idea: `ideaSummary`, every unit's
+  `specOverview`/`specDo`/`specDoneWhen`, that idea's pending questions) BEFORE the recap +
+  `AskUserQuestion` batch, redeploying to the same URL across multi-round relays. Favicon 🧩.
+- mechanism: `skills/implementation-harness-review-failed/SKILL.md` — same treatment in Stage 3,
+  adapted to that skill's own fields (`ideaText` + `ideaSummary`). Favicon 🔍.
+- config: none. new files: none. renamed/removed: none. manual attention: none.
+- breaking: none — purely additive; a project that never answers a relay question during a sweep never
+  triggers this at all.
+
+---
+
 ## 1.41.1 → 1.41.2 — scope-gap dismissals now persist (gitignored per-task scratch, not a re-flag loop)
 Walking the actual owner workflow — `pre-loop-checkin` → `fix-scope-gaps` → `pre-loop-checkin` again —
 found `check-task-scope.sh` was completely stateless: every dismissed false positive resurfaced on the

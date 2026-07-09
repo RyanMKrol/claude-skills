@@ -9,7 +9,7 @@ description: >-
   that allocates real task ids, writes per-task specs, and removes converted ideas from the
   inbox. Requires the implementation harness to already be scaffolded.
 argument-hint: "[optional: only convert idea #N, or a keyword filter]"
-allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage
+allowed-tools: Read, Write, Edit, Bash, Glob, Agent, AskUserQuestion, SendMessage, Artifact
 ---
 
 # Convert the ideas inbox into backlog tasks
@@ -195,8 +195,23 @@ Use durable files, not conversation memory — questions and answers must surviv
 idea an agent authored a task for left a `.harness/.pending-questions/<slug>.json` (§3 step 5), so this
 relay runs on essentially every sweep. Read them all, then:
 
-- **Summarize before asking, but don't rely on it.** First emit a short markdown recap — one line per
-  idea: its `ideaSummary` (and slug) — so the owner has the full list up front. This recap is a courtesy
+- **Publish a reference Artifact before asking anything — the owner can't confirm a definition of done
+  they can't see.** Load the `artifact-design` skill first (its own required process), then build ONE
+  page covering every currently-unresolved `.pending-questions/<slug>.json`: one section per idea,
+  containing its `ideaSummary`, then every unit from that idea's matching `.pending-tasks/<slug>.json`
+  in full — title, `specOverview`, `specDo`, and `specDoneWhen` called out visually distinct from the
+  rest (it's the thing actually being confirmed) — followed by that idea's own pending `questions` text,
+  so the owner can read the exact draft a question refers to right next to the question itself. This is
+  a **utilitarian reference doc for a decision in progress**, not a landing page — clean hierarchy and
+  real spacing, no hero, no marketing framing; build it from the REAL current draft content, never
+  placeholder text. Write the page to your own scratchpad directory and call the `Artifact` tool
+  (favicon 🧩) to publish it. **If the relay loops across multiple rounds** (an answer opens a new
+  question — see below), regenerate and redeploy to the SAME file path each round rather than creating a
+  new one — the tool redeploys in place, so the owner keeps one tab open for the whole session instead of
+  chasing a new link every round. Zero pending questions → skip this entirely, nothing to relay.
+- **Summarize before asking, but don't rely on it.** Emit a short markdown recap — one line per idea: its
+  `ideaSummary` (and slug) — plus the artifact URL from above ("Full drafted context: `<url>` — keep this
+  open while answering below") — so the owner has the full list up front. This recap is a courtesy
   overview, **not** the question's only source of context: every individual question also opens with its
   own one-sentence restatement (§3 step 5), because the recap can scroll out of view long before a later
   question is actually answered.
