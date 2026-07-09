@@ -17,6 +17,14 @@ BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
 IGNORES_DIR="$HARNESS_DIR/.scope-gap-ignores"
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 3; }
 
+# Recognized repo-relative path prefixes for the spec path-extraction below — derived from the repo's
+# REAL top-level directories (via tracked files), so a project's own dirs (e.g. `dashboard/`) are
+# recognized generically, not just a hardcoded list that silently misses everything else. Dots are
+# regex-escaped so `.harness` / `.github` stay anchored; fall back to the historical list if git yields
+# nothing (e.g. a bare/unusual checkout).
+PREFIX_ALT="$(git -C "$ROOT" ls-files 2>/dev/null | grep / | sed -e 's#/.*##' -e 's#\.#\\.#g' | sort -u | paste -sd'|' -)"
+[ -n "$PREFIX_ALT" ] || PREFIX_ALT='src|\.harness|public|scripts|config|docs|tests?'
+
 sha256_of_file() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   else shasum -a 256 "$1" | awk '{print $1}'
@@ -34,18 +42,59 @@ is_dismissed() {
   jq -e --arg p "$path" --arg h "$spec_hash" '.dismissed[]? | select(.path==$p and .specHash==$h)' "$f" >/dev/null 2>&1
 }
 
-# in_scope <file> <scope-newline-list> — exact path or directory-prefix match, same rule the real
-# structural scope gate in loop.sh / loop.in-place.sh uses. For a FULL repo-relative path candidate.
+# normalize_scope_prefix + scope_match — kept IDENTICAL to loop.sh / loop.in-place.sh (their shared
+# scope-matching implementation), so this linter matches exactly what the real gate will accept.
+normalize_scope_prefix() {
+  local s="$1"
+  s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
+  printf '%s' "$s"
+}
+
+# scope_match <file> <scope-entry> — exact path, directory prefix (trailing /, /**, /*, recursive),
+# or single-level extension glob (`dir/*.ext`). Mirror of loop.sh's scope_match — keep in sync.
+scope_match() {
+  local f="$1" s d1 d2
+  s="$(normalize_scope_prefix "$2")"
+  case "$s" in
+    *[*?[]*)
+      # residual glob metacharacter → single-level glob: case-glob match, then require equal directory
+      # depth so `*` can't span a `/` (an unquoted case `*` otherwise matches across directories).
+      case "$f" in
+        $s)
+          d1="${f//[!\/]/}"; d2="${s//[!\/]/}"
+          [ "${#d1}" -eq "${#d2}" ] && return 0
+          ;;
+      esac
+      return 1
+      ;;
+    *)
+      [ "$f" = "$s" ] && return 0
+      [ "${f#"$s"/}" != "$f" ] && return 0
+      return 1
+      ;;
+  esac
+}
+
+# unsupported_scope_shape <entry> — 0 if <entry>'s glob shape is one scope_match CANNOT honor, i.e. it
+# would silently never match what the author intends: a `**` that survived trailing-`/**` normalization
+# (a mid-path recursive glob), or brace expansion (glob matching doesn't expand `{a,b}`). Single-level
+# globs at any fixed depth (`dir/*.ext`, `dir/*/*.ts`, `dir/[ab].ts`) ARE handled, so they're not flagged.
+unsupported_scope_shape() {
+  local s; s="$(normalize_scope_prefix "$1")"
+  case "$s" in
+    *'**'*)       return 0 ;;   # mid-path recursive glob — depth guard makes it never match nested files
+    *'{'*|*'}'*)  return 0 ;;   # brace expansion is not glob-expanded by the matcher
+  esac
+  return 1
+}
+
+# in_scope <file> <scope-newline-list> — true if <file> matches any scope entry, via the shared
+# scope_match (same rule as the real structural gate). For a FULL repo-relative path candidate.
 in_scope() {
   local f="$1" scope="$2" s
   while IFS= read -r s; do
     [ -z "$s" ] && continue
-    # Normalize glob-style scope entries to a bare directory prefix (`src/foo/**`, `src/foo/*`,
-    # `src/foo/` all mean "under src/foo"), matching the real structural gate — else a glob-suffixed
-    # scope entry produces false-positive WARNs for files it actually covers.
-    s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
-    [ "$f" = "$s" ] && return 0
-    [ "${f#"$s"/}" != "$f" ] && return 0
+    scope_match "$f" "$s" && return 0
   done <<SCOPE
 $scope
 SCOPE
@@ -76,10 +125,10 @@ check_one() {
   scope="$(jq -r --arg id "$id" '.tasks[]|select(.id==$id)|.scope[]?' "$BACKLOG")"
   spec_hash="$(sha256_of_file "$spec_path")"
 
-  # Extract candidate paths from the spec prose: backtick-quoted repo-relative paths (src/...,
-  # .harness/..., public/...) and bare backtick-quoted filenames (`Foo.js`) — checked separately
+  # Extract candidate paths from the spec prose: backtick-quoted repo-relative paths (under any real
+  # top-level dir — see PREFIX_ALT) and bare backtick-quoted filenames (`Foo.js`) — checked separately
   # below, since they need different matching rules.
-  full_paths="$(grep -oE '\`(src|\.harness|public|scripts|config|docs|tests?)/[A-Za-z0-9_./-]+\`' "$spec_path" | tr -d '`' | sort -u)"
+  full_paths="$(grep -oE "\`($PREFIX_ALT)/[A-Za-z0-9_./-]+\`" "$spec_path" | tr -d '`' | sort -u)"
   # bare_names requires a REAL code/asset extension (not any `word.word` token) — an open-ended
   # `\.[A-Za-z0-9]+` suffix also matches CSS values (`0.3rem`) and property/method chains
   # (`workoutStats.totalVolume`, `Promise.all`, `console.log`) as if they were filenames. This still
@@ -106,6 +155,18 @@ FULLPATHS
   done <<BARENAMES
 $bare_names
 BARENAMES
+
+  # Defense-in-depth: flag scope ENTRIES whose glob shape the real gate can't honor, so an authoring
+  # slip like `dir/**/*.ts` is caught HERE (at pre-loop-checkin) instead of silently failing every
+  # build attempt as unrecoverable scope-creep. Mirrors "fail loud on a malformed config value".
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    if unsupported_scope_shape "$s"; then
+      echo "WARN: $id — scope entry \`$s\` uses an unsupported glob shape (supported: an exact path, \`dir/\`, \`dir/**\`, \`dir/*\`, or a single-level \`dir/*.ext\`)"
+    fi
+  done <<SCOPE
+$scope
+SCOPE
   return 0
 }
 

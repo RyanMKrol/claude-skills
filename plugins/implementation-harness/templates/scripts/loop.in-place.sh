@@ -28,6 +28,7 @@
 #         DRY_RUN=1 .harness/scripts/loop.sh       # print the task it WOULD build, then exit
 #         .harness/scripts/loop.sh --guard-selftest [path]  # verify the guard regex (or test one path), then exit
 #         .harness/scripts/loop.sh --scope-exempt-selftest [globs path]  # verify SCOPE_EXEMPT_GLOBS matching, then exit
+#         .harness/scripts/loop.sh --scope-selftest [entry file]  # verify scope-entry matching (extension globs), then exit
 # Config: .harness/config/harness.env (sourced if present) and/or the environment.
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
@@ -95,7 +96,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervis
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                   # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -821,16 +822,47 @@ normalize_scope_prefix() {
   printf '%s' "$s"
 }
 
+# scope_match <file> <scope-entry> — true if <file> is within <scope-entry>. THE single scope-matching
+# implementation, shared by `scope` (structural_checks) and SCOPE_EXEMPT_GLOBS (in_scope_exempt), and
+# mirrored verbatim in loop.sh + check-task-scope.sh — keep all four identical. Supports:
+#   • an exact path                          (src/auth/session.ts)
+#   • a directory prefix, recursive          (dir/  dir/**  dir/*  → everything under dir)
+#   • a single-level extension glob          (dir/*.tsx → any *.tsx DIRECTLY in dir, not nested)
+# A double-quoted ${f#"$s"/} treats `*` as a literal, so an extension glob like dir/*.tsx used to match
+# NOTHING (permanent scope-creep). The single-level case below matches with an UNQUOTED case pattern —
+# which does expand `*`/`?`/`[…]` — engaged ONLY when a metacharacter survives normalization, so every
+# entry that worked before (no residual metachar) still takes the identical exact/prefix path.
+scope_match() {
+  local f="$1" s d1 d2
+  s="$(normalize_scope_prefix "$2")"
+  case "$s" in
+    *[*?[]*)
+      # residual glob metacharacter → single-level glob: case-glob match, then require equal directory
+      # depth so `*` can't span a `/` (an unquoted case `*` otherwise matches across directories).
+      case "$f" in
+        $s)
+          d1="${f//[!\/]/}"; d2="${s//[!\/]/}"
+          [ "${#d1}" -eq "${#d2}" ] && return 0
+          ;;
+      esac
+      return 1
+      ;;
+    *)
+      [ "$f" = "$s" ] && return 0
+      [ "${f#"$s"/}" != "$f" ] && return 0
+      return 1
+      ;;
+  esac
+}
+
 # in_scope_exempt <file> — true if <file> matches one of SCOPE_EXEMPT_GLOBS (space-separated
-# repo-relative path prefixes, exact-path-or-directory-prefix — same rule as `scope` itself).
+# repo-relative path entries, same matching rule as `scope` itself via scope_match).
 # Empty SCOPE_EXEMPT_GLOBS (the default) exempts nothing.
 in_scope_exempt() {
   local f="$1" g
   for g in $SCOPE_EXEMPT_GLOBS; do
     [ -z "$g" ] && continue
-    g="$(normalize_scope_prefix "$g")"
-    [ "$f" = "$g" ] && return 0
-    [ "${f#"$g"/}" != "$f" ] && return 0
+    scope_match "$f" "$g" && return 0
   done
   return 1
 }
@@ -863,6 +895,34 @@ CASES
 }
 [ "${1:-}" = "--scope-exempt-selftest" ] && { scope_exempt_selftest "${2:-}" "${3:-}"; exit $?; }
 
+# --scope-selftest [entry file]: with two args, print IN/OUT for that ONE (scope-entry, path) pair
+# against scope_match. With no args, run the built-in regression table — the extension-glob cases the
+# old trailing-slash-only normalization could never match, plus the exact/prefix cases that must not
+# regress. Mirrors --scope-exempt-selftest; covered across BOTH loop variants by scope-match.test.sh.
+scope_selftest() {
+  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
+    if scope_match "$2" "$1"; then echo IN; else echo OUT; fi
+    return 0
+  fi
+  local fail=0 entry file exp got
+  while read -r entry file exp; do
+    [ -z "$entry" ] && continue
+    if scope_match "$file" "$entry"; then got=IN; else got=OUT; fi
+    [ "$got" = "$exp" ] || { echo "scope-match FAIL: entry='$entry' file='$file' expected $exp got $got"; fail=1; }
+  done <<'CASES'
+components/*.tsx components/CategoryTable.tsx IN
+components/*.tsx components/sub/Foo.tsx OUT
+components/*.tsx components/CategoryTable.ts OUT
+dashboard/app/components/*.tsx dashboard/app/components/CategoryTable.tsx IN
+src/feature/** src/feature/x/y.ts IN
+src/foo/* src/foo/bar/a.ts IN
+src/auth/session.ts src/auth/session.ts IN
+src/auth/session.ts src/auth/other.ts OUT
+CASES
+  [ "$fail" = 0 ] && { echo "scope-match self-test OK (8 cases)"; return 0; } || return 1
+}
+[ "${1:-}" = "--scope-selftest" ] && { scope_selftest "${2:-}" "${3:-}"; exit $?; }
+
 # structural_checks <id> — cheap, model-agnostic gate on the build commit, BEFORE the audit. Any
 # fail = a failed attempt. 0 = pass, 1 = fail.
 structural_checks() {
@@ -888,12 +948,9 @@ structural_checks() {
     inscope=0
     while IFS= read -r s; do
       [ -z "$s" ] && continue
-      # Normalize glob-style scope entries to a bare directory prefix: `src/foo/**`, `src/foo/*`, and
-      # `src/foo/` all mean "everything under src/foo". Without this, a scope authored with a trailing
-      # /** or /* never directory-prefix-matches its own files, so every file under it counts as creep.
-      # Shared with in_scope_exempt() above via normalize_scope_prefix().
-      s="$(normalize_scope_prefix "$s")"
-      if [ "$f" = "$s" ] || [ "${f#"$s"/}" != "$f" ]; then inscope=1; break; fi
+      # Exact path, directory prefix (trailing /, /**, /*), or single-level extension glob (`dir/*.ext`)
+      # — via the shared scope_match (same rule as in_scope_exempt + check-task-scope.sh).
+      if scope_match "$f" "$s"; then inscope=1; break; fi
     done <<SCOPE
 $scope
 SCOPE

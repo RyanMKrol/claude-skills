@@ -42,6 +42,37 @@ Entry format:
 
 ---
 
+## 1.52.0 → 1.53.0 — scope-matching supports single-level `dir/*.ext` (was silent permanent failure)
+
+A `scope` entry written as an extension glob (`dashboard/app/components/*.tsx`) reads as valid, is
+accepted with no validation, and then could **never** match a real file — `normalize_scope_prefix`
+strips only trailing `/`, `/**`, `/*`, and the leftover `*` was matched via a double-quoted `${f#"$s"/}`
+where `*` is literal — so every file under it was flagged `scope-creep` at every tier, forever (looked
+exactly like a model-capability failure). Confirmed live (e.g. local-jobs T342/T471 on
+`dashboard/app/components/CategoryTable.tsx`). The 1.40.3 exempt-glob fix addressed the same class only
+in the exempt path and only for `/`, `/**`, `/*`. Fix in three parts: (1) a shared `scope_match` — a
+`case`-glob (unquoted → `*` expands) gated to engage only when a metacharacter survives normalization,
+with a slash-depth guard keeping `*` single-level — now supports `dir/*.ext` while leaving every
+previously-working entry provably unchanged; (2) `check-task-scope.sh` fails LOUD on a scope shape the
+matcher can't honor (mid-path `**`, brace expansion) at pre-loop-checkin; (3) its spec path-extraction
+allowlist is now derived from the repo's real top-level dirs (so `dashboard/` mentions are scanned, not
+just the old hardcoded `src|.harness|public|scripts|config|docs|tests`). New `--scope-selftest` +
+`scope-match.test.sh` (both variants; auto-discovered by CI's `find … *.test.sh`).
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — new shared `scope_match()`;
+  `in_scope_exempt()` + `structural_checks()` route through it; `normalize_scope_prefix` retained;
+  `--scope-selftest` flag added (+ excluded from `FORCE_TASK` parsing, + usage header). Kept in parity.
+- mechanism: `scripts/check-task-scope.sh` — adds `normalize_scope_prefix` + `scope_match` (mirror of the
+  loop) + `unsupported_scope_shape`; `in_scope()` now uses `scope_match`; a per-task loop WARNs on
+  unsupported glob shapes; `PREFIX_ALT` (repo top-level dirs) replaces the hardcoded extraction allowlist.
+- mechanism: `docs/HARNESS.md` — the `scope` field row documents the supported entry shapes.
+- operational skills: `skills/implementation-harness-add-to-backlog/SKILL.md` (scope-shape authoring
+  note), `skills/implementation-harness-pre-loop-checkin/SKILL.md` (the new unsupported-glob WARN → NO-GO).
+- new files: `scripts/scope-match.test.sh` — plugin-source test (both variants), not scaffolded into a
+  consumer `.harness/` (an install has one variant); mirrors `scope-exempt.test.sh`.
+- config: none. renamed/removed: none. manual attention: none.
+- breaking: none — strictly looser matching (an entry that matched before still matches identically) plus
+  more/earlier advisory WARNs. Existing backlogs with `dir/*.ext` scopes start working on upgrade.
+
 ## 1.51.0 → 1.52.0 — check-task-scope.sh scans only pending tasks (not failed/done/blocked)
 
 The scope-authoring linter's sweep filter was `status != "done"`, which still swept `failed` and

@@ -72,7 +72,11 @@ Use `AskUserQuestion`. Establish:
    - what is independently testable;
    - anything that should be a separate task because it touches a different scope.
 3. **Per task**, settle:
-   - **scope** — the files this task should touch (keeps diffs tight for the CI gate).
+   - **scope** — the files this task should touch (keeps diffs tight for the CI gate). Each entry must
+     be an **exact path**, a **directory prefix** (`dir/`, `dir/**`, `dir/*` — everything under it), or a
+     **single-level extension glob** (`dir/*.tsx` — any `.tsx` directly in `dir`). Do NOT author a mid-path
+     recursive glob like `dir/**/*.ts` or brace expansion — those match nothing and fail every attempt as
+     scope-creep (use a directory prefix or explicit paths instead).
    - **design** — does it need a fuller `.harness/docs/designs/TNNN-slug.md` plan doc? Optional; only when
      warranted (those are authored separately, interactively, at `--effort max`). Else `null`.
    - **verify** — does it need an empirical check (e.g. `["run-app"]`, `["live-api"]`)? If the

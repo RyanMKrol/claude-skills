@@ -144,6 +144,13 @@ this task's declared scope` line into the report verbatim (task id + file) — d
 the linter's own output. This check is heuristic and false-positive-tolerant (it can't tell "edit this
 file" from "read this file for context" in spec prose).
 
+`check-task-scope.sh` also emits a second, **non-heuristic** WARN class: `scope entry \`X\` uses an
+unsupported glob shape`. That one is a certain authoring bug — a scope glob the real gate can't honor
+(a mid-path `**` like `dir/**/*.ts`, or brace expansion), which would fail **every** build attempt as
+unrecoverable scope-creep. Treat it as a firm **NO-GO** (not a maybe): the entry must be rewritten to a
+directory prefix or explicit paths before the run. (`fix-scope-gaps` only fills MISSING scope entries;
+it does not rewrite a malformed shape — flag this one for the owner to fix by hand.)
+
 `check-task-scope.sh` scans **only tasks pending execution** (`status:"pending"`, non-needs-human — the
 loop's Ready / Waiting / Waiting-on-Human buckets); it does **not** look at terminal (`done`/`failed`/
 `blocked`) tasks, since a scope gap on a task the loop will never re-select can't affect a run. So every
