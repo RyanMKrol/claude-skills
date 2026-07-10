@@ -14,6 +14,9 @@
 //     ],
 //     "ideaIds": [<the id(s) from tracking/IDEAS.jsonl this unit set consumed>, ...]
 //   }
+// A review-failed unit that RE-ATTEMPTS a terminal-failed task may additionally carry
+//   "rewireFrom": "<oldFailedId>", "rewireDependents": ["<existing task id>", ...]
+// to repoint pre-existing dependents of the failed task onto this replacement (step 5 below).
 //
 // Does, in order:
 //   1. Allocate sequential real ids for every unit across every pending file (deterministic order:
@@ -22,7 +25,9 @@
 //      EXISTING task is left as-is; anything else is dropped with a warning (never silently kept
 //      as a dangling reference).
 //   3. Write each unit's tasks/TNNN.md spec file (## Do / ## Done when from specDo/specDoneWhen).
-//   4. Append the new task objects to TASKS.json (never touches existing tasks/status).
+//   4. Append the new task objects to TASKS.json, then rewire any rewireDependents onto the
+//      replacement (swap the dead rewireFrom id for the new real id in each existing dependent's
+//      dependsOn). Existing tasks' status is never touched — only a named dependent's dependsOn.
 //   5. Remove each processed idea's row from tracking/IDEAS.jsonl by `id` (an id with no matching
 //      row is a no-op — e.g. review-failed units, which have no real idea id at all).
 //
@@ -162,6 +167,33 @@ function main() {
   });
 
   tasksDoc.tasks.push(...newTasks);
+
+  // Rewire PRE-EXISTING dependents of a replaced failed task onto its replacement. A review-failed unit
+  // that re-attempts a terminal-failed task carries { "rewireFrom": "<oldFailedId>", "rewireDependents":
+  // ["<existing task id>", ...] }: for each named existing task, swap the dead id for THIS unit's new
+  // real id in its dependsOn. Without this, a task that depended on the failed one is stranded forever
+  // (the failed task is terminal — never re-attempted — and the replacement has a brand-new id). Only
+  // review-failed sets these fields; convert-ideas units never do, so this is a no-op for them.
+  const byId = new Map(tasksDoc.tasks.map((t) => [t.id, t]));
+  let rewired = 0;
+  allUnits.forEach((unit, i) => {
+    const newId = realIds[i];
+    const from = unit.rewireFrom;
+    const deps = unit.rewireDependents;
+    if (!from || !Array.isArray(deps) || !deps.length) return;
+    for (const depId of deps) {
+      const t = byId.get(depId);
+      if (!t) { console.warn(`WARN: rewireDependents names "${depId}", not an existing task — skipped`); continue; }
+      const cur = Array.isArray(t.dependsOn) ? t.dependsOn : [];
+      if (!cur.includes(from)) { console.warn(`WARN: ${depId} does not depend on ${from} (rewireFrom) — left unchanged`); continue; }
+      const next = cur.filter((d) => d !== from);          // drop the dead id
+      if (!next.includes(newId)) next.push(newId);          // point at the replacement (dedup)
+      t.dependsOn = next;
+      rewired++;
+      console.log(`consolidate-ideas: rewired ${depId} dependsOn ${from} -> ${newId}`);
+    }
+  });
+
   fs.writeFileSync(TASKS_PATH, JSON.stringify(tasksDoc, null, 2) + '\n');
 
   if (allIdeaIds.size && fs.existsSync(IDEAS_PATH)) {

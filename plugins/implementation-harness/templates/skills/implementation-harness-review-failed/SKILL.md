@@ -162,7 +162,9 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >       "visualVerify": true,   // OPTIONAL — set only if the follow-up should be visually verified (see below); omit for auto-covered / non-visual.
 >       "specOverview": "Name what this re-attempts and WHY the first attempt didn't land — e.g. 'Re-attempt of <TNNN>, blocked because its scope excluded the client helper the Done-when required.' One or two sentences; this is the task's traceability back to the failure.",
 >       "specDo": "The corrected work — incorporate the actual lesson (see below), not a restatement of the original spec.",
->       "specDoneWhen": "The task-specific, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green)."
+>       "specDoneWhen": "The task-specific, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green).",
+>       "rewireFrom": "<TNNN>",              // OPTIONAL (step 4d) — the failed task this unit re-attempts; consolidation swaps it…
+>       "rewireDependents": ["<dep id>", …]  // …for this unit's new id in each of these existing tasks' dependsOn. Omit both if no dependents.
 >     }
 >   ]
 > }
@@ -180,7 +182,9 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >   that passed on a broken render is exactly the case this catches).
 > - **Do NOT set `dependsOn` to the original failed/blocked task** — it's terminal, nothing should wait
 >   on it. Traceability lives in the `specOverview` (which names the re-attempt). Atomise into multiple
->   units if the review surfaces more than one separable follow-up.
+>   units if the review surfaces more than one separable follow-up. (Tasks that ALREADY depended on the
+>   failed task are a separate problem — the loop never re-attempts it, so they're stranded; step 4d
+>   detects and re-points them onto this replacement.)
 > - `needs-human` units omit `facets` entirely. Omit `ideaIds` entirely too — a review-derived
 >   follow-up has no real idea in `IDEAS.jsonl` to remove; the consolidation script simply does
 >   nothing idea-side for a unit set with no `ideaIds` (see Stage 3).
@@ -214,6 +218,30 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > If the owner says to draft a follow-up instead, this task's outcome MOVES to "follow-up authored" —
 > resume your agent (or the coordinator folds it in directly) back to step 4 to shape one, same as any
 > other pending-questions answer that opens new work.
+>
+> **4d. Handle the failed task's EXISTING dependents (closes the abandonment gap).** Authoring a
+> replacement does NOT help tasks that already depend on the task you're reviewing: the replacement gets a
+> new id, the original stays terminal-failed, and the loop never re-attempts it — so any dependent left
+> pointing at it can **never build**, silently. Find them (read-only):
+> ```bash
+> jq -r --arg f "<TNNN>" '.tasks[]
+>   | select((.dependsOn // []) | index($f))
+>   | select(.status != "done" and .status != "failed" and .status != "blocked")
+>   | "\(.id): \(.title)"' .harness/tracking/TASKS.json
+> ```
+> - **No dependents → nothing to do** (omit the rewire fields and this question).
+> - **Dependents exist AND you authored a follow-up (step 4):** on the unit those dependents should now
+>   depend on (usually the primary re-attempt; choose per-dependent if you atomised into several), set
+>   `"rewireFrom": "<TNNN>"` and `"rewireDependents": ["<dep id>", …]`. Consolidation (Stage 3) swaps the
+>   dead `<TNNN>` for the replacement's new id in each dependent's `dependsOn`, keeping their other deps.
+>   Because this **changes what gets built**, CONFIRM it — add to this slug's `.pending-questions/<SLUG>.json`
+>   `questions`:
+>   `{ "topic": "rewire-dependents", "question": "<TNNN> failed; I'm re-attempting it as <unit title>. These tasks depend on <TNNN> and are otherwise stranded: <dep ids + titles>. Rewire them onto the re-attempt, abandon them, or leave them?" }`
+> - **Dependents exist but the outcome is 'already resolved' / 'not worth pursuing' (no replacement):**
+>   there is nothing to rewire onto, so those dependents are stranded by design. Do NOT set rewire fields;
+>   surface them so the owner decides (abandon them too / re-scope / leave):
+>   `{ "topic": "rewire-dependents", "question": "<TNNN> is being closed with no rebuild. These tasks depend on it and can no longer build: <dep ids + titles>. Abandon them as well, re-scope, or leave them?" }`
+> Name the dependents you found in your step-5 report either way.
 >
 > **5. Report back**: the root cause you found, which step-3 outcome you reached, the slug you used, and
 > what you wrote (both files). The coordinator reads your files, not your prose.
@@ -256,7 +284,13 @@ the owner adjusted it (resume the agent via `SendMessage`, or edit the file your
 draft; for a `close-without-followup` answer, either leave the `{ "units": [] }` draft as-is (owner
 confirmed closing with no follow-up) or, if the owner asked for a follow-up instead, fold that request in
 and shape one per Stage 2 step 4 (the outcome moves from "not worth pursuing" to "follow-up authored");
-for a `topic: "other"` answer, fold it in the same way. If an answer opens a NEW question, **append** it
+for a `topic: "other"` answer, fold it in the same way;
+for a `rewire-dependents` answer, edit the matching unit's `rewireDependents` in `.pending-tasks/<slug>.json`
+to hold ONLY the dep ids the owner confirmed to rewire (drop any they chose to leave). For any dependent
+the owner chose to **abandon**, mark it failed in the git stage below with
+`.harness/scripts/mark-failed.sh <dep id>` (it then shows under "Closed — failed"; if it in turn has its
+own dependents they resurface via the pre-loop-checkin stranded-scan / a later sweep) — and drop it from
+`rewireDependents` too. If an answer opens a NEW question, **append** it
 to the same file's `questions` array and relay again (no cap); delete a `.pending-questions/<slug>.json`
 only once ALL its questions resolve.
 
@@ -267,7 +301,8 @@ bash .harness/scripts/consolidate-ideas.sh      # NO_PUSH=1 … to commit locall
 ```
 
 It allocates real task ids, resolves `tempId` references, writes each unit's `tasks/TNNN.md` spec,
-appends the tasks to `TASKS.json`, and commits + pushes under the repo lock. Since a review-derived
+appends the tasks to `TASKS.json`, applies any `rewireFrom`/`rewireDependents` (re-pointing each stranded
+dependent off the dead id onto its replacement's new id), and commits + pushes under the repo lock. Since a review-derived
 unit set carries no `ideaIds` (Stage 2 step 4), the script's `IDEAS.jsonl` cleanup is simply a no-op
 for these units — no warning, nothing to "clean up."
 

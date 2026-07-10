@@ -42,6 +42,26 @@ Entry format:
 
 ---
 
+## 1.59.0 → 1.60.0 — review-failed rewires a replaced failed task's dependents (prevention half)
+
+Closes the abandonment gap from 1.59.0: `review-failed` now re-points a failed task's pre-existing
+dependents onto its replacement, instead of leaving them stranded on the dead id.
+
+- mechanism: `scripts/consolidate-ideas.mjs` — a unit may now carry optional `rewireFrom` (the old failed
+  id) + `rewireDependents` (existing task ids). After allocating the replacement's real id, consolidation
+  swaps `rewireFrom` → the new id in each named dependent's `dependsOn` (keeping their other deps), atomic
+  in the same commit that adds the replacement. Convert-ideas units never set these fields → a no-op for
+  them.
+- new files: `scripts/consolidate-rewire.test.sh` — plugin-source regression test for the rewire (runs in
+  the plugin's CI, not copied into a consumer `.harness/`).
+- mechanism (project-local skill): `skills/implementation-harness-review-failed/SKILL.md` — new **step 4d**
+  detects the failed task's live dependents (read-only jq) and, on owner confirmation via a new
+  `rewire-dependents` question, sets `rewireFrom`/`rewireDependents` on the replacement unit (or, for an
+  outcome with no replacement, surfaces the stranding for an abandon/re-scope/leave decision). Stage 3
+  folds the answer into the unit and, for an abandoned dependent, marks it failed. Unit schema + the
+  line-181 rule + the Stage 3 consolidation description updated to match.
+- breaking: none (the rewire fields are optional and additive).
+
 ## 1.58.0 → 1.59.0 — surface tasks stranded on a failed dependency (detection half)
 
 Context: a task marked `failed`/`blocked` is terminal — the loop never re-attempts it — and
