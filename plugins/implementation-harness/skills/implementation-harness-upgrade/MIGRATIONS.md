@@ -42,6 +42,18 @@ Entry format:
 
 ---
 
+## 1.64.0 → 1.64.1 — richer explore tooltip (probes passed + probes left in the batch)
+
+- mechanism: `scripts/policy.jq` — TIER mode appends two more DASHBOARD-ONLY fields, so output is now
+  `"chosen explorePM exploreIdx remain eN eWinOk"` (`eN` = samples the candidate rung has gathered; `eWinOk`
+  = successes in its trailing `minN` window). The loop still reads only the first three; its throwaway
+  catch-all already absorbs the extras, so no loop change.
+- mechanism: `dashboard/server.js` — the armed `Explore ↓` pill's tooltip now reads e.g. "probing the
+  cheaper rung haiku-4-5 at 20% on each eligible task · 2/3 passed (67%) · 3 more probes complete this
+  6-probe batch"; the cooldown tooltip names the failed batch's pass rate.
+- mechanism: `scripts/policy.test.sh` — reads the two new fields; asserts `eN`/`eWinOk` on known fixtures.
+- breaking: none (additive fields; loop behavior unchanged).
+
 ## 1.63.0 → 1.64.0 — surface downward exploration on the dashboard; cooldown default 40 → 20
 
 - mechanism: `scripts/policy.jq` — TIER mode now emits a **4th** output field `remain` (dashboard

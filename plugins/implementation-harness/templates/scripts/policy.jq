@@ -3,10 +3,11 @@
 #   TIER selection ($auditCount < 0, the default): given the escalation ledger + a task's
 #   (layer × work-type) cell, return the index of the cheapest tier on the global ladder whose
 #   historical first-attempt success rate for that cell is >= floor with >= minN samples; else
-#   coldIdx (the authored difficulty / cold-start prior). Output is a 4-field space-separated line
-#   "$chosen $explorePMOut $exploreIdx $remain" — see "downward exploration" below. ($remain is for the
-#   dashboard: -2 no cheaper rung · -1 promoted · 0 armed now · N>0 cell-rows until re-offered. The loop
-#   reads only the first three fields.)
+#   coldIdx (the authored difficulty / cold-start prior). Output is a 6-field space-separated line
+#   "$chosen $explorePMOut $exploreIdx $remain $eN $eWinOk" — see "downward exploration" below. (The last
+#   three are DASHBOARD-ONLY: $remain = exploration state [-2 no cheaper rung · -1 promoted · 0 armed now ·
+#   N>0 cell-rows until re-offered]; $eN = samples the candidate rung has; $eWinOk = successes in its
+#   trailing $minN window. The loop reads only the first three fields.)
 #
 #   AUDIT probability ($auditCount >= 0): given a cell's CONFIRMED-AUDITED success count, return the
 #   blocking-audit sampling probability as an integer PER-MILLE (0..1000) — so the loop can sample
@@ -162,11 +163,17 @@ else
           end
       end
     ) as $v
-  # 4th output field `remain` (dashboard's "downward exploration" state): -2 no cheaper rung · -1 the
-  # cheaper rung was PROMOTED (it's now $chosenOut) · 0 armed/offered right now · N>0 = N more cell-rows
-  # until a rejected rung is re-offered. The loop ignores it (reads only chosen/pm/exploreIdx).
+  # Fields 4-6 are DASHBOARD-ONLY (the loop ignores everything past exploreIdx):
+  #   remain  — exploration state: -2 no cheaper rung · -1 PROMOTED (now $chosenOut) · 0 armed now · N>0
+  #             = N more cell-rows until a rejected rung is re-offered.
+  #   eN      — total samples the candidate (explore) rung has gathered in this cell so far.
+  #   eWinOk  — successes in the trailing $minN-sized window at that rung (the batch the verdict judges);
+  #             so the dashboard can show "probes so far / passed / how many more complete the batch".
+  | ($ev | map(select(.idx == $exploreIdx))) as $atE
+  | ($atE | length) as $eN
+  | ((if $eN > $minN then ($atE | .[-$minN:]) else $atE end) | map(select(.ok)) | length) as $eWinOk
   | (if $v.promote then $exploreIdx else $chosen end) as $chosenOut
   | (if $v.promote then -1 else $exploreIdx end) as $exploreIdxOut
   | (if $exploreIdxOut >= 0 and $v.offer then $explorePM else 0 end) as $explorePMOut
-  | "\($chosenOut) \($explorePMOut) \($exploreIdxOut) \($v.remain)"
+  | "\($chosenOut) \($explorePMOut) \($exploreIdxOut) \($v.remain) \($eN) \($eWinOk)"
 end

@@ -259,6 +259,8 @@ function buildHarnessState() {
         c.explorePMOut = Number.isFinite(parts[1]) ? parts[1] : 0;    // per-mille offered THIS call (0 = not armed now)
         c.exploreIdx = Number.isFinite(parts[2]) ? parts[2] : -1;     // the cheaper rung being probed, -1 = none / promoted
         c.exploreRemain = Number.isFinite(parts[3]) ? parts[3] : -2;  // -2 no cheaper rung · -1 promoted · 0 armed · N>0 cell-rows until re-armed
+        c.exploreN = Number.isFinite(parts[4]) ? parts[4] : 0;        // samples the candidate rung has gathered
+        c.exploreWinOk = Number.isFinite(parts[5]) ? parts[5] : 0;    // successes in its trailing minN window
         const tier = (chosenIdx != null && ladder[chosenIdx]) || null;
         c.chosenModel = tier ? tier.model : null;
         c.chosenEffort = tier ? tier.effort : null;
@@ -930,13 +932,22 @@ function renderHarness(data) {
     h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
   } else {
     const showExplore = (p.explorePM || 0) > 0;   // only surface the exploration column when it's enabled
+    const minN = p.minN || 6;
     const exploreCell = function (c) {
       const r = c.exploreRemain, tgt = L[c.exploreIdx];
       const tl = tgt ? esc(tgt.model.replace(/^claude-/, '') + (tgt.effort ? '/' + tgt.effort : '')) : ('tier ' + c.exploreIdx);
       if (r === -2) return '<span class="cold-tag">—</span>';                                             // already cheapest — nothing below
       if (r === -1) return '<span class="pill done" title="a cheaper rung passed its probe and is now the Start model">↓ promoted</span>';
-      if (r === 0)  return '<span class="pill" title="probing the cheaper rung ' + tl + ' at ' + Math.round((c.explorePMOut || 0) / 10) + '% on each eligible task">↓ ' + tl + ' · ' + Math.round((c.explorePMOut || 0) / 10) + '%</span>';
-      return '<span class="cold-tag" title="rung ' + tl + ' failed a probe; re-offered after ' + r + ' more builds land in this cell">↓ ' + tl + ' · ' + r + ' left</span>';
+      // shared probe stats: how far the current batch is + how it's doing
+      const eN = c.exploreN || 0, winN = Math.min(minN, eN), winOk = c.exploreWinOk || 0;
+      const rate = winN ? (winOk + '/' + winN + ' passed (' + Math.round((winOk / winN) * 100) + '%)') : 'no probes recorded yet';
+      const pct = Math.round((c.explorePMOut || 0) / 10);
+      if (r === 0) {
+        const left = eN < minN ? (minN - eN) : 0;
+        const leftTxt = left > 0 ? (left + ' more probe' + (left === 1 ? '' : 's') + ' complete this ' + minN + '-probe batch') : 'batch full — re-judged every run';
+        return '<span class="pill" title="probing the cheaper rung ' + tl + ' at ' + pct + '% on each eligible task · ' + rate + ' · ' + leftTxt + '">↓ ' + tl + ' · ' + pct + '%</span>';
+      }
+      return '<span class="cold-tag" title="rung ' + tl + ' failed its last batch (' + rate + '); re-offered after ' + r + ' more builds land in this cell">↓ ' + tl + ' · ' + r + ' left</span>';
     };
     h += '<table class="ftable"><thead><tr>'
        + '<th>Facet <span class="qtip" tabindex="0" data-tip="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">?</span></th>'
