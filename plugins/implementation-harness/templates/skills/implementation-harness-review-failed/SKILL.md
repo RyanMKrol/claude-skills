@@ -157,7 +157,7 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >     {
 >       "tempId": "<SLUG>-a", "title": "...", "dependsOn": [],
 >       "gate": null, "tags": [...], "scope": ["files this unit should touch"],
->       "design": null, "verify": [], "expectsTest": false,
+>       "design": null, "verify": [], "expectsTest": false,   // true → the loop REQUIRES a test file in the diff; if you set it, say in specDoneWhen WHAT the test must assert (else the builder can only write a token one)
 >       "facets": { "layer": "...", "workType": "...", "risk": [] },
 >       "visualVerify": true,   // OPTIONAL — set only if the follow-up should be visually verified (see below); omit for auto-covered / non-visual.
 >       "specOverview": "Name what this re-attempts and WHY the first attempt didn't land — e.g. 'Re-attempt of <TNNN>, blocked because its scope excluded the client helper the Done-when required.' One or two sentences; this is the task's traceability back to the failure.",

@@ -42,6 +42,29 @@ Entry format:
 
 ---
 
+## 1.60.0 → 1.61.0 — surface the `expectsTest` requirement to the builder (was enforced but invisible)
+
+`expectsTest:true` was a machine-only signal: `structural_checks` auto-fails a diff that changes no test
+file (`test-missing`), but the build prompt never told the builder — so it would fail blind (and, since
+the SCOPE block frames tests as merely "allowed", was if anything nudged to skip them), then cold-retry
+and repeat, burning attempts + ladder escalation. Now the requirement is injected into the prompt, like
+`scope` already is.
+
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` (parity) — `prompt()` now emits a
+  `TESTS — REQUIRED` block when `expectsTest:true`: the builder MUST add/change a test file exercising
+  `## Do` / pinning `## Done when`, tests are explicitly in scope AND required (not a skippable
+  exception), a no-test diff auto-fails, keep it hermetic.
+- mechanism: `docs/HARNESS.md` — §6 notes the `scope`/`expectsTest` requirements are injected into the
+  build prompt (told up front, not just judged after).
+- mechanism (project-local skill): `skills/implementation-harness-pre-loop-checkin/SKILL.md` — new §4
+  check (f): a heuristic GO-with-note flagging an `expectsTest:true` task whose spec never asks for a test
+  to be WRITTEN (only "the suite passes"), so the author states in `## Done when` what it must assert.
+- mechanism (project-local skills): `convert-ideas` + `review-failed` SKILL.md — the `expectsTest` schema
+  line now carries the "say in specDoneWhen what the test must assert" rule (add-to-backlog already had it).
+- breaking: none (additive prompt text + a read-only pre-flight warning). NOTE the interaction with the
+  audit: a task legitimately unable to add a test should carry `expectsTest:false`, not rely on the
+  builder silently skipping — unchanged, just now enforced-and-told rather than enforced-but-silent.
+
 ## 1.59.0 → 1.60.0 — review-failed rewires a replaced failed task's dependents (prevention half)
 
 Closes the abandonment gap from 1.59.0: `review-failed` now re-points a failed task's pre-existing

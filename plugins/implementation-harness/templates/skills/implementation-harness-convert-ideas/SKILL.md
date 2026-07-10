@@ -160,7 +160,7 @@ this idea/cluster used in its scratch filenames):
 >        {
 >          "tempId": "<SLUG>-a", "title": "...", "dependsOn": ["<SLUG>-a" or a real "TNNN" id],
 >          "gate": null, "tags": [...], "scope": ["files this unit should touch"],
->          "design": null, "verify": [], "expectsTest": false,
+>          "design": null, "verify": [], "expectsTest": false,   // true → the loop REQUIRES a test file in the diff; if you set it, say in specDoneWhen WHAT the test must assert (else the builder can only write a token one)
 >          "facets": { "layer": "...", "workType": "...", "risk": [] },
 >          "visualVerify": true,   // OPTIONAL — include ONLY per step 2b (a maybe-visual task you judged visual). Omit for auto-covered / non-visual tasks.
 >          "specOverview": "ONE or TWO plain-language sentences — the 'what are we actually doing here, and why, at a glance' line. It's read FIRST and fastest, before the denser Do / Done-when detail.",

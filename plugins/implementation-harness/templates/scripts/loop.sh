@@ -749,6 +749,20 @@ EOF
   printf 'You may change ONLY these files:\n'
   if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
   printf '%s\n' 'PLUS you may always add/change TEST files and your own .harness/worklog/<TASK>.md. Touching ANY OTHER file — including .harness/tracking/TASKS.json (the loop owns it) or a doc not listed above — AUTO-FAILS this task. If you genuinely need a file that is not listed, do NOT edit it: record `failed:blocked <TASK> needs <file> (out of scope)` so a human can fix the scope.'
+  # If the task is marked expectsTest, make writing a test an EXPLICIT REQUIREMENT here. structural_checks
+  # already AUTO-FAILS a diff that changes no test file (STRUCT_FAIL_KIND=test-missing), but nothing else
+  # told the builder — so it would fail blind, and (since the SCOPE block frames tests as merely
+  # "allowed") a cost-minimizing builder is if anything nudged to skip them. State it as mandatory and
+  # tie it back to scope so there's no ambiguity that tests belong in this task.
+  if tj -e --arg id "$tid" '.tasks[]|select(.id==$id)|.expectsTest==true' >/dev/null 2>&1; then
+    printf '\n--- TESTS — REQUIRED for this task (it is marked expectsTest) ---\n'
+    printf 'You MUST add or change at least one TEST file that exercises the behaviour in "## Do" and pins the\n'
+    printf '"## Done when" acceptance items. Test files are ALWAYS in scope (see SCOPE above) — so this is a\n'
+    printf 'REQUIREMENT of this task, not a scope exception you can skip. A diff that changes NO test file\n'
+    printf 'AUTO-FAILS this task (structural gate: test-missing); a green run against the EXISTING tests only\n'
+    printf 'is NOT sufficient. Write the test to what "## Done when" says it must assert, and keep it hermetic\n'
+    printf '(a scratch/throwaway resource — never the real prod DB, live services, or real data).\n'
+  fi
   _custom_preamble build
   visual_verify_block "$tid"
   # Append the task's Markdown spec (## Do / ## Done when) verbatim — read from the git ref. The
