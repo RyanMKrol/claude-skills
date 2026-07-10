@@ -786,7 +786,11 @@ function nowLogDetails(phase, info, cur) {
   </details>\`;
 }
 
-function onNowLogToggle(phase, el) { state.nowLogOpen[phase] = el.open; }
+function onNowLogToggle(phase, el) {
+  state.nowLogOpen[phase] = el.open;
+  // Opening the panel jumps straight to the newest output (don't wait for the next 5s poll).
+  if (el.open) { const pre = document.getElementById('now-log-' + phase + '-pre'); if (pre) pre.scrollTop = pre.scrollHeight; }
+}
 
 function renderNow(data) {
   const el = document.getElementById('nowbar');
@@ -822,10 +826,27 @@ function renderNow(data) {
   h += '<span class="' + fetchCls + '" title="Age of the last git fetch — the dashboard renders LOCAL files, so origin changes are invisible until something fetches. Set HARNESS_DASHBOARD_FETCH_SECONDS to have the dashboard fetch itself.">origin seen: ' + ago(fr.lastFetchSec) + fetchNote + '</span>';
   h += nowLogDetails('build', data.build, cur);
   h += nowLogDetails('audit', data.audit, cur);
-  el.innerHTML = h;
+  // Capture each open live-output box's scroll position BEFORE innerHTML rebuilds (and destroys) it, so a
+  // reader who scrolled up to read isn't yanked back to the bottom on every 5s poll. We follow the live
+  // tail (scroll to bottom) ONLY when the reader was already pinned to the bottom, or the box was just
+  // opened / first rendered; otherwise we keep exactly where they'd scrolled to.
+  const priorScroll = {};
   ['build', 'audit'].forEach(function (phase) {
     const pre = document.getElementById('now-log-' + phase + '-pre');
-    if (pre && state.nowLogOpen[phase]) pre.scrollTop = pre.scrollHeight;
+    if (pre) priorScroll[phase] = {
+      top: pre.scrollTop,
+      hidden: pre.clientHeight === 0,                                      // collapsed panel → treat next render as a fresh open
+      atBottom: pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 24  // within ~a line of the tail
+    };
+  });
+  el.innerHTML = h;
+  ['build', 'audit'].forEach(function (phase) {
+    if (!state.nowLogOpen[phase]) return;
+    const pre = document.getElementById('now-log-' + phase + '-pre');
+    if (!pre) return;
+    const prior = priorScroll[phase];
+    if (!prior || prior.hidden || prior.atBottom) pre.scrollTop = pre.scrollHeight;  // follow the tail
+    else pre.scrollTop = prior.top;                                                  // reader scrolled up — leave them be
   });
 }
 

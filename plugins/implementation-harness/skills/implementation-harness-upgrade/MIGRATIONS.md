@@ -42,6 +42,16 @@ Entry format:
 
 ---
 
+## 1.68.0 → 1.68.1 — dashboard: live build/audit output boxes no longer yank you to the bottom every poll
+
+- mechanism: `dashboard/server.js` — `renderNow` rebuilds the nowbar innerHTML every 5s poll and used to
+  unconditionally set each open live-output `<pre>`'s `scrollTop = scrollHeight`, snapping a reader who had
+  scrolled up to read back to the bottom. Now it captures each box's scroll position BEFORE the rebuild and
+  follows the live tail ONLY if the reader was already pinned to the bottom (or the box was just opened /
+  first rendered); otherwise it restores their position. `onNowLogToggle` also jumps to the newest output
+  the moment a panel is opened (instead of waiting for the next poll).
+- breaking: none (client-side scroll behavior only).
+
 ## 1.67.1 → 1.68.0 — convert-ideas / review-failed relay is now plain Markdown, not a hand-built HTML Artifact
 
 The question-relay in both planning skills used to load `artifact-design` and hand-author a bespoke HTML
