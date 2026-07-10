@@ -604,7 +604,11 @@ function renderPage() {
   .cog.spin{animation:cogspin 1s linear infinite}
   @keyframes cogspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion: reduce){.cog.spin{animation:none}}
-  .themepicker{display:flex;align-items:center;gap:5px;margin-left:auto}
+  .themepicker{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto}
+  .swatch-row{display:flex;gap:8px}
+  .bright-ctl{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);cursor:default}
+  .bright-ctl input[type=range]{width:120px;accent-color:var(--accent);cursor:pointer}
+  .bright-ctl .bv{min-width:20px;text-align:right;font-variant-numeric:tabular-nums}
   .swatch{width:20px;height:20px;padding:0;border-radius:50%;border:2px solid var(--border);cursor:pointer;box-shadow:none}
   .swatch:hover{border-color:var(--muted)}
   .swatch.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
@@ -677,10 +681,23 @@ function renderPage() {
     <button class="tab" data-view="harness" onclick="switchView('harness')">Internals</button>
   </nav>
   <div class="themepicker" title="Dashboard theme — saved in this browser only">
-    <button type="button" class="swatch" data-theme="ink" style="background:#1a2b45" title="Ink" onclick="setTheme('ink')"></button>
-    <button type="button" class="swatch" data-theme="forest" style="background:#1e3c2e" title="Forest" onclick="setTheme('forest')"></button>
-    <button type="button" class="swatch" data-theme="plum" style="background:#2f1f45" title="Plum" onclick="setTheme('plum')"></button>
-    <button type="button" class="swatch" data-theme="amber" style="background:#3d2a15" title="Amber" onclick="setTheme('amber')"></button>
+    <div class="swatch-row">
+      <button type="button" class="swatch" data-sel="ink" style="background:#1a2b45" title="Ink" onclick="setTheme('ink')"></button>
+      <button type="button" class="swatch" data-sel="forest" style="background:#1e3c2e" title="Forest" onclick="setTheme('forest')"></button>
+      <button type="button" class="swatch" data-sel="plum" style="background:#2f1f45" title="Plum" onclick="setTheme('plum')"></button>
+      <button type="button" class="swatch" data-sel="amber" style="background:#3d2a15" title="Amber" onclick="setTheme('amber')"></button>
+    </div>
+    <div class="swatch-row">
+      <button type="button" class="swatch" data-sel="ink-light" title="Ink (light)" onclick="setTheme('ink-light')"></button>
+      <button type="button" class="swatch" data-sel="forest-light" title="Forest (light)" onclick="setTheme('forest-light')"></button>
+      <button type="button" class="swatch" data-sel="plum-light" title="Plum (light)" onclick="setTheme('plum-light')"></button>
+      <button type="button" class="swatch" data-sel="amber-light" title="Amber (light)" onclick="setTheme('amber-light')"></button>
+    </div>
+    <label class="bright-ctl" title="Brightness of the light themes — tune to taste">
+      <span>☀</span>
+      <input type="range" id="brightness" min="80" max="99" step="1" value="96" oninput="onBrightness(this.value)">
+      <span class="bv mono" id="bright-val">96</span>
+    </label>
   </div>
 </div>
 <div id="nowbar" class="nowbar"></div>
@@ -1086,8 +1103,8 @@ function renderBacklog(data) {
     + \`<button class="summary-chip done" onclick="scrollToSection('done')"><span class="n">\${c.done}</span><span class="lbl">done</span></button>\`;
   document.getElementById('sections').innerHTML =
     renderSection('ready', '🤖', 'Ready', 'Everything the harness can build with no human involved — either right now, or once an earlier, equally-buildable task in its chain lands.', b.ready, b.ready.length)
-    + renderSection('waiting', '⏳', 'Waiting on Human Tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
     + renderSection('needsHuman', '🔒', 'Human Tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
+    + renderSection('waiting', '⏳', 'Waiting on Human Tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
     + renderSection('failedPendingReview', '🩹', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
     + renderSection('donePendingReview', '👀', 'Pending Review', 'Built and integrated on green CI, but not yet human-reviewed. Look over the result, then mark it reviewed to move it into Done — un-reviewing a task moves it back here.', b.donePendingReview, b.donePendingReview.length)
     + renderSection('done', '✅', 'Done', 'Built, integrated, and human-reviewed — closed out.', b.done, \`\${b.done.length}\`);
@@ -1196,23 +1213,81 @@ async function bulkAction(bucket) {
 // open-ended color input — picking a good palette from unlimited options is fiddly; a small
 // curated set is not.
 const THEME_STORAGE_KEY = 'harness-dashboard-theme:' + HARNESS_PROJECT_KEY;
-const THEME_NAMES = ['ink', 'forest', 'plum', 'amber'];
-function markActiveTheme(name) {
-  document.querySelectorAll('.swatch').forEach(function (b) {
-    b.classList.toggle('active', b.dataset.theme === name);
-  });
+const BRIGHT_STORAGE_KEY = 'harness-dashboard-brightness:' + HARNESS_PROJECT_KEY;
+const BASE_THEMES = ['ink', 'forest', 'plum', 'amber'];
+const THEME_VARS = ['--bg','--panel','--panel-2','--border','--text','--muted','--accent','--green','--red','--yellow','--amber','--human'];
+// The dark palettes, mirrored from the [data-theme] CSS blocks above (KEEP IN SYNC) — needed in JS so
+// each theme's LIGHT variant can be derived from its dark palette by an HSL transform: light-tinted
+// backgrounds at the "brightness" slider's lightness, dark tinted text, and darkened+saturated accents
+// so semantic pill colours (done/failed/blocked) stay readable on a light base. A light theme is
+// applied as inline CSS vars on <html> (overriding the dark CSS block); switching back removes them.
+const DARK_PALETTES = {
+  ink:    {'--bg':'#1a2b45','--panel':'#203453','--panel-2':'#273d65','--border':'#3c537a','--text':'#e9eefb','--muted':'#9fafcd','--accent':'#ff7a54','--green':'#4ad991','--red':'#ff5c6e','--yellow':'#ffcf5c','--amber':'#ff9d4d','--human':'#b98bff'},
+  forest: {'--bg':'#1e3c2e','--panel':'#254435','--panel-2':'#2c513d','--border':'#426953','--text':'#e7f2ea','--muted':'#94b5a1','--accent':'#f2b53c','--green':'#4fd1a5','--red':'#ff6b5c','--yellow':'#e0c34a','--amber':'#f2b53c','--human':'#6fa8ff'},
+  plum:   {'--bg':'#2f1f45','--panel':'#362553','--panel-2':'#402c63','--border':'#584180','--text':'#f1e9f8','--muted':'#b8a5cf','--accent':'#ff5ec4','--green':'#5fd18a','--red':'#ff5c6e','--yellow':'#f0c14a','--amber':'#f2b53c','--human':'#6fa8ff'},
+  amber:  {'--bg':'#3d2a15','--panel':'#483414','--panel-2':'#543717','--border':'#73511d','--text':'#f5e9d6','--muted':'#ba9a69','--accent':'#ffa629','--green':'#6bd453','--red':'#ff5c5c','--yellow':'#f0c33e','--amber':'#ffa629','--human':'#5b9bff'},
+};
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function hexToHsl(hex) {
+  const m = hex.replace('#', '');
+  const r = parseInt(m.slice(0,2),16)/255, g = parseInt(m.slice(2,4),16)/255, bl = parseInt(m.slice(4,6),16)/255;
+  const mx = Math.max(r,g,bl), mn = Math.min(r,g,bl), l = (mx+mn)/2; let h = 0, s = 0;
+  if (mx !== mn) { const d = mx-mn; s = l > 0.5 ? d/(2-mx-mn) : d/(mx+mn);
+    if (mx===r) h = (g-bl)/d + (g<bl ? 6 : 0); else if (mx===g) h = (bl-r)/d + 2; else h = (r-g)/d + 4; h *= 60; }
+  return { h: h, s: s*100, l: l*100 };
 }
-function setTheme(name) {
-  document.documentElement.setAttribute('data-theme', name);
-  localStorage.setItem(THEME_STORAGE_KEY, name);
-  markActiveTheme(name);
+function hslToHex(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  const f = function(n){ const k = (n + h*12) % 12, a = s*Math.min(l, 1-l); return l - a*Math.max(-1, Math.min(k-3, 9-k, 1)); };
+  const to = function(x){ return ('0' + Math.round(clamp(x,0,1)*255).toString(16)).slice(-2); };
+  return '#' + to(f(0)) + to(f(8)) + to(f(4));
+}
+// deriveLight(base, B): the light palette for a theme at background-lightness B (the slider value).
+function deriveLight(base, B) {
+  const p = DARK_PALETTES[base], out = {}, bg = hexToHsl(p['--bg']);
+  const put = function(k, h, s, l){ out[k] = hslToHex(h, clamp(s,0,100), clamp(l,0,100)); };
+  put('--bg',      bg.h, Math.min(bg.s, 30), B);
+  put('--panel',   bg.h, Math.min(bg.s, 26), Math.min(99, B + 3));
+  put('--panel-2', bg.h, Math.min(bg.s, 24), Math.min(99, B + 6));
+  put('--border',  bg.h, 22, clamp(B - 20, 58, 86));
+  put('--text',    bg.h, 22, 17);
+  put('--muted',   bg.h, 14, 42);
+  ['--accent','--green','--red','--yellow','--amber','--human'].forEach(function(k){
+    const c = hexToHsl(p[k]); put(k, c.h, Math.min(100, c.s), k === '--accent' ? 46 : 44);
+  });
+  return out;
+}
+function currentBrightness() { const v = parseInt(localStorage.getItem(BRIGHT_STORAGE_KEY) || '96', 10); return isNaN(v) ? 96 : clamp(v, 60, 100); }
+function markActiveTheme(sel) {
+  document.querySelectorAll('.swatch').forEach(function (b) { b.classList.toggle('active', b.dataset.sel === sel); });
+}
+function setTheme(sel) {
+  const isLight = /-light$/.test(sel), base = isLight ? sel.replace(/-light$/, '') : sel;
+  document.documentElement.setAttribute('data-theme', base);
+  document.documentElement.classList.toggle('lighttheme', isLight);
+  if (isLight) { const v = deriveLight(base, currentBrightness()); THEME_VARS.forEach(function(k){ document.documentElement.style.setProperty(k, v[k]); }); }
+  else { THEME_VARS.forEach(function(k){ document.documentElement.style.removeProperty(k); }); }
+  localStorage.setItem(THEME_STORAGE_KEY, sel);
+  markActiveTheme(sel);
+}
+function updateLightSwatches(B) {
+  BASE_THEMES.forEach(function(base){ const btn = document.querySelector('.swatch[data-sel="' + base + '-light"]'); if (btn) btn.style.background = deriveLight(base, B)['--bg']; });
+}
+function onBrightness(val) {
+  val = clamp(parseInt(val, 10) || 96, 60, 100); localStorage.setItem(BRIGHT_STORAGE_KEY, String(val));
+  const bv = document.getElementById('bright-val'); if (bv) bv.textContent = val;
+  updateLightSwatches(val);
+  const cur = localStorage.getItem(THEME_STORAGE_KEY) || '';
+  if (/-light$/.test(cur)) setTheme(cur);   // live re-apply so the page tracks the slider
 }
 function initThemePicker() {
   if (!document.querySelector('.swatch')) return;
+  const B = currentBrightness();
+  const sl = document.getElementById('brightness'); if (sl) sl.value = B;
+  const bv = document.getElementById('bright-val'); if (bv) bv.textContent = B;
+  updateLightSwatches(B);
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  const theme = THEME_NAMES.includes(saved) ? saved : 'ink';
-  document.documentElement.setAttribute('data-theme', theme);
-  markActiveTheme(theme);
+  setTheme(/^(ink|forest|plum|amber)(-light)?$/.test(saved || '') ? saved : 'ink');
 }
 initThemePicker();
 

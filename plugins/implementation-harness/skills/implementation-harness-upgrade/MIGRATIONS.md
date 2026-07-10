@@ -42,7 +42,18 @@ Entry format:
 
 ---
 
-## 1.55.1 → 1.56.0 — dashboard: per-attempt model in Recent Activity, a Pending Review section, wider layout
+## 1.57.0 → 1.58.0 — dashboard: light theme variants + brightness slider; Human Tasks above Waiting
+
+- mechanism: `dashboard/server.js` — each of the four themes (ink/forest/plum/amber) now has a **light
+  variant**, derived at runtime from its dark palette by an HSL transform (light tinted backgrounds at a
+  user-set lightness, dark tinted text, darkened+saturated accents so the semantic pill colours stay
+  readable on a light base). The theme picker now shows two rows of four swatches (dark on top, light
+  beneath) plus a **brightness slider** that tunes the light variants' background lightness live
+  (persisted per-project in localStorage, like the theme choice). Light themes apply as inline CSS vars
+  on `<html>`; switching back to a dark theme removes them.
+- mechanism: `dashboard/server.js` — the **Human Tasks** section now renders **above** "Waiting on Human
+  Tasks" (a human clears the blockers first, so the actionable section comes first).
+- breaking: none (client-only dashboard rendering; no data/schema change).
 
 Three dashboard UX changes (all in the mechanism dashboard files — the upgrade content-diffs and, on
 approval, overwrites them):
