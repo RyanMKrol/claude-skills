@@ -42,6 +42,18 @@ Entry format:
 
 ---
 
+## 1.62.0 → 1.63.0 — echo the prompt handed to Claude to the console (`PRINT_PROMPT`)
+
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — `run_claude()` now echoes the exact prompt
+  it's about to send, wrapped in a heavy `=` banner, to **stderr** before invoking Claude. Because the
+  print lives in `run_claude` (keyed on its `phase` arg), only the phase actually running prints — the
+  BUILD prompt on a build, the AUDIT prompt only when a sampled task audits — never both preemptively.
+  New knob `PRINT_PROMPT` (default 1) declared next to `CLAUDE_FLAGS`; 0 silences it.
+- config: `config/harness.env` — ACTION: add knob `: "${PRINT_PROMPT:=1}"` (with its "Console output"
+  comment block) if absent; don't touch an existing value.
+- breaking: none. Default-on adds console output (to stderr; the streamed agent output is unchanged) —
+  set `PRINT_PROMPT=0` to restore the quiet behavior.
+
 ## 1.61.1 → 1.62.0 — fix `scope_match` bracket bug; de-duplicate it into a shared `scope-lib.sh`
 
 `scope_match`'s glob trigger fired on `[` and matched with an unquoted pattern, so a literal Next.js

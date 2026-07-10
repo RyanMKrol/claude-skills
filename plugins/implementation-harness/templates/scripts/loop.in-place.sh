@@ -89,6 +89,7 @@ SCOPE_EXEMPT_GLOBS="${SCOPE_EXEMPT_GLOBS:-}"       # optional space-separated ex
 PUSH_COOLDOWN_SECONDS="${PUSH_COOLDOWN_SECONDS:-0}"   # optional min seconds between integration pushes (0=off) — see harness.env
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
+PRINT_PROMPT="${PRINT_PROMPT:-1}"                # 1 = echo each prompt (the running phase only: build OR audit) to the console before invoking Claude; 0 = silence
 # Rate-limit-aware handling: when Claude hits a usage/session limit, resume the SAME task. A PARSED
 # reset time is honoured directly (+ RL_BUFFER cushion, capped at RL_BACKOFF_MAX); when nothing
 # parses, the build path backs off exponentially (RL_BACKOFF_MIN doubling to RL_EXP_MAX) instead of
@@ -717,6 +718,15 @@ run_claude() {
   local out="$WORKLOG/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
   local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
+  # Echo the EXACT prompt handed to Claude (build or audit), wrapped in a heavy banner, so a human
+  # watching the console can read what the agent was actually asked. To stderr (never into claude's
+  # stdin/stdout pipeline below). PRINT_PROMPT=0 in harness.env silences it.
+  if [ "${PRINT_PROMPT:-1}" = 1 ]; then
+    local _ph _bar='================================================================================'
+    _ph="$(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')"
+    { printf '\n%s\n=====  %s PROMPT  —  task %s  (%s%s)\n%s\n%s\n%s\n=====  END %s PROMPT  —  task %s\n%s\n\n' \
+        "$_bar" "$_ph" "${cur_task:-?}" "$model" "${effort:+ / $effort}" "$_bar" "$pr" "$_bar" "$_ph" "${cur_task:-?}" "$_bar"; } >&2
+  fi
   set +e
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
   # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude

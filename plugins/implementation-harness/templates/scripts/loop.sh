@@ -96,6 +96,7 @@ LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolati
 SYNC_PRIMARY_ON_DONE="${SYNC_PRIMARY_ON_DONE:-1}"   # when the loop finishes (backlog drained), leave the PRIMARY checkout on the latest main (safe/ff-only, skips a dirty tree); 0=never touch the primary checkout
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
+PRINT_PROMPT="${PRINT_PROMPT:-1}"                # 1 = echo each prompt (the running phase only: build OR audit) to the console before invoking Claude; 0 = silence
 # Rate-limit handling: poll + resume the SAME task on a usage/session limit (don't exit), so we
 # resume shortly after the quota resets rather than waiting out supervise's full cadence. A PARSED
 # reset time is honoured directly (+ RL_BUFFER cushion, capped at RL_BACKOFF_MAX); when nothing
@@ -882,6 +883,15 @@ run_claude() {
   local out="$LOOP_WT/.harness/worklog/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
   local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
+  # Echo the EXACT prompt handed to Claude (build or audit), wrapped in a heavy banner, so a human
+  # watching the console can read what the agent was actually asked. To stderr (never into claude's
+  # stdin/stdout pipeline below). PRINT_PROMPT=0 in harness.env silences it.
+  if [ "${PRINT_PROMPT:-1}" = 1 ]; then
+    local _ph _bar='================================================================================'
+    _ph="$(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')"
+    { printf '\n%s\n=====  %s PROMPT  —  task %s  (%s%s)\n%s\n%s\n%s\n=====  END %s PROMPT  —  task %s\n%s\n\n' \
+        "$_bar" "$_ph" "${cur_task:-?}" "$model" "${effort:+ / $effort}" "$_bar" "$pr" "$_bar" "$_ph" "${cur_task:-?}" "$_bar"; } >&2
+  fi
   set +e
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
   # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude
