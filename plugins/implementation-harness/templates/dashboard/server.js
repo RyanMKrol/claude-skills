@@ -621,9 +621,6 @@ function renderPage() {
   @media (prefers-reduced-motion: reduce){.cog.spin{animation:none}}
   .themepicker{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto}
   .swatch-row{display:flex;gap:8px}
-  .bright-ctl{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);cursor:default}
-  .bright-ctl input[type=range]{width:120px;accent-color:var(--accent);cursor:pointer}
-  .bright-ctl .bv{min-width:20px;text-align:right;font-variant-numeric:tabular-nums}
   .swatch{width:20px;height:20px;padding:0;border-radius:50%;border:2px solid var(--border);cursor:pointer;box-shadow:none}
   .swatch:hover{border-color:var(--muted)}
   .swatch.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
@@ -708,11 +705,6 @@ function renderPage() {
       <button type="button" class="swatch" data-sel="plum-light" title="Plum (light)" onclick="setTheme('plum-light')"></button>
       <button type="button" class="swatch" data-sel="amber-light" title="Amber (light)" onclick="setTheme('amber-light')"></button>
     </div>
-    <label class="bright-ctl" title="Brightness of the light themes — tune to taste">
-      <span>☀</span>
-      <input type="range" id="brightness" min="0" max="40" step="1" value="12" oninput="onBrightness(this.value)">
-      <span class="bv mono" id="bright-val">12</span>
-    </label>
   </div>
 </div>
 <div id="nowbar" class="nowbar"></div>
@@ -1275,12 +1267,12 @@ async function bulkAction(bucket) {
 // open-ended color input — picking a good palette from unlimited options is fiddly; a small
 // curated set is not.
 const THEME_STORAGE_KEY = 'harness-dashboard-theme:' + HARNESS_PROJECT_KEY;
-const BRIGHT_STORAGE_KEY = 'harness-dashboard-lightlift:' + HARNESS_PROJECT_KEY;   // lightness lift for the light variants (new key: the old 'brightness' had a different meaning)
+const LIGHT_LIFT = 10;   // fixed lightness lift for the light theme variants (surfaces only — see deriveLight); hardcoded, no longer user-tunable
 const BASE_THEMES = ['ink', 'forest', 'plum', 'amber'];
 const THEME_VARS = ['--bg','--panel','--panel-2','--border','--text','--muted','--accent','--green','--red','--yellow','--amber','--human'];
 // The dark palettes, mirrored from the [data-theme] CSS blocks above (KEEP IN SYNC) — needed in JS so
 // each theme's LIGHT variant can be derived from its OWN dark palette. The light variant is NOT a new
-// baseline: it is the SAME dark theme with its SURFACE colours lifted lighter by the slider amount (see
+// baseline: it is the SAME dark theme with its SURFACE colours lifted lighter by a fixed amount (LIGHT_LIFT; see
 // deriveLight); text and accent colours are left exactly as the dark theme has them. A light theme is
 // applied as inline CSS vars on <html> (overriding the dark CSS block); switching back removes them.
 const DARK_PALETTES = {
@@ -1318,7 +1310,6 @@ function deriveLight(base, lift) {
   });
   return out;
 }
-function currentBrightness() { const v = parseInt(localStorage.getItem(BRIGHT_STORAGE_KEY) || '12', 10); return isNaN(v) ? 12 : clamp(v, 0, 40); }
 function markActiveTheme(sel) {
   document.querySelectorAll('.swatch').forEach(function (b) { b.classList.toggle('active', b.dataset.sel === sel); });
 }
@@ -1326,27 +1317,17 @@ function setTheme(sel) {
   const isLight = /-light$/.test(sel), base = isLight ? sel.replace(/-light$/, '') : sel;
   document.documentElement.setAttribute('data-theme', base);
   document.documentElement.classList.toggle('lighttheme', isLight);
-  if (isLight) { const v = deriveLight(base, currentBrightness()); THEME_VARS.forEach(function(k){ document.documentElement.style.setProperty(k, v[k]); }); }
+  if (isLight) { const v = deriveLight(base, LIGHT_LIFT); THEME_VARS.forEach(function(k){ document.documentElement.style.setProperty(k, v[k]); }); }
   else { THEME_VARS.forEach(function(k){ document.documentElement.style.removeProperty(k); }); }
   localStorage.setItem(THEME_STORAGE_KEY, sel);
   markActiveTheme(sel);
 }
-function updateLightSwatches(B) {
-  BASE_THEMES.forEach(function(base){ const btn = document.querySelector('.swatch[data-sel="' + base + '-light"]'); if (btn) btn.style.background = deriveLight(base, B)['--bg']; });
-}
-function onBrightness(val) {
-  val = clamp(parseInt(val, 10) || 12, 0, 40); localStorage.setItem(BRIGHT_STORAGE_KEY, String(val));
-  const bv = document.getElementById('bright-val'); if (bv) bv.textContent = val;
-  updateLightSwatches(val);
-  const cur = localStorage.getItem(THEME_STORAGE_KEY) || '';
-  if (/-light$/.test(cur)) setTheme(cur);   // live re-apply so the page tracks the slider
+function updateLightSwatches() {
+  BASE_THEMES.forEach(function(base){ const btn = document.querySelector('.swatch[data-sel="' + base + '-light"]'); if (btn) btn.style.background = deriveLight(base, LIGHT_LIFT)['--bg']; });
 }
 function initThemePicker() {
   if (!document.querySelector('.swatch')) return;
-  const B = currentBrightness();
-  const sl = document.getElementById('brightness'); if (sl) sl.value = B;
-  const bv = document.getElementById('bright-val'); if (bv) bv.textContent = B;
-  updateLightSwatches(B);
+  updateLightSwatches();
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
   setTheme(/^(ink|forest|plum|amber)(-light)?$/.test(saved || '') ? saved : 'ink');
 }

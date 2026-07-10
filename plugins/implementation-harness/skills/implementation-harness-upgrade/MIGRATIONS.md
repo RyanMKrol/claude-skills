@@ -42,6 +42,16 @@ Entry format:
 
 ---
 
+## 1.68.1 → 1.68.2 — dashboard: light-theme brightness hardcoded to 10 (slider removed)
+
+- mechanism: `dashboard/server.js` — the light-theme brightness is now a fixed `LIGHT_LIFT = 10` lightness
+  lift instead of a 0–40 slider (default 12, persisted per project). Removed the range-slider UI + its CSS
+  (`.bright-ctl`), the `onBrightness` handler, the `BRIGHT_STORAGE_KEY` localStorage state, and
+  `currentBrightness()`; `deriveLight`/`setTheme`/`updateLightSwatches` now use the constant. The four
+  light-theme swatch buttons stay; only the tuning slider is gone. A user who had a custom saved brightness
+  now gets the hardcoded 10.
+- breaking: none (client-side theming only).
+
 ## 1.68.0 → 1.68.1 — dashboard: live build/audit output boxes no longer yank you to the bottom every poll
 
 - mechanism: `dashboard/server.js` — `renderNow` rebuilds the nowbar innerHTML every 5s poll and used to
