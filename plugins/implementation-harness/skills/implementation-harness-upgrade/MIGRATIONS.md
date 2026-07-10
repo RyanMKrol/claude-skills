@@ -42,6 +42,15 @@ Entry format:
 
 ---
 
+## 1.67.0 → 1.67.1 — regression test for the PRINT_PROMPT banner (1.64.2) — no functional change
+
+- new files (plugin-source, NOT installed to consumers): `scripts/print-prompt-banner.test.sh` — backfills
+  the one gap in this run's coverage: locks the 1.64.2 banner shape in BOTH loop variants (model/effort
+  repeated on the END line; `· rung N · attempt M` on build banners ONLY, not audit; effort-less renders
+  `(model)` with no stray ` / `) via static source-assertions plus a behavioral anchor that runs the exact
+  printf/_meta logic. No change to any shipped file.
+- breaking: none.
+
 ## 1.66.0 → 1.67.0 — new rewire-dependents.sh: repair a task stranded on an ALREADY-reviewed failed dep
 
 Closes a coverage gap. `/review-failed`'s step 4d rewires a failed task's stranded dependents, but only
