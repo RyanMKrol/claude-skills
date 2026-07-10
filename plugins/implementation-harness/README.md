@@ -98,14 +98,15 @@ Outside the main happy path:
 
 ## Skills
 
-Three **global** skills (plugin-registered — invoke with the `implementation-harness:` prefix from
-any project) bootstrap and reconcile a harness install:
+Four **global** skills (plugin-registered — invoke with the `implementation-harness:` prefix from
+any project) bootstrap and reconcile a harness install (and file bug reports upstream):
 
 | Skill | Invoke | What it does |
 |---|---|---|
 | `implementation-harness-create` | `/implementation-harness:implementation-harness-create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, cold-start difficulty floor, optional run/backtest check), then copy the verbatim harness files (including the eight project-local skills below) and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/scripts/supervise.sh`. |
 | `implementation-harness-customize` | `/implementation-harness:implementation-harness-customize` | Guided walkthrough of the `custom/` extension-point catalog (lifecycle hooks, secret-guard denylist, visual-verify snippets, build/audit preambles, dashboard title, …) — activates the opt-in file and helps draft its content for each feature the user wants. |
 | `implementation-harness-upgrade` | `/implementation-harness:implementation-harness-upgrade [dir]` | Reconciles an installed `.harness/` (and the eight project-local skills below) against the plugin's bundled reference — refreshes plugin-owned mechanism files, adds new `harness.env` knobs additively, reports first and asks before every change. Also adopts legacy/hand-forked installs. |
+| `implementation-harness-report-issue` | `/implementation-harness:implementation-harness-report-issue` | Files a bug report about the plugin itself as a GitHub issue on `RyanMKrol/claude-skills`. Auto-captures the environment (plugin version, loop variant, bash/OS, tooling), synthesises the session, pushes for logs, scrubs secrets, does a real-bug-vs-misconfig plausibility check, then shows the full draft and files it via `gh` on explicit confirmation. Works with or without a scaffolded `.harness/`. |
 
 Eight **project-local** skills (scaffolded by `create` into your project's own `.claude/skills/`,
 kept in sync by `upgrade` — invoke bare, no prefix — so their logic can never drift ahead of what
