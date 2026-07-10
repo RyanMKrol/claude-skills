@@ -42,6 +42,25 @@ Entry format:
 
 ---
 
+## 1.63.0 → 1.64.0 — surface downward exploration on the dashboard; cooldown default 40 → 20
+
+- mechanism: `scripts/policy.jq` — TIER mode now emits a **4th** output field `remain` (dashboard
+  exploration state: -2 no cheaper rung · -1 promoted · 0 armed now · N>0 = N more cell-rows until a
+  rejected rung is re-offered). Output contract is now `"chosen explorePM exploreIdx remain"`.
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — `pick_base`'s `read` captures the 4th
+  field into a throwaway (`_erem`); the loop's behavior is unchanged (it uses only chosen/pm/exploreIdx).
+- mechanism: `dashboard/server.js` — a `downward explore` row in the Policy-knobs panel (`% chance ·
+  re-arm after N rows / cell`, read from `facets.json`), and a per-facet **Explore ↓** column (armed with
+  the % / in cooldown with the countdown / promoted / — no cheaper rung), shown only when
+  `exploreProbabilityPM > 0`. Reads all four `policy.jq` fields via a new `runPolicyRaw`.
+- mechanism: `scripts/policy.test.sh` — reads the 4th field; asserts `remain` for each state.
+- config: `config/facets.json` — ACTION: the TEMPLATE default `exploreCooldownN` changed **40 → 20**
+  (re-arm sooner, since the cooldown is per-facet-cell). This is a default for FRESH installs only — the
+  upgrade never rewrites an existing `facets.json` value, so a project already carrying `exploreCooldownN`
+  keeps it; lower it to 20 by hand if wanted. The `_about` text + `docs/designs/difficulty-autotune.md`
+  updated to say default 20.
+- breaking: none (the loop ignores the new field; existing configs are untouched).
+
 ## 1.62.0 → 1.63.0 — echo the prompt handed to Claude to the console (`PRINT_PROMPT`)
 
 - mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — `run_claude()` now echoes the exact prompt

@@ -51,38 +51,41 @@ ESTABLISHED="$(seed_rows 50 6 claude-sonnet-5 '"low"' est)"
 echo "--- static matrix ---"
 
 # 1. Regression guard: explorePM config = 0 must be bit-for-bit identical to pre-feature behavior.
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 0 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 0 '[]')"
 assert "explorePM=0 → chosen unaffected (still 1)" [ "$chosen" = "1" ]
 assert "explorePM=0 → output probability always 0" [ "$pm" = "0" ]
 
 # 2. The literal bug reproduction: established cell + explorePM configured nonzero → probes index 0.
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]')"
 assert "established cell: chosen=1 (sonnet/low, pinned)" [ "$chosen" = "1" ]
 assert "established cell: explorePM=150 → output probability 150" [ "$pm" = "150" ]
 assert "established cell: exploreIdx targets index 0 (Haiku)" [ "$exploreIdx" = "0" ]
+assert "established cell: remain=0 (dashboard: armed/offered now)" [ "$remain" = "0" ]
 
 # 3. Cold cell (nothing matches layer/wt) → no candidate below the cold-start floor.
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]' ui nonexistent-worktype)"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]' ui nonexistent-worktype)"
 assert "cold cell: chosen=coldIdx (0)" [ "$chosen" = "0" ]
 assert "cold cell: exploreIdx=-1 (nothing below the floor)" [ "$exploreIdx" = "-1" ]
+assert "cold cell: remain=-2 (dashboard: no cheaper rung)" [ "$remain" = "-2" ]
 assert "cold cell: output probability 0" [ "$pm" = "0" ]
 
 # 4. Risk-flagged task on the same established cell — never a vehicle for probing index 0.
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '["touches-schema"]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '["touches-schema"]')"
 assert "risk task: exploreIdx=-1 (floor clamp, never probes index 0)" [ "$exploreIdx" = "-1" ]
 assert "risk task: output probability 0" [ "$pm" = "0" ]
 
 # 5. Settled rejection: the rung below chosen already has >= minN samples and failed the floor.
 REJECTED="$(jq -cn --argjson a "$ESTABLISHED" --argjson b "$(seed_rows 1 5 claude-haiku-4-5 null bad)" '$a + $b')"
-read -r chosen pm exploreIdx <<<"$(run_policy "$REJECTED" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$REJECTED" "$LADDER5" 150 '[]')"
 assert "settled rejection: chosen stays 1 (index 0 already failed)" [ "$chosen" = "1" ]
 assert "settled rejection: exploreIdx still points at 0" [ "$exploreIdx" = "0" ]
 assert "settled rejection: output probability forced 0 (never re-probed)" [ "$pm" = "0" ]
+assert "settled rejection: remain>0 (dashboard: counting down to re-arm)" [ "$remain" -gt 0 ]
 
 # 6. Reindexing: the SAME rows, evaluated against the ladder before vs. after Haiku is inserted.
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER4" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER4" 150 '[]')"
 assert "pre-insertion (4-rung ladder): sonnet/low was index 0" [ "$chosen" = "0" ]
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]')"
 assert "post-insertion (5-rung ladder), same rows: chosen re-resolves to 1" [ "$chosen" = "1" ]
 assert "post-insertion: exploreIdx correctly targets the new index-0 rung" [ "$exploreIdx" = "0" ]
 
@@ -90,7 +93,7 @@ echo "--- convergence simulation (promotion branch) ---"
 
 rows="$ESTABLISHED"
 for i in 1 2 3 4 5 6; do
-  read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+  read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
   assert "promotion round $i: still probing index 0 (under-sampled)" [ "$exploreIdx" = "0" ]
   assert "promotion round $i: probability still 150" [ "$pm" = "150" ]
   # simulate a real explored task that ran on Haiku and SUCCEEDED
@@ -98,16 +101,17 @@ for i in 1 2 3 4 5 6; do
     startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:false}')"
   rows="$(append_row "$rows" "$row")"
 done
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "promotion: after 6/6 Haiku successes, chosen flips to 0" [ "$chosen" = "0" ]
 assert "promotion: exploreIdx recomputes to -1 (nothing left below index 0)" [ "$exploreIdx" = "-1" ]
+assert "promotion: remain=-2 (index 0 became normally eligible — nothing cheaper below it)" [ "$remain" = "-2" ]
 assert "promotion: self-terminated (output probability 0, no bookkeeping needed)" [ "$pm" = "0" ]
 
 echo "--- convergence simulation (rejection branch) ---"
 
 rows="$ESTABLISHED"
 for i in 1 2 3 4 5 6; do
-  read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+  read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
   assert "rejection round $i: still probing index 0 (under-sampled)" [ "$exploreIdx" = "0" ]
   assert "rejection round $i: probability still 150" [ "$pm" = "150" ]
   # simulate a real explored task that ran on Haiku and FAILED
@@ -115,7 +119,7 @@ for i in 1 2 3 4 5 6; do
     startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:true}')"
   rows="$(append_row "$rows" "$row")"
 done
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "rejection: after 6/6 Haiku failures, chosen stays 1" [ "$chosen" = "1" ]
 assert "rejection: settled rejection (output probability forced 0)" [ "$pm" = "0" ]
 # NOTE: pre-recheck, this suite asserted a directly-appended 7th failure kept the rung permanently
@@ -129,14 +133,14 @@ assert "rejection: settled rejection (output probability forced 0)" [ "$pm" = "0
 echo "--- recheck: cooldown gating (rejected rung stays silent until enough OTHER cell activity lands) ---"
 
 # Continue from a freshly settled rejection (6/6 failures, n=6, just settled — 'rows' from above).
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "cooldown: freshly rejected, still 0 probability" [ "$pm" = "0" ]
 assert "cooldown: exploreIdx still points at 0" [ "$exploreIdx" = "0" ]
 
 # Append 39 filler rows of ORDINARY traffic at the chosen tier (index 1) — doesn't touch the candidate.
 FILLER39="$(seed_rows 39 0 claude-sonnet-5 '"low"' fill)"
 rows="$(jq -cn --argjson a "$rows" --argjson b "$FILLER39" '$a + $b')"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "cooldown: still 0 after 39 filler rows (not yet elapsed)" [ "$pm" = "0" ]
 assert "cooldown: exploreIdx unchanged" [ "$exploreIdx" = "0" ]
 
@@ -144,7 +148,7 @@ assert "cooldown: exploreIdx unchanged" [ "$exploreIdx" = "0" ]
 row="$(jq -cn '{id:"fill40", facets:{layer:"ui",workType:"style",risk:[]},
   startModel:"claude-sonnet-5", startEffort:"low", finalModel:"claude-sonnet-5", finalEffort:"low", blocked:false}')"
 rows="$(append_row "$rows" "$row")"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "cooldown: probability resumes after the 40th filler row" [ "$pm" = "150" ]
 assert "cooldown: exploreIdx still 0 (not promoted yet)" [ "$exploreIdx" = "0" ]
 assert "cooldown: chosen still 1 (not promoted yet)" [ "$chosen" = "1" ]
@@ -159,23 +163,24 @@ echo "--- recheck: full batch at once after cooldown elapses, then promotion ---
 # fresh successes (5/6 = 83.3% >= 75%), i.e. after the 5th new touch (n=11), one round earlier than a
 # naive "wait for a clean batch of 6" model would predict.
 for i in 1 2 3 4 5; do
-  read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+  read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
   assert "resume round $i: still offered, no re-cooldown mid-batch" [ "$pm" = "150" ]
   assert "resume round $i: not yet promoted" [ "$chosen" = "1" ]
   row="$(jq -cn --arg id "resume$i" '{id:$id, facets:{layer:"ui",workType:"style",risk:[]},
     startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:false}')"
   rows="$(append_row "$rows" "$row")"
 done
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "resume: after 5/5 new successes (window 5/6, mixed with 1 stale fail), chosen promotes to 0" [ "$chosen" = "0" ]
 assert "resume: exploreIdxOut=-1 (promoted this call)" [ "$exploreIdx" = "-1" ]
+assert "resume: remain=-1 (dashboard: promoted via the trailing window)" [ "$remain" = "-1" ]
 assert "resume: self-terminated (0 probability, no bookkeeping)" [ "$pm" = "0" ]
 
 echo "--- recheck: promotion is durable and self-corrects (not just a boundary flash) ---"
 
 # Continuing 'rows' (n=11 at index 0: 6 stale fails + 5 fresh successes, currently promoted, chosen=0).
 # Confirm it STAYS promoted on a call with no new touches at all (sanity: sticky, not a one-shot flag).
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "durability: still promoted with zero new touches (re-derived fresh, not a flag)" [ "$chosen" = "0" ]
 
 # Now feed 2 REAL failures at the candidate — NOT at a batch boundary (n=12, n=13) — and confirm the
@@ -186,13 +191,13 @@ assert "durability: still promoted with zero new touches (re-derived fresh, not 
 row="$(jq -cn '{id:"drift1", facets:{layer:"ui",workType:"style",risk:[]},
   startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:true}')"
 rows="$(append_row "$rows" "$row")"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "durability: one new failure (5/6 in window) doesn't yet flip a promoted rung" [ "$chosen" = "0" ]
 
 row="$(jq -cn '{id:"drift2", facets:{layer:"ui",workType:"style",risk:[]},
   startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:true}')"
 rows="$(append_row "$rows" "$row")"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows" "$LADDER5" 150 '[]')"
 assert "durability: a second new failure (window now 4/6) falls back to the old tier, mid-batch (n=13, not a boundary)" [ "$chosen" = "1" ]
 
 echo "--- recheck: rejected again after resume — cooldown restarts, not a tight loop ---"
@@ -203,11 +208,11 @@ echo "--- recheck: rejected again after resume — cooldown restarts, not a tigh
 rows2="$REJECTED"   # 56 established (index 1) + 6 stale fails (index 0) — same shape as the earlier fixture
 FILLER40="$(seed_rows 40 0 claude-sonnet-5 '"low"' fill2)"
 rows2="$(jq -cn --argjson a "$rows2" --argjson b "$FILLER40" '$a + $b')"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
 assert "resumed-rejection: cooldown elapsed (40 fillers), offered again" [ "$pm" = "150" ]
 
 for i in 1 2 3 4 5; do
-  read -r chosen pm exploreIdx <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
+  read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
   assert "resumed-rejection round $i: still offered, no re-cooldown mid-batch" [ "$pm" = "150" ]
   row="$(jq -cn --arg id "rerej$i" '{id:$id, facets:{layer:"ui",workType:"style",risk:[]},
     startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:true}')"
@@ -217,31 +222,31 @@ done
 row="$(jq -cn '{id:"rerej6", facets:{layer:"ui",workType:"style",risk:[]},
   startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-haiku-4-5", finalEffort:null, blocked:true}')"
 rows2="$(append_row "$rows2" "$row")"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
 assert "resumed-rejection: fresh batch also fails -> chosen stays 1" [ "$chosen" = "1" ]
 assert "resumed-rejection: cooldown restarts immediately (0 probability)" [ "$pm" = "0" ]
 
 # Confirm the restart is a genuine fresh 40-row wait FROM THE NEW position, not the original.
 FILLER39b="$(seed_rows 39 0 claude-sonnet-5 '"low"' fill3)"
 rows2="$(jq -cn --argjson a "$rows2" --argjson b "$FILLER39b" '$a + $b')"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
 assert "resumed-rejection: still 0 after 39 more fillers (new cooldown not yet elapsed)" [ "$pm" = "0" ]
 row="$(jq -cn '{id:"fill80", facets:{layer:"ui",workType:"style",risk:[]},
   startModel:"claude-sonnet-5", startEffort:"low", finalModel:"claude-sonnet-5", finalEffort:"low", blocked:false}')"
 rows2="$(append_row "$rows2" "$row")"
-read -r chosen pm exploreIdx <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$rows2" "$LADDER5" 150 '[]')"
 assert "resumed-rejection: offered again after the NEW cooldown's 40th filler" [ "$pm" = "150" ]
 
 echo "--- degenerate configs ---"
 
 # exploreCooldownN=0: cooldown disabled — a rejected rung is offered again on the VERY NEXT call.
-read -r chosen pm exploreIdx <<<"$(run_policy "$REJECTED" "$LADDER5" 150 '[]' ui style 0)"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$REJECTED" "$LADDER5" 150 '[]' ui style 0)"
 assert "exploreCooldownN=0: cooldown disabled, offered immediately after settling" [ "$pm" = "150" ]
 
 # minN=1: every touch is its own batch/boundary — degenerates to per-touch cooldown automatically,
 # no special-casing needed. Sanity check only.
 MINN1_ROWS="$(jq -cn --argjson a "$ESTABLISHED" --argjson b "$(seed_rows 0 1 claude-haiku-4-5 null bad1)" '$a + $b')"
-read -r chosen pm exploreIdx <<<"$(jq -rn --argjson rows "$MINN1_ROWS" --argjson tiers "$LADDER5" \
+read -r chosen pm exploreIdx remain <<<"$(jq -rn --argjson rows "$MINN1_ROWS" --argjson tiers "$LADDER5" \
    --arg layer ui --arg wt style --argjson floor 0.75 --argjson minN 1 --argjson coldIdx 0 \
    --argjson manualFail '{}' --argjson risk '[]' --argjson explorePM 150 --argjson exploreCooldownN 40 \
    --argjson auditCount -1 --argjson auditStartN 3 --argjson auditFloorN 8 --argjson auditFloorPM 100 \
@@ -257,7 +262,7 @@ echo "--- escalate-through touch attribution ---"
 ESCALATE_ROW="$(jq -cn '{id:"esc1", facets:{layer:"ui",workType:"style",risk:[]},
   startModel:"claude-haiku-4-5", startEffort:null, finalModel:"claude-sonnet-5", finalEffort:"medium", blocked:false}')"
 ESC_ROWS="$(jq -cn --argjson a "$ESTABLISHED" --argjson b "$ESCALATE_ROW" '$a + [$b]')"
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESC_ROWS" "$LADDER5" 150 '[]')"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESC_ROWS" "$LADDER5" 150 '[]')"
 assert "escalate-through: still counts as 1 sample at the candidate rung (offered, under-sampled)" [ "$pm" = "150" ]
 assert "escalate-through: exploreIdx unaffected" [ "$exploreIdx" = "0" ]
 
@@ -265,7 +270,7 @@ echo "--- regression: byte-identical against the original (pre-recheck) shipped 
 
 # The exact real-data reproduction from the original feature's empirical validation — chosen=1,
 # explorePM passthrough=150, exploreIdx=0 — must still hold with exploreCooldownN now present.
-read -r chosen pm exploreIdx <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]' ui style 40)"
+read -r chosen pm exploreIdx remain <<<"$(run_policy "$ESTABLISHED" "$LADDER5" 150 '[]' ui style 40)"
 assert "final regression: established cell still resolves identically with exploreCooldownN present" [ "$chosen" = "1" ]
 assert "final regression: explorePM passthrough unaffected" [ "$pm" = "150" ]
 assert "final regression: exploreIdx unaffected" [ "$exploreIdx" = "0" ]

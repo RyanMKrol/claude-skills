@@ -3,8 +3,10 @@
 #   TIER selection ($auditCount < 0, the default): given the escalation ledger + a task's
 #   (layer × work-type) cell, return the index of the cheapest tier on the global ladder whose
 #   historical first-attempt success rate for that cell is >= floor with >= minN samples; else
-#   coldIdx (the authored difficulty / cold-start prior). Output is a 3-field space-separated line
-#   "$chosen $explorePMOut $exploreIdx" — see "downward exploration" below.
+#   coldIdx (the authored difficulty / cold-start prior). Output is a 4-field space-separated line
+#   "$chosen $explorePMOut $exploreIdx $remain" — see "downward exploration" below. ($remain is for the
+#   dashboard: -2 no cheaper rung · -1 promoted · 0 armed now · N>0 cell-rows until re-offered. The loop
+#   reads only the first three fields.)
 #
 #   AUDIT probability ($auditCount >= 0): given a cell's CONFIRMED-AUDITED success count, return the
 #   blocking-audit sampling probability as an integer PER-MILLE (0..1000) — so the loop can sample
@@ -16,7 +18,7 @@
 #                   --argjson coldIdx <N> --argjson auditCount -1 --argjson manualFail '<tracking/manual-fail.json>' \
 #                   --argjson risk '<this task's facets.risk array>' \
 #                   --argjson auditStartN 3 --argjson auditFloorN 8 --argjson auditFloorPM 100 \
-#                   --argjson explorePM <per-mille, 0 = off> --argjson exploreCooldownN <rows, default 40>
+#                   --argjson explorePM <per-mille, 0 = off> --argjson exploreCooldownN <rows, default 20>
 # Invoke (audit): same flags, but --argjson auditCount <confirmed-count> (>= 0); the tier-only flags
 #                 may be placeholders (rows '[]', tiers '[]', layer/wt '', etc.) — that branch is not
 #                 evaluated. Both invocations must DEFINE every $var (jq compiles both branches).
@@ -124,12 +126,12 @@ else
   # --- downward exploration + periodic recheck (see header comment) ---
   | (if ($risk | length) > 0 then 1 else 0 end) as $floorIdx
   | (if ($chosen - 1) >= $floorIdx then ($chosen - 1) else -1 end) as $exploreIdx
-  | ( if $exploreIdx < 0 then { promote: false, offer: false }
+  | ( if $exploreIdx < 0 then { promote: false, offer: false, remain: -2 }   # chosen is the floor — no cheaper rung to probe
       else
         ($ev | map(select(.idx == $exploreIdx))) as $atExplore
         | ($atExplore | length) as $n
         | if $n < $minN then
-            { promote: false, offer: true }              # first (partial) batch — unchanged from pre-recheck behavior
+            { promote: false, offer: true, remain: 0 }   # first (partial) batch — offered now, still gathering samples
           else
             # Promotion is a CONTINUOUS check — the freshest trailing window of the last $minN touches,
             # re-evaluated on EVERY call, not just at a batch boundary. This is what makes a promoted
@@ -140,27 +142,31 @@ else
             ($atExplore | .[-$minN:]) as $win
             | (($win | map(select(.ok)) | length) / $minN) as $winRate
             | if $winRate >= $floor then
-                { promote: true, offer: false }
+                { promote: true, offer: false, remain: -1 }   # promoted — the cheaper rung is now the pick
               else
                 # NOT promoted: batch-boundary gating applies ONLY to retry PACING (offer), so a single
                 # in-progress retry campaign doesn't re-arm the cooldown after every individual touch —
                 # "full batch at once", per the confirmed design choice. Boundaries are fixed positions
                 # (multiples of $minN) counted from the first-ever touch, independent of promotion events.
                 (($n - 1) % $minN == $minN - 1) as $atBoundary
+                | ($cellRows | length) as $cellN
+                | ($atExplore | max_by(.row) | .row) as $lastRow
+                | ($cellN - 1 - $lastRow) as $sinceTouch
                 | if ($atBoundary | not) then
-                    { promote: false, offer: true }       # mid-batch — still within an active campaign, keep going
+                    { promote: false, offer: true, remain: 0 }   # mid-batch — still within an active campaign, keep going
                   else
-                    ($cellRows | length) as $cellN
-                    | ($atExplore | max_by(.row) | .row) as $lastRow
-                    | ($cellN - 1 - $lastRow) as $sinceTouch
-                    | { promote: false, offer: ($sinceTouch >= $exploreCooldownN) }
+                    { promote: false, offer: ($sinceTouch >= $exploreCooldownN),
+                      remain: (if $sinceTouch >= $exploreCooldownN then 0 else ($exploreCooldownN - $sinceTouch) end) }
                   end
               end
           end
       end
     ) as $v
+  # 4th output field `remain` (dashboard's "downward exploration" state): -2 no cheaper rung · -1 the
+  # cheaper rung was PROMOTED (it's now $chosenOut) · 0 armed/offered right now · N>0 = N more cell-rows
+  # until a rejected rung is re-offered. The loop ignores it (reads only chosen/pm/exploreIdx).
   | (if $v.promote then $exploreIdx else $chosen end) as $chosenOut
   | (if $v.promote then -1 else $exploreIdx end) as $exploreIdxOut
   | (if $exploreIdxOut >= 0 and $v.offer then $explorePM else 0 end) as $explorePMOut
-  | "\($chosenOut) \($explorePMOut) \($exploreIdxOut)"
+  | "\($chosenOut) \($explorePMOut) \($exploreIdxOut) \($v.remain)"
 end

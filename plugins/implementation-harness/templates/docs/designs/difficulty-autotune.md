@@ -103,7 +103,7 @@ below `$chosen` (never any other tier):
   durable for as long as recent performance holds, and self-corrects — quietly falling back to the
   prior, pricier `$chosen` — the moment it doesn't. No persisted flag, no separate state.
 - **Offer** (only reached when not promoted) — whether to sample a new retry right now, gated by
-  `.policy.exploreCooldownN` (default `40`) rows of *other* cell activity since the rung's last
+  `.policy.exploreCooldownN` (default `20`) rows of *other* cell activity since the rung's last
   touch — a pure row-count check, no timestamps. To avoid re-arming a full cooldown after every
   single retry (which could take `minN × exploreCooldownN` rows to gather one batch), this is
   computed only at fixed BATCH BOUNDARIES — multiples of `minN` touches, counted from the

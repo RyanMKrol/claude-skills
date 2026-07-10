@@ -196,7 +196,7 @@ POLICY_MINN="$(blob config/facets.json | jq -r '.policy.minN // 6' 2>/dev/null)"
 POLICY_EXPLORE_PM="$(blob config/facets.json | jq -r '.policy.exploreProbabilityPM // 0' 2>/dev/null)"; POLICY_EXPLORE_PM="${POLICY_EXPLORE_PM:-0}"
 # Periodic recheck of a rejected exploration rung: rows of other cell activity that must land since
 # that rung's last touch before it's offered again (batch-boundary judgment — see policy.jq header).
-POLICY_EXPLORE_COOLDOWN_N="$(blob config/facets.json | jq -r '.policy.exploreCooldownN // 40' 2>/dev/null)"; POLICY_EXPLORE_COOLDOWN_N="${POLICY_EXPLORE_COOLDOWN_N:-40}"
+POLICY_EXPLORE_COOLDOWN_N="$(blob config/facets.json | jq -r '.policy.exploreCooldownN // 20' 2>/dev/null)"; POLICY_EXPLORE_COOLDOWN_N="${POLICY_EXPLORE_COOLDOWN_N:-20}"
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6). Read from origin/main via blob.
 AUDIT_START_N="$(blob config/facets.json | jq -r '.policy.auditStartN // 3' 2>/dev/null)"; AUDIT_START_N="${AUDIT_START_N:-3}"
 AUDIT_FLOOR_N="$(blob config/facets.json | jq -r '.policy.auditFloorN // 8' 2>/dev/null)"; AUDIT_FLOOR_N="${AUDIT_FLOOR_N:-8}"
@@ -269,8 +269,8 @@ pick_base() {
   if [ -z "$layer" ] || [ -z "$wt" ] || [ -z "$tiers" ] || [ -z "$rows" ] || [ "$rows" = "[]" ]; then printf '%s 0' "$cold"; return; fi
   local mf risk; mf="$(blob tracking/manual-fail.json)"; [ -n "$mf" ] || mf='{}'
   risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
-  local chosen pm exploreIdx
-  read -r chosen pm exploreIdx <<<"$(jq -rn --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
+  local chosen pm exploreIdx _erem   # _erem = policy.jq's 4th field (dashboard cooldown state) — unused here
+  read -r chosen pm exploreIdx _erem <<<"$(jq -rn --argjson rows "$rows" --argjson tiers "$tiers" --arg layer "$layer" --arg wt "$wt" \
      --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" --argjson coldIdx "$cold" \
      --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" --argjson exploreCooldownN "$POLICY_EXPLORE_COOLDOWN_N" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \

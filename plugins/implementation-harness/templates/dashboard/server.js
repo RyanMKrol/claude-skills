@@ -210,6 +210,13 @@ function runPolicy(argPairs) {
   const n = Number(String(out).trim().split(/\s+/)[0]);
   return Number.isFinite(n) ? n : null;
 }
+// runPolicyRaw — like runPolicy but returns the FULL parsed token array (TIER mode is
+// "chosenIdx explorePM exploreIdx remain"), so the internals view can show the downward-exploration state.
+function runPolicyRaw(argPairs) {
+  const args = ['-rn', '-f', POLICY_JQ];
+  for (const [flag, name, val] of argPairs) args.push(flag, name, val);
+  return String(execFileSync('jq', args, { encoding: 'utf8', timeout: 5000 })).trim().split(/\s+/).map(Number);
+}
 
 function buildHarnessState() {
   const facets = readJson(FACETS_PATH, {});
@@ -221,7 +228,7 @@ function buildHarnessState() {
   const auditFloorN = pol.auditFloorN != null ? pol.auditFloorN : 8;
   const auditFloorPM = Math.round((pol.auditFloor != null ? pol.auditFloor : 0.10) * 1000);
   const explorePM = pol.exploreProbabilityPM != null ? pol.exploreProbabilityPM : 0;
-  const exploreCooldownN = pol.exploreCooldownN != null ? pol.exploreCooldownN : 40;
+  const exploreCooldownN = pol.exploreCooldownN != null ? pol.exploreCooldownN : 20;
 
   const key = mtimeKey([OUTCOMES_PATH, FAILURES_PATH, FACETS_PATH, OVERLAY_PATHS.manualFail, TASKS_PATH]);
   if (_harnessCache.key === key && _harnessCache.value) return _harnessCache.value;
@@ -239,7 +246,7 @@ function buildHarnessState() {
     const rowsJson = JSON.stringify(outcomes), ladderJson = JSON.stringify(ladder), mfJson = JSON.stringify(manualFail);
     for (const c of cells) {
       try {
-        const chosenIdx = runPolicy([
+        const parts = runPolicyRaw([
           ['--argjson', 'rows', rowsJson], ['--argjson', 'tiers', ladderJson],
           ['--arg', 'layer', c.layer], ['--arg', 'wt', c.workType],
           ['--argjson', 'floor', String(floor)], ['--argjson', 'minN', String(minN)], ['--argjson', 'coldIdx', String(coldIdx)],
@@ -248,6 +255,10 @@ function buildHarnessState() {
           ['--argjson', 'auditFloorN', String(auditFloorN)], ['--argjson', 'auditFloorPM', String(auditFloorPM)],
           ['--argjson', 'explorePM', String(explorePM)], ['--argjson', 'exploreCooldownN', String(exploreCooldownN)],
         ]);
+        const chosenIdx = Number.isFinite(parts[0]) ? parts[0] : null;
+        c.explorePMOut = Number.isFinite(parts[1]) ? parts[1] : 0;    // per-mille offered THIS call (0 = not armed now)
+        c.exploreIdx = Number.isFinite(parts[2]) ? parts[2] : -1;     // the cheaper rung being probed, -1 = none / promoted
+        c.exploreRemain = Number.isFinite(parts[3]) ? parts[3] : -2;  // -2 no cheaper rung · -1 promoted · 0 armed · N>0 cell-rows until re-armed
         const tier = (chosenIdx != null && ladder[chosenIdx]) || null;
         c.chosenModel = tier ? tier.model : null;
         c.chosenEffort = tier ? tier.effort : null;
@@ -271,7 +282,7 @@ function buildHarnessState() {
 
   const value = {
     ladder, coldIdx,
-    policy: { floor, minN, auditStartN, auditFloorN, auditFloor: auditFloorPM / 1000, auditorModel: pol.auditorModel || null, auditorEffort: pol.auditorEffort || null },
+    policy: { floor, minN, auditStartN, auditFloorN, auditFloor: auditFloorPM / 1000, auditorModel: pol.auditorModel || null, auditorEffort: pol.auditorEffort || null, explorePM, exploreCooldownN },
     cells, recent: recentActivity(outcomes, failures, 20), failureKinds: failureKinds(failures), jqOk,
   };
   _harnessCache = { key, value };
@@ -907,6 +918,9 @@ function renderHarness(data) {
        knob('min samples', p.minN) +
        knob('audit taper', '100% until ' + p.auditStartN + ' → ' + Math.round((p.auditFloor || 0) * 100) + '% by ' + p.auditFloorN + ' audited') +
        knob('auditor', (p.auditorModel || '—') + ' / ' + (p.auditorEffort || '—')) +
+       knob('downward explore', (p.explorePM || 0) > 0
+            ? (Math.round(p.explorePM / 10) + '% chance · re-arm after ' + p.exploreCooldownN + ' rows / cell')
+            : 'off') +
        '</div></div>';
 
   h += '<div class="htitle">Per-facet calibration</div>';
@@ -915,9 +929,19 @@ function renderHarness(data) {
   if (!cells.length) {
     h += '<p class="note">No calibration data yet — the harness records an outcome each time it builds a task.</p>';
   } else {
+    const showExplore = (p.explorePM || 0) > 0;   // only surface the exploration column when it's enabled
+    const exploreCell = function (c) {
+      const r = c.exploreRemain, tgt = L[c.exploreIdx];
+      const tl = tgt ? esc(tgt.model.replace(/^claude-/, '') + (tgt.effort ? '/' + tgt.effort : '')) : ('tier ' + c.exploreIdx);
+      if (r === -2) return '<span class="cold-tag">—</span>';                                             // already cheapest — nothing below
+      if (r === -1) return '<span class="pill done" title="a cheaper rung passed its probe and is now the Start model">↓ promoted</span>';
+      if (r === 0)  return '<span class="pill" title="probing the cheaper rung ' + tl + ' at ' + Math.round((c.explorePMOut || 0) / 10) + '% on each eligible task">↓ ' + tl + ' · ' + Math.round((c.explorePMOut || 0) / 10) + '%</span>';
+      return '<span class="cold-tag" title="rung ' + tl + ' failed a probe; re-offered after ' + r + ' more builds land in this cell">↓ ' + tl + ' · ' + r + ' left</span>';
+    };
     h += '<table class="ftable"><thead><tr>'
        + '<th>Facet <span class="qtip" tabindex="0" data-tip="The layer × work-type combination this row\\'s stats are calibrated for (e.g. backend/feature).">?</span></th>'
        + '<th>Start model <span class="qtip" tabindex="0" data-tip="The model/effort the policy would pick to START a task in this cell right now (it only escalates from here on real failure). \\'cold\\' = no build history yet, using the cold-start prior.">?</span></th>'
+       + (showExplore ? '<th>Explore ↓ <span class="qtip" tabindex="0" data-tip="Downward exploration for this cell: which cheaper rung the policy is probing, and whether it is armed now (with the % chance per eligible task), in cooldown (N more builds in THIS cell until it re-arms), promoted (the probe succeeded), or — (already the cheapest rung).">?</span></th>' : '')
        + '<th class="num">Audit (policy) <span class="qtip" tabindex="0" data-tip="The sampling probability the policy will use for the NEXT build in this cell">?</span></th>'
        + '<th class="num">Audited (observed) <span class="qtip" tabindex="0" data-tip="What actually happened: audited successes / all successes recorded in the ledger">?</span></th>'
        + '<th class="num">Builds <span class="qtip" tabindex="0" data-tip="Total tasks in this cell that reached a terminal outcome (success or blocked), per the outcomes ledger.">?</span></th>'
@@ -933,6 +957,7 @@ function renderHarness(data) {
       const failTip = Object.entries(c.kinds || {}).map(function (kv) { return kv[0] + ' ×' + kv[1]; }).join(', ');
       h += '<tr><td class="facet-name">' + esc(c.layer) + '/' + esc(c.workType) + '</td>' +
            '<td class="model-tag">' + model + cold + '</td>' +
+           (showExplore ? '<td>' + exploreCell(c) + '</td>' : '') +
            '<td class="num">' + audit + '</td>' +
            '<td class="num">' + observed + '</td>' +
            '<td class="num">' + c.builds + '</td>' +

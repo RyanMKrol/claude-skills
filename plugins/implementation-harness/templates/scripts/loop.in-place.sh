@@ -482,7 +482,7 @@ POLICY_MINN="$(jq -r '.policy.minN // 6' "$FACETS" 2>/dev/null || echo 6)"
 POLICY_EXPLORE_PM="$(jq -r '.policy.exploreProbabilityPM // 0' "$FACETS" 2>/dev/null || echo 0)"
 # Periodic recheck of a rejected exploration rung: rows of other cell activity that must land since
 # that rung's last touch before it's offered again (batch-boundary judgment — see policy.jq header).
-POLICY_EXPLORE_COOLDOWN_N="$(jq -r '.policy.exploreCooldownN // 40' "$FACETS" 2>/dev/null || echo 40)"
+POLICY_EXPLORE_COOLDOWN_N="$(jq -r '.policy.exploreCooldownN // 20' "$FACETS" 2>/dev/null || echo 20)"
 POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6).
 AUDIT_START_N="$(jq -r '.policy.auditStartN // 3' "$FACETS" 2>/dev/null || echo 3)"
@@ -539,8 +539,8 @@ pick_base() {
   if [ -z "$layer" ] || [ -z "$wt" ] || [ ! -s "$OUTCOMES" ] || [ -z "$tiers" ] || [ ! -f "$POLICY_JQ" ]; then printf '%s 0' "$cold"; return; fi
   local mf risk; mf="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
   risk="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets.risk // []')"; [ -n "$risk" ] || risk='[]'
-  local chosen pm exploreIdx
-  read -r chosen pm exploreIdx <<<"$(jq -rn -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
+  local chosen pm exploreIdx _erem   # _erem = policy.jq's 4th field (dashboard cooldown state) — unused here
+  read -r chosen pm exploreIdx _erem <<<"$(jq -rn -f "$POLICY_JQ" --slurpfile rows "$OUTCOMES" --argjson tiers "$tiers" \
      --arg layer "$layer" --arg wt "$wt" --argjson floor "$POLICY_FLOOR" --argjson minN "$POLICY_MINN" \
      --argjson coldIdx "$cold" --argjson manualFail "$mf" --argjson risk "$risk" --argjson explorePM "$POLICY_EXPLORE_PM" --argjson exploreCooldownN "$POLICY_EXPLORE_COOLDOWN_N" \
      --argjson auditCount -1 --argjson auditStartN "$AUDIT_START_N" --argjson auditFloorN "$AUDIT_FLOOR_N" --argjson auditFloorPM "$AUDIT_FLOOR_PM" \
