@@ -697,8 +697,8 @@ function renderPage() {
     </div>
     <label class="bright-ctl" title="Brightness of the light themes — tune to taste">
       <span>☀</span>
-      <input type="range" id="brightness" min="80" max="99" step="1" value="96" oninput="onBrightness(this.value)">
-      <span class="bv mono" id="bright-val">96</span>
+      <input type="range" id="brightness" min="0" max="40" step="1" value="12" oninput="onBrightness(this.value)">
+      <span class="bv mono" id="bright-val">12</span>
     </label>
   </div>
 </div>
@@ -1218,13 +1218,13 @@ async function bulkAction(bucket) {
 // open-ended color input — picking a good palette from unlimited options is fiddly; a small
 // curated set is not.
 const THEME_STORAGE_KEY = 'harness-dashboard-theme:' + HARNESS_PROJECT_KEY;
-const BRIGHT_STORAGE_KEY = 'harness-dashboard-brightness:' + HARNESS_PROJECT_KEY;
+const BRIGHT_STORAGE_KEY = 'harness-dashboard-lightlift:' + HARNESS_PROJECT_KEY;   // lightness lift for the light variants (new key: the old 'brightness' had a different meaning)
 const BASE_THEMES = ['ink', 'forest', 'plum', 'amber'];
 const THEME_VARS = ['--bg','--panel','--panel-2','--border','--text','--muted','--accent','--green','--red','--yellow','--amber','--human'];
 // The dark palettes, mirrored from the [data-theme] CSS blocks above (KEEP IN SYNC) — needed in JS so
-// each theme's LIGHT variant can be derived from its dark palette by an HSL transform: light-tinted
-// backgrounds at the "brightness" slider's lightness, dark tinted text, and darkened+saturated accents
-// so semantic pill colours (done/failed/blocked) stay readable on a light base. A light theme is
+// each theme's LIGHT variant can be derived from its OWN dark palette. The light variant is NOT a new
+// baseline: it is the SAME dark theme with its SURFACE colours lifted lighter by the slider amount (see
+// deriveLight); text and accent colours are left exactly as the dark theme has them. A light theme is
 // applied as inline CSS vars on <html> (overriding the dark CSS block); switching back removes them.
 const DARK_PALETTES = {
   ink:    {'--bg':'#1a2b45','--panel':'#203453','--panel-2':'#273d65','--border':'#3c537a','--text':'#e9eefb','--muted':'#9fafcd','--accent':'#ff7a54','--green':'#4ad991','--red':'#ff5c6e','--yellow':'#ffcf5c','--amber':'#ff9d4d','--human':'#b98bff'},
@@ -1247,22 +1247,21 @@ function hslToHex(h, s, l) {
   const to = function(x){ return ('0' + Math.round(clamp(x,0,1)*255).toString(16)).slice(-2); };
   return '#' + to(f(0)) + to(f(8)) + to(f(4));
 }
-// deriveLight(base, B): the light palette for a theme at background-lightness B (the slider value).
-function deriveLight(base, B) {
-  const p = DARK_PALETTES[base], out = {}, bg = hexToHsl(p['--bg']);
-  const put = function(k, h, s, l){ out[k] = hslToHex(h, clamp(s,0,100), clamp(l,0,100)); };
-  put('--bg',      bg.h, Math.min(bg.s, 30), B);
-  put('--panel',   bg.h, Math.min(bg.s, 26), Math.min(99, B + 3));
-  put('--panel-2', bg.h, Math.min(bg.s, 24), Math.min(99, B + 6));
-  put('--border',  bg.h, 22, clamp(B - 20, 58, 86));
-  put('--text',    bg.h, 22, 17);
-  put('--muted',   bg.h, 14, 42);
-  ['--accent','--green','--red','--yellow','--amber','--human'].forEach(function(k){
-    const c = hexToHsl(p[k]); put(k, c.h, Math.min(100, c.s), k === '--accent' ? 46 : 44);
+// deriveLight(base, lift): a LIGHTER rendition of the DARK theme — NOT a new light baseline. "lift" is
+// how many lightness points (0..~40) to ADD to the theme's SURFACE colours (bg / panel / panel-2 /
+// border), keeping each theme's own hue + saturation; text, muted, and accent colours are left exactly
+// as the dark theme has them (they stay readable as the surfaces lighten within the bounded range).
+// lift 0 == the dark theme unchanged; higher == progressively lighter, still a dark-with-light-text theme.
+function deriveLight(base, lift) {
+  const p = DARK_PALETTES[base], out = {};
+  const SURFACE = { '--bg': 1, '--panel': 1, '--panel-2': 1, '--border': 1 };
+  THEME_VARS.forEach(function(k){
+    if (SURFACE[k]) { const c = hexToHsl(p[k]); out[k] = hslToHex(c.h, c.s, clamp(c.l + lift, 0, 100)); }
+    else out[k] = p[k];
   });
   return out;
 }
-function currentBrightness() { const v = parseInt(localStorage.getItem(BRIGHT_STORAGE_KEY) || '96', 10); return isNaN(v) ? 96 : clamp(v, 60, 100); }
+function currentBrightness() { const v = parseInt(localStorage.getItem(BRIGHT_STORAGE_KEY) || '12', 10); return isNaN(v) ? 12 : clamp(v, 0, 40); }
 function markActiveTheme(sel) {
   document.querySelectorAll('.swatch').forEach(function (b) { b.classList.toggle('active', b.dataset.sel === sel); });
 }
@@ -1279,7 +1278,7 @@ function updateLightSwatches(B) {
   BASE_THEMES.forEach(function(base){ const btn = document.querySelector('.swatch[data-sel="' + base + '-light"]'); if (btn) btn.style.background = deriveLight(base, B)['--bg']; });
 }
 function onBrightness(val) {
-  val = clamp(parseInt(val, 10) || 96, 60, 100); localStorage.setItem(BRIGHT_STORAGE_KEY, String(val));
+  val = clamp(parseInt(val, 10) || 12, 0, 40); localStorage.setItem(BRIGHT_STORAGE_KEY, String(val));
   const bv = document.getElementById('bright-val'); if (bv) bv.textContent = val;
   updateLightSwatches(val);
   const cur = localStorage.getItem(THEME_STORAGE_KEY) || '';

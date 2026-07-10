@@ -42,6 +42,20 @@ Entry format:
 
 ---
 
+## 1.61.0 → 1.61.1 — light themes are now the dark theme LIFTED lighter, not a new light baseline
+
+Fixes 1.58.0's light variants reading as "very very bright" (a near-white baseline with dark text).
+
+- mechanism: `dashboard/server.js` — `deriveLight` now starts from each theme's OWN dark palette and adds
+  the slider amount to the LIGHTNESS of the surface colours (bg/panel/panel-2/border) only, keeping the
+  dark theme's hue/saturation and its text + accent colours unchanged. So a light variant is the same
+  theme lifted lighter (lift 0 = the dark theme; higher = progressively lighter, still dark-with-light-
+  text), not a flipped light-mode. The slider is repurposed to a lightness "lift" (0–40, default 12) and
+  uses a new localStorage key (`…-lightlift:` vs the old `…-brightness:`) so a stale saved value can't
+  carry the old meaning.
+- breaking: none (client-only). Anyone who'd saved a brightness value re-tunes once (the old key is
+  ignored; it starts at lift 12).
+
 ## 1.60.0 → 1.61.0 — surface the `expectsTest` requirement to the builder (was enforced but invisible)
 
 `expectsTest:true` was a machine-only signal: `structural_checks` auto-fails a diff that changes no test
