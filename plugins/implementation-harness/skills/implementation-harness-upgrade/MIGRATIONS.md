@@ -42,6 +42,37 @@ Entry format:
 
 ---
 
+## 1.64.2 → 1.65.0 — fix: the `idle` verdict no longer stalls the whole cycle (per-task reconcile) + persist-or-shout
+
+Fixes a HIGH-severity silent full-loop stall. The `idle` verdict is per-task ("this one task's Done-when
+is already met on main — nothing to build for it"), but the handler treated it as a global "backlog
+drained" and did `exit 0`, ending the cycle with other ready tasks unbuilt. It was STICKY: the trigger is a
+task whose work reached main but whose status stayed `pending` (a lost status flip), and `select_task`
+keys on status, so every subsequent cycle re-selected the same task, got `idle`, and exited again — until a
+human intervened.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` (parity change, both variants):
+  - the `idle)` handler now RECONCILES the one task instead of exiting — re-does the lost status=done flip
+    (`record_outcome "$task" false` in the worktree variant / `mark_done "$task"` in the in-place variant),
+    clears the heartbeat, and CONTINUES. The only stop-on-nothing-to-do remains the `select_task`-empty
+    drain path. A consecutive-idle GUARD (`idle_task`/`idle_count`, init'd with the other loop globals)
+    `block_task`s a task that reports idle twice running (its flip won't persist), so it can never spin.
+  - persist-or-shout hardening (root cause): a new `status_done_on_remote` helper VERIFIES the status flip
+    actually reached `origin/<main>`; `record_outcome`(success)/`mark_done` now retry the push once and log
+    a loud `ERROR` if it still didn't land, instead of a silent best-effort `WARN` that the next cold
+    rebuild reverts. Idle no longer fires the `drained` lifecycle hook (that hook is now only the real
+    backlog-drained exit).
+- mechanism: `docs/HARNESS.md` — result-vocabulary entry for `idle` rewritten to the per-task/reconcile
+  semantics; the §8.3 `on-drained.sh` event-table row drops the `idle` reason (only `drained` now); the
+  sync_primary_checkout "when the loop finishes" note drops "/ idle".
+- config: `config/harness.env` — COMMENT-ONLY tidy (hook list "drain/idle" → "drain"; sync note "backlog
+  drained / idle" → "backlog drained"). No knob added/changed — ACTION: none (nothing for the upgrade to
+  reconcile; existing installs' harness.env comments are left as-is, which is harmless).
+- new files: `scripts/idle-reconcile.test.sh` — plugin-source CI regression (static source assertions +
+  a guard-arithmetic sanity anchor). NOT installed into a consumer `.harness/` (like the other loop-*.test.sh).
+- breaking: none for consumers — strictly a bug fix. Behavior change to be aware of: an `idle` verdict now
+  completes+continues (and can `block` after repeats) rather than ending the run.
+
 ## 1.64.1 → 1.64.2 — PRINT_PROMPT: repeat model/effort on the END banner + rung·attempt on build banners
 
 - mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` (identical change, both variants) — the

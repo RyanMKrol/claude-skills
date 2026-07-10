@@ -331,6 +331,17 @@ flush_failures() {
   : >"$FAILURES_BUF"
 }
 
+# status_done_on_remote <id> — true iff origin/main's TASKS.json ALREADY records $id as done. Used to
+# VERIFY a status flip actually persisted: a lost flip (a push that never landed) is silently reverted
+# by the next cold rebuild off origin/main, orphaning the task on main as pending-though-done — the
+# exact trigger for the idle-verdict stall. Best-effort read; any gap → false, so the caller retries.
+status_done_on_remote() {
+  local id="$1"
+  git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
+  git -C "$ROOT" show "origin/main:.harness/tracking/TASKS.json" 2>/dev/null \
+    | jq -e --arg id "$id" 'any(.tasks[]; .id==$id and .status=="done")' >/dev/null 2>&1
+}
+
 # record_outcome <id> <blocked> [reason] — append an outcome row to the ledger ON MAIN, committed
 # via a detached worktree (mirrors block_task). Used for the SUCCESS case; block_task folds the row
 # into its own commit. Forward-only + best-effort — never fails the caller.
@@ -360,7 +371,20 @@ record_outcome() {
       fi
     fi
     git -C "$LOOP_WT" commit -q -m "$id: record outcome [skip ci]" 2>/dev/null || true
-    git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push outcome for $id"
+    if [ "$blocked" = false ]; then
+      # Persist-or-shout: on the SUCCESS flip, VERIFY status=done actually reached origin/main; retry
+      # the push once; if it STILL hasn't landed, log an ERROR so a human sees the divergence rather
+      # than it silently re-appearing as pending next cold rebuild (the idle-stall precondition).
+      local _persisted=0 _try
+      for _try in 1 2; do
+        git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || true
+        if status_done_on_remote "$id"; then _persisted=1; break; fi
+        sleep 1
+      done
+      [ "$_persisted" = 1 ] || log "ERROR: status=done for $id did NOT persist to main after 2 tries — it may re-appear as pending (idle-stall risk); mark it done by hand if so."
+    else
+      git -C "$LOOP_WT" push --quiet origin HEAD:main 2>/dev/null || log "WARN: couldn't push outcome for $id"
+    fi
     remove_wt
   fi
 }
@@ -1147,6 +1171,7 @@ acquire_lock
 trap 'release_lock' EXIT INT TERM
 
 cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; hb_started=""
+idle_task=""; idle_count=0   # consecutive-idle guard: a task reporting idle repeatedly (its status won't persist) is BLOCKED, never spun on
 
 # ─── Resume an interrupted mid-climb from a leftover heartbeat ──────────────────────────────────
 # See the heartbeat block above for why a leftover file here means a genuine interruption. Bounded
@@ -1357,7 +1382,25 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     failed:soft)    log "agent soft-failed $rtask: ${extra:-} — tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "agent-soft-fail" "${extra:-}"; bump "$task" ;;
     failed:blocked) log "agent reports blocker on $rtask: ${extra:-}"; record_failure "$task" "agent-blocked" "${extra:-}"; block_task "$task" "agent reported failed:blocked — ${extra:-}" ;;
     waiting)        log "waiting on deps for $rtask: ${extra:-}"; sleep "$WAIT_SECONDS" ;;
-    idle)           log "agent reports idle — nothing to do"; run_hook drained idle; board; sync_primary_checkout; exit 0 ;;
+    idle)
+      # A per-task "nothing to do" — NOT a drained backlog. The agent cold-read origin/main and found
+      # THIS task's Done-when already met: its work reached main in a prior attempt, but the status flip
+      # was lost (pending-though-done divergence). Reconcile the ONE task (re-do the lost status=done
+      # flip) and CONTINUE — the genuine "backlog drained" exit is the select_task-empty path at the top
+      # of the loop, never here. GUARD: if the same task reports idle repeatedly the reconcile itself
+      # isn't persisting, so BLOCK after 2 to surface it to a human instead of spinning forever (and
+      # starving every other ready task, which is exactly the bug this handler replaces).
+      if [ "$task" = "$idle_task" ]; then idle_count=$((idle_count + 1)); else idle_task="$task"; idle_count=1; fi
+      if [ "$idle_count" -ge 2 ]; then
+        log "agent reported idle on $task ${idle_count}× — its done status isn't persisting; BLOCKING for a human."
+        block_task "$task" "repeated idle: work appears on main but status never persisted to done — needs a human to mark it done or fix the divergence"
+        idle_task=""; idle_count=0
+      else
+        log "agent reports idle on $task — Done-when already met on main; reconciling status=done and continuing."
+        record_outcome "$task" false
+        heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
+      fi
+      ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
   esac
   board

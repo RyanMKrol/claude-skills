@@ -156,7 +156,9 @@ rm -rf "$d"
 # ============ Structural wiring assertions on the shipped loops ============
 for V in loop.sh loop.in-place.sh; do
   L="$SCRIPT_DIR/$V"
-  for ev in "run_hook drained drained" "run_hook drained idle" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build" "_custom_preamble build" "_custom_preamble audit"; do
+  # NOTE: idle no longer fires `drained` — an idle verdict is per-task (reconciled + continue), not a
+  # drained backlog. The only `drained` fire point is the real select_task-empty exit (`drained drained`).
+  for ev in "run_hook drained drained" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build" "_custom_preamble build" "_custom_preamble audit"; do
     assert "[$V] wires: $ev" grep -qF "$ev" "$L"
   done
   # a lifecycle hook must NEVER fire on the prereq/config error exit path (exit 3)
