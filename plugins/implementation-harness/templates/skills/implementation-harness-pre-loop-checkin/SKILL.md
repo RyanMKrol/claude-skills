@@ -103,10 +103,23 @@ jq -r 'to_entries | map(select(.value.failed==true) | .key) | join(", ") | if .=
 
 - **Any stranded task → report it prominently** (it is silent otherwise): name the task, the failed/blocked
   dep it waits on, and that it will never build as-is. This is **GO-with-a-loud-note** by default (the loop
-  still builds other eligible work), but flag it as something to fix — the resolution is to **rewire** the
-  dependent to the failed task's replacement follow-up, or **abandon** it; `/review-failed` is where that
-  gets done (it now surfaces these dependents when it reviews the failed task). If a stranded task is the
-  ONLY thing gating all remaining work, it folds into the "0 eligible → NO-GO" verdict above.
+  still builds other eligible work), but flag it as something to fix. Which fix depends on whether the dead
+  dependency has already been `reviewed`:
+  - **dead dep NOT yet reviewed** (still in `/implementation-harness-review-failed`'s worklist) → that skill
+    handles it: its step 4d surfaces these dependents when it reviews the failed task and offers to rewire
+    them onto the replacement. Point the owner there.
+  - **dead dep ALREADY reviewed** → review-failed's worklist permanently excludes it, so step 4d can never
+    re-fire (this is the gap that used to strand these forever). Fix it directly with `rewire-dependents.sh`
+    (loop stopped), one of:
+    ```bash
+    .harness/scripts/rewire-dependents.sh <stranded_id> <dead_dep> <replacement_id>   # rewire onto the failed task's replacement
+    .harness/scripts/rewire-dependents.sh <stranded_id> <dead_dep> --drop             # the dep was spurious — let the orphan build
+    .harness/scripts/rewire-dependents.sh <stranded_id> --abandon "<why>"             # give up on the orphan too
+    ```
+    **Emit the concrete command with the real ids filled in** for each stranded task, so the owner can run
+    it as-is (you can tell "already reviewed" from `tracking/reviews.json` — `.<dead_dep>.reviewed == true`).
+  If a stranded task is the ONLY thing gating all remaining work, it folds into the "0 eligible → NO-GO"
+  verdict above.
 
 ## 2. Session hygiene — uncommitted / unpushed work, running loop, lock
 

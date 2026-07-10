@@ -42,6 +42,30 @@ Entry format:
 
 ---
 
+## 1.66.0 → 1.67.0 — new rewire-dependents.sh: repair a task stranded on an ALREADY-reviewed failed dep
+
+Closes a coverage gap. `/review-failed`'s step 4d rewires a failed task's stranded dependents, but only
+while that task is in its worklist (failed/blocked AND not-yet-`reviewed`). Once a failed task is marked
+`reviewed`, Stage 1 excludes it forever, so step 4d can never re-fire — a dependent still pointing at it is
+stranded with no in-skill fix (nothing records a dead→replacement mapping). `pre-loop-checkin` detected
+these but referred the owner to review-failed, which couldn't act on an already-reviewed task. (New
+stranding is already prevented at review time; this is for legacy / "owner left them" cases.)
+
+- new files: `scripts/rewire-dependents.sh` — owner-driven repair for ONE stranded orphan:
+  `<stranded_id> <dead_dep> <new_dep>` (rewire the dependsOn onto a replacement) · `<stranded_id> <dead_dep>
+  --drop` (remove the spurious dead dep) · `<stranded_id> --abandon "<reason>"` (mark the orphan failed via
+  the `manual-fail.json` overlay, reversible with `mark-failed.sh --undo`). rewire/drop edit TASKS.json
+  dependsOn + commit+push; refuses while the loop lock is held. Added to the `create` copy list + the
+  executable/`bash -n` verification loop.
+- operational skill: `skills/implementation-harness-pre-loop-checkin/SKILL.md` — the stranded-on-failure
+  scan's guidance now splits on whether the dead dep is `reviewed`: not-yet-reviewed → point at
+  review-failed (step 4d handles it); already-reviewed → emit the concrete `rewire-dependents.sh` command
+  (real ids filled in) for the owner to run. Still read-only — it only reports/recommends. Content-diffed
+  like other operational skills on upgrade.
+- new files (plugin-source, NOT installed to consumers): `scripts/rewire-dependents.test.sh` — hermetic
+  tests (rewire / drop / de-dup / abandon / arg + loop-running-guardrail edges).
+- breaking: none — purely additive (a new tool + sharper guidance).
+
 ## 1.65.0 → 1.66.0 — fix: scope-gap dismissals no longer break with "command not found" (new scope-gap-dismiss.sh)
 
 Fixes a reproduced reliability bug in `implementation-harness-fix-scope-gaps` step 6. Its old dismissal
