@@ -251,27 +251,29 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 Every authored follow-up left a `.pending-questions/<slug>.json` (Stage 2 step 4b or 4c), so this relay
 runs on essentially every sweep. Read them all, then:
 
-**Publish a reference Artifact before asking anything** — the owner can't confirm a definition of done
-they can't see. Load the `artifact-design` skill first (its own required process), then build ONE page
-covering every currently-unresolved `.pending-questions/<slug>.json`: one section per review, headed by
-its `ideaText` (the `<TNNN>` + original title) and `ideaSummary` (the root cause + proposed follow-up),
-then every unit from that slug's matching `.pending-tasks/<slug>.json` in full — title, `specOverview`,
-`specDo`, and `specDoneWhen` called out visually distinct from the rest — followed by that slug's own
-pending `questions` text, so the owner reads the exact draft (or, for a `close-without-followup`
-question, the exact investigation report) a question refers to right next to the question itself. This
-is a **utilitarian reference doc for a decision in progress**, not a landing page — clean hierarchy and
-real spacing, no hero, no marketing framing; build it from the REAL current content, never placeholder
-text. **Give it a persistent left-hand outline to navigate by** — a sweep can span many reviews, and a
-single long scroll is hard to move around in. Render a sidebar (table of contents) listing one entry per
-review (its `<TNNN>` + title, with that review's unit titles nested under it), each anchor-linking
-(`href="#<slug>"`) to the matching section — give every review section a corresponding `id="<slug>"`.
-Keep the outline visible while the content scrolls (a sticky/fixed sidebar that itself scrolls when the
-list is long), and on a narrow screen let it collapse above the content rather than overlapping it or
-forcing horizontal scroll. These are plain in-page `#id` anchors — no external requests, so they're
-CSP-safe inside an Artifact; no JavaScript is required for the jump-to behavior. Write the page to your
-own scratchpad directory and call the `Artifact` tool (favicon 🔍) to publish it. **If the relay loops across multiple rounds**, regenerate and redeploy to the SAME file path
-each round — the owner keeps one tab open for the whole sweep instead of chasing a new link every round.
-Zero pending questions → skip this entirely, nothing to relay.
+**Publish a plain-Markdown reference Artifact before asking anything** — the owner can't confirm a
+definition of done they can't see. Do NOT hand-author an HTML page and do NOT load `artifact-design`:
+write a structured **Markdown** file and hand it straight to the `Artifact` tool (favicon 🔍). A Markdown
+Artifact renders, **auto-opens, and takes focus exactly like an HTML one** — the owner gets the same "it
+opens itself" reading experience for a fraction of the effort (no CSS, no bespoke layout, no design pass).
+Build it from the REAL current content, never placeholder text, with this shape:
+- An `#` H1 title, then one italic line of intro (what this is — confirm each follow-up's Done-when or a
+  close-without-followup; the questions are also asked directly, this page is the full context).
+- **A top "On this page" list** — the navigation, since a Markdown Artifact has no sticky sidebar. One
+  bullet per review (its `<TNNN>` + title) with that review's unit titles nested beneath, each a
+  `[title](#anchor)` jump link. Anchors are the GitHub-style lowercased-hyphenated heading slug, so give
+  each review an `## <TNNN> — <title>` heading and each unit a `### <title>` heading and the links resolve.
+- **One `##` section per review**, covering every currently-unresolved `.pending-questions/<slug>.json`:
+  its `ideaText` + `ideaSummary` (the root cause + proposed follow-up), then every unit from that slug's
+  matching `.pending-tasks/<slug>.json` in full — each a `###` heading with its `specOverview` and
+  `specDo`, and its **`specDoneWhen` on its own bolded "✅ Done when" line** (keep it visually distinct) —
+  followed by that slug's own pending `questions` text, so the owner reads the exact draft (or, for a
+  `close-without-followup` question, the exact investigation report) a question refers to right next to it.
+
+Write the `.md` to your own scratchpad directory and publish it. **If the relay loops across multiple
+rounds**, regenerate and redeploy to the SAME file path each round — the owner keeps one tab open for the
+whole sweep instead of chasing a new link every round. Zero pending questions → skip this entirely,
+nothing to relay.
 
 **Summarize before asking**: emit a short markdown recap — one line per review: its `ideaSummary` (and
 the `<TNNN>` it concerns) — plus the artifact URL from above ("Full drafted context: `<url>` — keep this

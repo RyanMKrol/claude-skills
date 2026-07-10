@@ -195,28 +195,30 @@ Use durable files, not conversation memory — questions and answers must surviv
 idea an agent authored a task for left a `.harness/.pending-questions/<slug>.json` (§3 step 5), so this
 relay runs on essentially every sweep. Read them all, then:
 
-- **Publish a reference Artifact before asking anything — the owner can't confirm a definition of done
-  they can't see.** Load the `artifact-design` skill first (its own required process), then build ONE
-  page covering every currently-unresolved `.pending-questions/<slug>.json`: one section per idea,
-  containing its `ideaSummary`, then every unit from that idea's matching `.pending-tasks/<slug>.json`
-  in full — title, `specOverview`, `specDo`, and `specDoneWhen` called out visually distinct from the
-  rest (it's the thing actually being confirmed) — followed by that idea's own pending `questions` text,
-  so the owner can read the exact draft a question refers to right next to the question itself. This is
-  a **utilitarian reference doc for a decision in progress**, not a landing page — clean hierarchy and
-  real spacing, no hero, no marketing framing; build it from the REAL current draft content, never
-  placeholder text.
-- **Give it a persistent left-hand outline to navigate by** — a sweep can span many ideas, and a
-  single long scroll is hard to move around in. Render a sidebar (table of contents) listing one entry
-  per idea (its `ideaSummary` title, with that idea's unit titles nested under it), each anchor-linking
-  (`href="#<slug>"`) to the matching section — give every idea section a corresponding `id="<slug>"`.
-  Keep the outline visible while the content scrolls (a sticky/fixed sidebar that itself scrolls when
-  the list is long), and on a narrow screen let it collapse above the content rather than overlapping it
-  or forcing horizontal scroll. These are plain in-page `#id` anchors — no external requests, so they're
-  CSP-safe inside an Artifact; no JavaScript is required for the jump-to behavior. Write the page to your own scratchpad directory and call the `Artifact` tool
-  (favicon 🧩) to publish it. **If the relay loops across multiple rounds** (an answer opens a new
-  question — see below), regenerate and redeploy to the SAME file path each round rather than creating a
-  new one — the tool redeploys in place, so the owner keeps one tab open for the whole session instead of
-  chasing a new link every round. Zero pending questions → skip this entirely, nothing to relay.
+- **Publish a plain-Markdown reference Artifact before asking anything — the owner can't confirm a
+  definition of done they can't see.** Do NOT hand-author an HTML page and do NOT load `artifact-design`:
+  write a structured **Markdown** file and hand it straight to the `Artifact` tool (favicon 🧩). A
+  Markdown Artifact renders, **auto-opens, and takes focus exactly like an HTML one** — the owner gets the
+  same "it opens itself" reading experience for a fraction of the effort (no CSS, no bespoke layout, no
+  design pass). Build it from the REAL current draft content, never placeholder text, with this shape:
+  - An `#` H1 title, then one italic line of intro (what this is — confirm each task's Done-when; the
+    questions are also being asked directly, this page is the full context).
+  - **A top "On this page" list** — the navigation, since a Markdown Artifact has no sticky sidebar. One
+    bullet per idea (its `ideaSummary` title) with that idea's unit titles nested beneath, each a
+    `[title](#anchor)` jump link. Anchors are the GitHub-style lowercased-hyphenated heading slug, so give
+    each idea an `## Idea #N — <title>` heading and each unit a `### <title>` heading and the links resolve.
+  - **One `##` section per idea**, covering every currently-unresolved `.pending-questions/<slug>.json`:
+    the `ideaSummary`, then every unit from that idea's matching `.pending-tasks/<slug>.json` in full —
+    each a `###` heading with its `specOverview` and `specDo`, and its **`specDoneWhen` on its own bolded
+    "✅ Done when" line** (it's the thing actually being confirmed — keep it visually distinct) — followed
+    by that idea's own pending `questions` text, so the owner reads the exact draft a question refers to
+    right next to the question itself.
+
+  Write the `.md` to your own scratchpad directory and publish it. **If the relay loops across multiple
+  rounds** (an answer opens a new question — see below), regenerate and redeploy to the SAME file path
+  each round rather than creating a new one — the tool redeploys in place, so the owner keeps one tab open
+  for the whole session instead of chasing a new link every round. Zero pending questions → skip this
+  entirely, nothing to relay.
 - **Summarize before asking, but don't rely on it.** Emit a short markdown recap — one line per idea: its
   `ideaSummary` (and slug) — plus the artifact URL from above ("Full drafted context: `<url>` — keep this
   open while answering below") — so the owner has the full list up front. This recap is a courtesy

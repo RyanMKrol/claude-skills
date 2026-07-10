@@ -42,6 +42,24 @@ Entry format:
 
 ---
 
+## 1.67.1 → 1.68.0 — convert-ideas / review-failed relay is now plain Markdown, not a hand-built HTML Artifact
+
+The question-relay in both planning skills used to load `artifact-design` and hand-author a bespoke HTML
+page (sticky sidebar, custom CSS) **every sweep** — thousands of tokens of design doctrine + hundreds of
+lines of CSS, re-authored on each multi-round redeploy, for a doc that is only supplementary reading (the
+`AskUserQuestion` carries the actual decisions). Now the relay is a **plain Markdown** file handed straight
+to the `Artifact` tool: it renders, auto-opens, and takes focus exactly like the HTML one did, for a
+fraction of the effort. Navigation is a top "On this page" TOC with heading-anchor jump links (no sticky
+sidebar); the shape (one `##` per idea/review → each unit's overview/do/**✅ Done when** → its questions)
+is unchanged in substance.
+
+- operational skills: `skills/implementation-harness-convert-ideas/SKILL.md` (§4) and
+  `skills/implementation-harness-review-failed/SKILL.md` (Stage 3) — relay bullets rewritten to
+  "write structured Markdown + publish it" and to NOT load `artifact-design`. Content-diffed like other
+  operational skills on upgrade.
+- breaking: none — same information relayed, same auto-open Artifact UX; only the page's styling is plainer
+  (rendered Markdown vs bespoke CSS) and the sidebar is a top TOC instead of a sticky one.
+
 ## 1.67.0 → 1.67.1 — regression test for the PRINT_PROMPT banner (1.64.2) — no functional change
 
 - new files (plugin-source, NOT installed to consumers): `scripts/print-prompt-banner.test.sh` — backfills
