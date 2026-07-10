@@ -71,6 +71,9 @@ case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make 
 # Shared mkdir-based repo lock (acquire_lock/release_lock) — sourced so its path derivation can
 # never drift from other scripts (mark-*.sh, consolidate-ideas.sh) that coordinate with this loop.
 . "$SCRIPT_DIR/repo-lock.sh"
+# Shared scope-matching (normalize_scope_prefix + scope_match) — the SINGLE implementation, also sourced
+# by loop.in-place.sh + check-task-scope.sh so the gate and the linter can never disagree.
+. "$SCRIPT_DIR/scope-lib.sh"
 
 NAME="$(basename "$ROOT")"                       # repo dir name → worktree + lock naming
 MODEL="${MODEL:-claude-haiku-4-5}"              # COLD-START FLOOR — the cheapest tier; the policy tunes UP from here (pin the full id; the bare alias drifts)
@@ -903,47 +906,10 @@ run_claude() {
 # green and BEFORE the fast-forward to main, so unaudited work never reaches main. Cold-ness is
 # enforced by tearing the branch/worktree down on every capability failure (see the done/fail paths).
 
-# normalize_scope_prefix <raw> — strip a trailing `/`, `/**`, or `/*` so a directory-style glob
-# becomes a bare prefix. Shared by `scope` entries (structural_checks) and SCOPE_EXEMPT_GLOBS
-# (in_scope_exempt) — keep both on this ONE implementation; they drifted apart once already.
-normalize_scope_prefix() {
-  local s="$1"
-  s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
-  printf '%s' "$s"
-}
-
-# scope_match <file> <scope-entry> — true if <file> is within <scope-entry>. THE single scope-matching
-# implementation, shared by `scope` (structural_checks) and SCOPE_EXEMPT_GLOBS (in_scope_exempt), and
-# mirrored verbatim in loop.in-place.sh + check-task-scope.sh — keep all four identical. Supports:
-#   • an exact path                          (src/auth/session.ts)
-#   • a directory prefix, recursive          (dir/  dir/**  dir/*  → everything under dir)
-#   • a single-level extension glob          (dir/*.tsx → any *.tsx DIRECTLY in dir, not nested)
-# A double-quoted ${f#"$s"/} treats `*` as a literal, so an extension glob like dir/*.tsx used to match
-# NOTHING (permanent scope-creep). The single-level case below matches with an UNQUOTED case pattern —
-# which does expand `*`/`?`/`[…]` — engaged ONLY when a metacharacter survives normalization, so every
-# entry that worked before (no residual metachar) still takes the identical exact/prefix path.
-scope_match() {
-  local f="$1" s d1 d2
-  s="$(normalize_scope_prefix "$2")"
-  case "$s" in
-    *[*?[]*)
-      # residual glob metacharacter → single-level glob: case-glob match, then require equal directory
-      # depth so `*` can't span a `/` (an unquoted case `*` otherwise matches across directories).
-      case "$f" in
-        $s)
-          d1="${f//[!\/]/}"; d2="${s//[!\/]/}"
-          [ "${#d1}" -eq "${#d2}" ] && return 0
-          ;;
-      esac
-      return 1
-      ;;
-    *)
-      [ "$f" = "$s" ] && return 0
-      [ "${f#"$s"/}" != "$f" ] && return 0
-      return 1
-      ;;
-  esac
-}
+# normalize_scope_prefix + scope_match live in the shared scope-lib.sh (sourced at the top of this
+# script, next to repo-lock.sh) — the SINGLE implementation shared with loop.in-place.sh and
+# check-task-scope.sh. It used to be duplicated verbatim in all three and drifted/re-broke; don't inline
+# it here again (scope-match.test.sh fails if any of the three grows its own copy).
 
 # in_scope_exempt <file> — true if <file> matches one of SCOPE_EXEMPT_GLOBS (space-separated
 # repo-relative path entries, same matching rule as `scope` itself via scope_match).

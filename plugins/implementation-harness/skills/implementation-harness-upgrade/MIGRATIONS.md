@@ -42,6 +42,34 @@ Entry format:
 
 ---
 
+## 1.61.1 → 1.62.0 — fix `scope_match` bracket bug; de-duplicate it into a shared `scope-lib.sh`
+
+`scope_match`'s glob trigger fired on `[` and matched with an unquoted pattern, so a literal Next.js
+dynamic-route segment (`[name]` / `[id]` / `[...slug]`) collapsed to a character class and NEVER matched
+its own scope entry — every edit was flagged scope-creep, the task cold-retried, climbed the ladder, and
+got blocked (real: local-jobs T489; 18 such entries across local-jobs + ryankrol.co.uk). It kept
+recurring because the function was **copy-pasted, byte-identical, into three scripts** and drifted. Fixed
+AND de-duplicated.
+
+- new files: `scripts/scope-lib.sh` — THE single `normalize_scope_prefix` + `scope_match` (pure, sourced),
+  with the fix (literal-first; only a surviving `*` is a glob; `[ ] ?` escaped so `*` is the sole active
+  metachar). Handles every real bracket form (multi-bracket, bracket-in-filename, bracket dir + `**`) and
+  the exotic `dir/[name]/*.tsx`; every previously-working shape is unchanged; mid-path `**` remains a
+  separate unsupported shape (flagged by check-task-scope.sh), not addressed.
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh`, `scripts/check-task-scope.sh` — each now
+  **sources `scope-lib.sh`** and its inline `normalize_scope_prefix` + `scope_match` are DELETED.
+- mechanism: `scripts/scope-match.test.sh` (rewritten) — sources scope-lib.sh and runs a corpus seeded
+  from the real repo scopes, PLUS a structural guard asserting the three scripts source scope-lib.sh and
+  carry no inline `scope_match()` (re-inlining fails CI). `scope-exempt.test.sh` + `loop-extend.test.sh`
+  setup_repo now also copy scope-lib.sh (the loops require it).
+- **ADD-TOGETHER dependency (important for upgrade):** the refreshed `loop.sh` / `loop.in-place.sh` /
+  `check-task-scope.sh` SOURCE `scope-lib.sh` — under `set -euo pipefail` a missing source aborts the
+  script. So `scripts/scope-lib.sh` MUST be added in the SAME upgrade that refreshes those three (it's a
+  new mechanism file the upgrade adds; apply the new file and the three refreshes together, never the
+  scripts alone).
+- breaking: none behaviorally (strictly more matches; every prior shape identical) — but see the
+  add-together dependency above.
+
 ## 1.61.0 → 1.61.1 — light themes are now the dark theme LIFTED lighter, not a new light baseline
 
 Fixes 1.58.0's light variants reading as "very very bright" (a near-white baseline with dark text).

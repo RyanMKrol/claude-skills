@@ -42,38 +42,9 @@ is_dismissed() {
   jq -e --arg p "$path" --arg h "$spec_hash" '.dismissed[]? | select(.path==$p and .specHash==$h)' "$f" >/dev/null 2>&1
 }
 
-# normalize_scope_prefix + scope_match — kept IDENTICAL to loop.sh / loop.in-place.sh (their shared
-# scope-matching implementation), so this linter matches exactly what the real gate will accept.
-normalize_scope_prefix() {
-  local s="$1"
-  s="${s%/}"; s="${s%/\*\*}"; s="${s%/\*}"
-  printf '%s' "$s"
-}
-
-# scope_match <file> <scope-entry> — exact path, directory prefix (trailing /, /**, /*, recursive),
-# or single-level extension glob (`dir/*.ext`). Mirror of loop.sh's scope_match — keep in sync.
-scope_match() {
-  local f="$1" s d1 d2
-  s="$(normalize_scope_prefix "$2")"
-  case "$s" in
-    *[*?[]*)
-      # residual glob metacharacter → single-level glob: case-glob match, then require equal directory
-      # depth so `*` can't span a `/` (an unquoted case `*` otherwise matches across directories).
-      case "$f" in
-        $s)
-          d1="${f//[!\/]/}"; d2="${s//[!\/]/}"
-          [ "${#d1}" -eq "${#d2}" ] && return 0
-          ;;
-      esac
-      return 1
-      ;;
-    *)
-      [ "$f" = "$s" ] && return 0
-      [ "${f#"$s"/}" != "$f" ] && return 0
-      return 1
-      ;;
-  esac
-}
+# normalize_scope_prefix + scope_match — THE single shared implementation (scope-lib.sh), so this linter
+# matches exactly what the real gate accepts. Sourced, never copied (it used to be duplicated and drift).
+. "$SCRIPT_DIR/scope-lib.sh"
 
 # unsupported_scope_shape <entry> — 0 if <entry>'s glob shape is one scope_match CANNOT honor, i.e. it
 # would silently never match what the author intends: a `**` that survived trailing-`/**` normalization
