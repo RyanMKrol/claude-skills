@@ -42,6 +42,30 @@ Entry format:
 
 ---
 
+## 1.65.0 → 1.66.0 — fix: scope-gap dismissals no longer break with "command not found" (new scope-gap-dismiss.sh)
+
+Fixes a reproduced reliability bug in `implementation-harness-fix-scope-gaps` step 6. Its old dismissal
+step was an inline MULTI-LINE shell command (nested `$(…)`, pipes, a multi-line jq program) that
+interpolated the free-text `reason`. When that reason carried a house-style em dash (`—`) or other
+non-ASCII, the Bash tool's `eval` wrapper intermittently corrupted parsing of the FOLLOWING lines — every
+later command read as `command not found`, so the dismissal silently failed. The free text is now passed
+as a single positional argument to a dedicated script invoked on ONE line.
+
+- new files: `scripts/scope-gap-dismiss.sh` — the dismissal writer (`<task_id> <path> [reason]`): computes
+  the spec hash and does the idempotent JSON write internally, mirroring `check-task-scope.sh`'s path/hash/
+  field contract exactly (it's the reader). Installs alongside the other `scripts/*` (added to the `create`
+  copy list + the executable/`bash -n` verification loop). **Add-together dependency:** the refreshed
+  fix-scope-gaps skill (below) calls this script, so an install that gets the new skill but not the script
+  would fail at step 6 — apply both together.
+- operational skill: `skills/implementation-harness-fix-scope-gaps/SKILL.md` — step 6 rewritten to call
+  `scope-gap-dismiss.sh` once per false positive, each a standalone single-line command, with an explicit
+  warning to keep the reason inline and the call on one line (never a heredoc / multi-line block / separate
+  `reason=` assignment). Content-diffed like other operational skills on upgrade.
+- new files (plugin-source, NOT installed to consumers): `scripts/scope-gap-dismiss.test.sh` — hermetic
+  round-trip guard (warn → dismiss with an em-dash reason → suppressed → spec changes → warn resurfaces),
+  which also locks the writer/reader format contract.
+- breaking: none — behavior is unchanged except that dismissals now persist reliably.
+
 ## 1.64.2 → 1.65.0 — fix: the `idle` verdict no longer stalls the whole cycle (per-task reconcile) + persist-or-shout
 
 Fixes a HIGH-severity silent full-loop stall. The `idle` verdict is per-task ("this one task's Done-when

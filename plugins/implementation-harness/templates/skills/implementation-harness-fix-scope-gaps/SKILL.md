@@ -114,22 +114,28 @@ and push. No real gaps this run → skip the commit, move on to step 6.
 
 ## 6. Record dismissals (false positives, so they stop resurfacing)
 
-For every `(task_id, path, reason)` staged in step 4, write/update that task's dismissal file — this
-is what makes `check-task-scope.sh` (and therefore `pre-loop-checkin`) stop re-flagging it, without
-ever needing to be actively deleted:
+For every `(task_id, path, reason)` staged in step 4, record that task's dismissal — this is what makes
+`check-task-scope.sh` (and therefore `pre-loop-checkin`) stop re-flagging it, without ever needing to be
+actively deleted. Run the dismissal script **once per false positive**, each as its own standalone,
+**single-line** command:
 ```bash
-mkdir -p .harness/.scope-gap-ignores
-f=".harness/.scope-gap-ignores/$task_id.json"
-spec_path="$(jq -r --arg id "$task_id" '.tasks[]|select(.id==$id)|.spec' .harness/tracking/TASKS.json)"
-spec_hash="$(command -v sha256sum >/dev/null 2>&1 && sha256sum "$spec_path" | awk '{print $1}' || shasum -a 256 "$spec_path" | awk '{print $1}')"
-existing="$( [ -f "$f" ] && cat "$f" || echo '{"dismissed":[]}' )"
-printf '%s' "$existing" | jq --arg p "$path" --arg h "$spec_hash" --arg r "$reason" --arg d "$(date +%Y-%m-%d)" '
-  .dismissed = ((.dismissed // []) | map(select(.path != $p)) + [{"path":$p,"specHash":$h,"reason":$r,"at":$d}])
-' > "$f.tmp" && mv "$f.tmp" "$f"
+bash .harness/scripts/scope-gap-dismiss.sh "T042" "src/foo/bar.js" "spec cites it as a read-only exemption reference, not an edit target"
 ```
-This is local, gitignored scratch — **no commit, no push** for this step (see guardrails). Replacing
-any existing entry for the same `path` (rather than appending a duplicate) keeps the file from growing
-unbounded across repeated runs.
+The script does the spec-hash + idempotent JSON write internally (writing `.harness/.scope-gap-ignores/<id>.json`),
+so you just pass the task id, the flagged path, and the one-sentence reason.
+
+⚠️ **Keep each call on ONE physical line, and put the reason INLINE as the third argument** — do not set
+it on a separate `reason=…` assignment line, and do not wrap these in a heredoc or a multi-line `for`
+loop. The reason is free-form prose that routinely contains an em dash (`—`) or other non-ASCII, and a
+**multi-line** shell command with a multibyte character in it intermittently corrupts the Bash tool's
+parsing of the following lines (every later command reads as `command not found` — a real, reproduced
+failure). A single-line invocation with the reason as one quoted argument avoids that class entirely; if
+you have several dismissals, run several separate single-line commands (or separate Bash calls), never one
+multi-line block.
+
+This is local, gitignored scratch — **no commit, no push** for this step (see guardrails). The script is
+idempotent (re-running for the same `id`+`path` replaces that entry rather than appending a duplicate) and
+stamps the current spec hash, so a dismissal auto-expires — stops matching — if the spec later changes.
 
 ## 7. Report
 

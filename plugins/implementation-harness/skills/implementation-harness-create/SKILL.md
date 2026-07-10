@@ -168,7 +168,7 @@ else
   cp -p "$TPL/scripts/postflight.sh" "$H/scripts/postflight.sh"            # worktree board: reads origin/main + detects the tNNN build branch
 fi
 cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scope-lib.sh" "$TPL/scripts/policy.jq" "$H/scripts/"   # scope-lib.sh: shared scope_match, REQUIRED by loop.sh + check-task-scope.sh (they source it — a missing copy aborts them)
-cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$H/scripts/"
+cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$TPL/scripts/scope-gap-dismiss.sh" "$H/scripts/"   # scope-gap-dismiss.sh: fix-scope-gaps' dismissal writer, sibling of check-task-scope.sh (the reader)
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
 cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack)
 touch "$H/.pending-tasks/.gitkeep" "$H/.pending-questions/.gitkeep" "$H/.scope-gap-ignores/.gitkeep"
@@ -289,7 +289,7 @@ grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
 grep -q "CI_WORKFLOW:=${W}" "$T/.harness/config/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-for s in loop.sh supervise.sh postflight.sh repo-lock.sh scope-lib.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh consolidate-ideas.sh; do
+for s in loop.sh supervise.sh postflight.sh repo-lock.sh scope-lib.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh scope-gap-dismiss.sh consolidate-ideas.sh; do
   test -x "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s not executable"
   bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"
 done
