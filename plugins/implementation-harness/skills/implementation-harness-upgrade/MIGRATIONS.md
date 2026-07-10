@@ -42,6 +42,17 @@ Entry format:
 
 ---
 
+## 1.64.1 → 1.64.2 — PRINT_PROMPT: repeat model/effort on the END banner + rung·attempt on build banners
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` (identical change, both variants) — the
+  `PRINT_PROMPT` banner in `run_claude` now repeats the `(model / effort)` parenthetical on the END line
+  (previously only the opening line carried it — you had to scroll back up past the whole prompt to see
+  which tier ran). Build-phase banners additionally show `· rung N · attempt M` on both the opening and
+  END line (the escalation position — WHY that tier). Audit banners are unchanged apart from the END-line
+  model/effort: the auditor runs at the fixed `AUDITOR_MODEL/EFFORT`, not a ladder rung, so rung/attempt
+  is meaningless there and is omitted. Console/observability only — no change to build behaviour.
+- breaking: none.
+
 ## 1.64.0 → 1.64.1 — richer explore tooltip (probes passed + probes left in the batch)
 
 - mechanism: `scripts/policy.jq` — TIER mode appends two more DASHBOARD-ONLY fields, so output is now

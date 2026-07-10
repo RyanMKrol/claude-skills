@@ -722,10 +722,16 @@ run_claude() {
   # watching the console can read what the agent was actually asked. To stderr (never into claude's
   # stdin/stdout pipeline below). PRINT_PROMPT=0 in harness.env silences it.
   if [ "${PRINT_PROMPT:-1}" = 1 ]; then
-    local _ph _bar='================================================================================'
+    local _ph _meta _bar='================================================================================'
     _ph="$(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')"
-    { printf '\n%s\n=====  %s PROMPT  —  task %s  (%s%s)\n%s\n%s\n%s\n=====  END %s PROMPT  —  task %s\n%s\n\n' \
-        "$_bar" "$_ph" "${cur_task:-?}" "$model" "${effort:+ / $effort}" "$_bar" "$pr" "$_bar" "$_ph" "${cur_task:-?}" "$_bar"; } >&2
+    # Repeat the model/effort on BOTH the opening and END lines so a human scrolling the console
+    # doesn't have to jump back up past the prompt to see which tier ran. Build banners also show the
+    # escalation position (rung/attempt — WHY this tier); the audit runs at the fixed AUDITOR tier,
+    # not a ladder rung, so rung/attempt is meaningless there and omitted.
+    _meta="($model${effort:+ / $effort})"
+    [ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"
+    { printf '\n%s\n=====  %s PROMPT  —  task %s  %s\n%s\n%s\n%s\n=====  END %s PROMPT  —  task %s  %s\n%s\n\n' \
+        "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar" "$pr" "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar"; } >&2
   fi
   set +e
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
