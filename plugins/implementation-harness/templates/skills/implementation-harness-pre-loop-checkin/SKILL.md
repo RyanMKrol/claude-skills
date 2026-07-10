@@ -77,6 +77,37 @@ Interpretation:
   "nothing to build".
 - If `$ARGUMENTS` names a task, narrow the needs-human reporting to blockers that (transitively) gate it.
 
+**Stranded-on-failure scan (a distinct problem from needs-human blockers).** A `needs-human` dependency
+gets cleared by a human and unblocks its dependents. A **failed/blocked** dependency does NOT — it is
+terminal, the loop never re-attempts it, and `review-failed` authors any replacement under a **new** id
+without rewiring the old task's dependents. So a task that depends on a failed/blocked task can **never
+build** until it is rewired to the replacement or abandoned — and nothing else surfaces it (it just sits
+in the dashboard's "Waiting" list forever, while the failed dep hides in "Closed — failed").
+
+```bash
+# non-terminal tasks whose dependsOn includes a terminal FAILED/BLOCKED task (never re-attempted):
+jq -r '
+  ([ .tasks[] | select(.status=="failed" or .status=="blocked") | .id ]) as $dead
+  | [ .tasks[]
+      | select(.status!="done" and .status!="failed" and .status!="blocked")
+      | . as $t
+      | ([ (.dependsOn // [])[] | . as $d | select($dead | index($d)) ]) as $bad
+      | select($bad | length > 0)
+      | "\($t.id) can NEVER build — waiting on failed/blocked: \($bad | join(", "))" ]
+  | if length==0 then "none — nothing stranded on a failed dependency" else .[] end
+' .harness/tracking/TASKS.json
+# fold in owner manual-fail ids not yet reconciled into status (treat these as dead deps too):
+jq -r 'to_entries | map(select(.value.failed==true) | .key) | join(", ") | if .=="" then "none" else . end' \
+  .harness/tracking/manual-fail.json 2>/dev/null || echo "none"
+```
+
+- **Any stranded task → report it prominently** (it is silent otherwise): name the task, the failed/blocked
+  dep it waits on, and that it will never build as-is. This is **GO-with-a-loud-note** by default (the loop
+  still builds other eligible work), but flag it as something to fix — the resolution is to **rewire** the
+  dependent to the failed task's replacement follow-up, or **abandon** it; `/review-failed` is where that
+  gets done (it now surfaces these dependents when it reviews the failed task). If a stranded task is the
+  ONLY thing gating all remaining work, it folds into the "0 eligible → NO-GO" verdict above.
+
 ## 2. Session hygiene — uncommitted / unpushed work, running loop, lock
 
 ```bash

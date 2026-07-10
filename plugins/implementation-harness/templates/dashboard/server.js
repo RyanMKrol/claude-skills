@@ -160,6 +160,7 @@ function loadState() {
       waiting: buckets.waiting.length,
       needsHuman: buckets.needsHuman.length,
       failedPendingReview: buckets.failedPendingReview.length,
+      closedFailed: buckets.closedFailed.length,
       donePendingReview: buckets.donePendingReview.length,
       done: buckets.done.length,
     },
@@ -540,6 +541,7 @@ function renderPage() {
   .summary-chip.action .n{color:var(--human);}
   .summary-chip.review .n{color:var(--red);}
   .summary-chip.done .n{color:var(--green);}
+  .summary-chip.fail .n{color:var(--red);}
 
   .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);white-space:nowrap;margin-left:4px;}
   .pill.buildable{color:var(--amber);background:color-mix(in srgb, var(--amber) 14%, transparent);border-color:color-mix(in srgb, var(--amber) 40%, transparent);}
@@ -980,7 +982,7 @@ function depLinks(ids) {
 }
 
 function failPill(task, bucketName) {
-  if (bucketName === 'done' || bucketName === 'donePendingReview' || !task.buildFailures || !task.buildFailures.count) return '';
+  if (bucketName === 'done' || bucketName === 'donePendingReview' || bucketName === 'closedFailed' || !task.buildFailures || !task.buildFailures.count) return '';
   const bf = task.buildFailures, n = bf.count;
   const tip = esc((bf.latestKind || '') + (bf.latestDetail ? ': ' + bf.latestDetail : ''));
   return \`<span class="pill blocked" title="\${tip}">⚠ \${n} failed attempt\${n === 1 ? '' : 's'}</span>\`;
@@ -1004,9 +1006,10 @@ function pillsFor(task, bucketName) {
     pills += task.status === 'blocked'
       ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
       : '<span class="pill blocked">⚠ failed — awaiting review</span>';
-  } else if (bucketName === 'done' || bucketName === 'donePendingReview') {
+  } else if (bucketName === 'done' || bucketName === 'donePendingReview' || bucketName === 'closedFailed') {
     pills += task.reviewed ? '<span class="pill reviewed">👁 reviewed</span>' : '<span class="pill">not reviewed</span>';
-    pills += task.failed ? '<span class="pill failed">✗ failed</span>' : '<span class="pill done">✓ done</span>';
+    pills += task.failed ? '<span class="pill failed">✗ failed</span>'
+           : (task.status === 'blocked' ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>' : '<span class="pill done">✓ done</span>');
     if (task.completedWith) {
       const cw = task.completedWith;
       if (cw.human) {
@@ -1092,22 +1095,24 @@ function renderSection(name, emoji, label, desc, tasks, countStr) {
 function renderBacklog(data) {
   state.lastData = data;   // cache so pure-UI actions (expand, filter, select) re-render without a refetch
   const b = data.buckets, c = data.counts;
-  const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.failedPendingReview.length + b.donePendingReview.length + b.done.length;
+  const total = b.ready.length + b.waiting.length + b.needsHuman.length + b.failedPendingReview.length + b.closedFailed.length + b.donePendingReview.length + b.done.length;
   document.getElementById('summary').innerHTML =
     'The harness task list (<span class="mono">.harness/tracking/TASKS.json</span>), rendered. '
-    + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.failedPendingReview} failed (pending review) · \${c.donePendingReview} pending review · \${c.done} done. Auto-refreshes.\`;
+    + \`\${total} task(s) · \${c.ready} ready · \${c.waiting} waiting · \${c.needsHuman} need a human · \${c.failedPendingReview} failed (pending review) · \${c.donePendingReview} pending review · \${c.done} done · \${c.closedFailed} closed (failed). Auto-refreshes.\`;
   document.getElementById('summary-chips').innerHTML =
     \`<button class="summary-chip action" onclick="scrollToSection('needsHuman')"><span class="n">\${c.needsHuman}</span><span class="lbl">need your action</span></button>\`
     + \`<button class="summary-chip review" onclick="scrollToSection('failedPendingReview')"><span class="n">\${c.failedPendingReview}</span><span class="lbl">failed, pending review</span></button>\`
     + \`<button class="summary-chip review" onclick="scrollToSection('donePendingReview')"><span class="n">\${c.donePendingReview}</span><span class="lbl">pending review</span></button>\`
-    + \`<button class="summary-chip done" onclick="scrollToSection('done')"><span class="n">\${c.done}</span><span class="lbl">done</span></button>\`;
+    + \`<button class="summary-chip done" onclick="scrollToSection('done')"><span class="n">\${c.done}</span><span class="lbl">done</span></button>\`
+    + \`<button class="summary-chip fail" onclick="scrollToSection('closedFailed')"><span class="n">\${c.closedFailed}</span><span class="lbl">closed (failed)</span></button>\`;
   document.getElementById('sections').innerHTML =
     renderSection('ready', '🤖', 'Ready', 'Everything the harness can build with no human involved — either right now, or once an earlier, equally-buildable task in its chain lands.', b.ready, b.ready.length)
     + renderSection('needsHuman', '🔒', 'Human Tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
     + renderSection('waiting', '⏳', 'Waiting on Human Tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
     + renderSection('failedPendingReview', '🩹', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
     + renderSection('donePendingReview', '👀', 'Pending Review', 'Built and integrated on green CI, but not yet human-reviewed. Look over the result, then mark it reviewed to move it into Done — un-reviewing a task moves it back here.', b.donePendingReview, b.donePendingReview.length)
-    + renderSection('done', '✅', 'Done', 'Built, integrated, and human-reviewed — closed out.', b.done, \`\${b.done.length}\`);
+    + renderSection('done', '✅', 'Done', 'Built, integrated, and human-reviewed — closed out.', b.done, \`\${b.done.length}\`)
+    + renderSection('closedFailed', '🚫', 'Closed — failed', 'Failed or blocked, and reviewed — closed out. Kept OUT of Done so a failure never reads as a success. Anything that still depends on one of these is stranded (it can never build) until you rewire it to a replacement or abandon it — run /review-failed, or check pre-loop-checkin.', b.closedFailed, \`\${b.closedFailed.length}\`);
 }
 
 // Re-render from cached data (no network) — for expand/collapse, filter, and selection changes.

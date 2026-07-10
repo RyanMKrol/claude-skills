@@ -42,6 +42,28 @@ Entry format:
 
 ---
 
+## 1.58.0 → 1.59.0 — surface tasks stranded on a failed dependency (detection half)
+
+Context: a task marked `failed`/`blocked` is terminal — the loop never re-attempts it — and
+`review-failed` authors any replacement under a NEW id **without rewiring the old task's dependents**. So
+a task that `dependsOn` a failed task can never build, silently. This ships the DETECTION half (the
+`review-failed` rewiring itself follows separately).
+
+- mechanism: `dashboard/lib.js` — `computeBacklog` adds a `closedFailed` bucket: a **reviewed** failed/
+  blocked task now lands there instead of in `done` (checked before `isTerminalDone`, so an overturned
+  done→failed task lands there too). A failure no longer masquerades as a success in Done.
+- mechanism: `dashboard/server.js` — new `🚫 Closed — failed` section (after Done) + a red `closed
+  (failed)` summary chip + count; the done-family pill/`failPill`/checkbox logic extended to
+  `closedFailed` (reviewed pill + ✗ failed / ⚠ blocked pill + model, no bulk actions).
+- mechanism: `dashboard/lib.test.js` — reviewed-failed / overturned-done / reviewed-blocked tasks now
+  assert `closedFailed` (were `done`/`needsHuman`); +1 new case. 39 pass.
+- mechanism (project-local skill): `skills/implementation-harness-pre-loop-checkin/SKILL.md` — new
+  **stranded-on-failure scan** (§1): a jq that lists non-terminal tasks whose `dependsOn` includes a
+  `failed`/`blocked` id (folding in unreconciled `manual-fail.json` ids), reported as a loud GO-with-note
+  ("can NEVER build until rewired or abandoned — see /review-failed").
+- breaking: none (client-only dashboard + a read-only pre-flight check; no data/schema change). Note a
+  cosmetic shift: reviewed failures move out of the dashboard's Done section into "Closed — failed".
+
 ## 1.57.0 → 1.58.0 — dashboard: light theme variants + brightness slider; Human Tasks above Waiting
 
 - mechanism: `dashboard/server.js` — each of the four themes (ink/forest/plum/amber) now has a **light

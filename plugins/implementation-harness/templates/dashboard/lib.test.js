@@ -49,13 +49,14 @@ test('a status:failed task with no reviews.json entry lands in failedPendingRevi
   assert.strictEqual(b.failedPendingReview[0].reviewed, false);
 });
 
-test('a status:failed task WITH a reviews.json entry lands in done, reviewed', () => {
+test('a status:failed task WITH a reviews.json entry lands in closedFailed (NOT done — a failure is not a success)', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'failed', gate: null, dependsOn: [] }] };
   const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
   const b = computeBacklog(tasks, overlays, new Set());
-  assert.strictEqual(b.done.length, 1);
-  assert.strictEqual(b.done[0].failed, true);
-  assert.strictEqual(b.done[0].reviewed, true);
+  assert.strictEqual(b.closedFailed.length, 1);
+  assert.strictEqual(b.closedFailed[0].failed, true);
+  assert.strictEqual(b.closedFailed[0].reviewed, true);
+  assert.strictEqual(b.done.length, 0);
   assert.strictEqual(b.failedPendingReview.length, 0);
 });
 
@@ -86,8 +87,9 @@ test('manual-fail overlay overturns a done task into done+failed once reviewed (
     reviews: { T001: { reviewed: true } },
   };
   const b = computeBacklog(tasks, overlays, new Set());
-  assert.strictEqual(b.done.length, 1);
-  assert.strictEqual(b.done[0].failed, true);
+  assert.strictEqual(b.closedFailed.length, 1);   // overturned done→failed + reviewed → closed-out failure, not Done
+  assert.strictEqual(b.closedFailed[0].failed, true);
+  assert.strictEqual(b.done.length, 0);
   assert.strictEqual(b.needsHuman.length, 0);
 });
 
@@ -110,11 +112,12 @@ test('a status:"blocked" task with no reviews.json entry lands in failedPendingR
   assert.strictEqual(b.failedPendingReview[0].reviewed, false);
 });
 
-test('a status:"blocked" task WITH a reviews.json entry falls back to needsHuman (defensive edge case — normally review-failed also flips it to status:"failed" before marking reviewed)', () => {
+test('a status:"blocked" task WITH a reviews.json entry lands in closedFailed (reviewed → closed-out, not needing action)', () => {
   const tasks = { tasks: [{ id: 'T001', status: 'blocked', gate: null, dependsOn: [] }] };
   const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
   const b = computeBacklog(tasks, overlays, new Set());
-  assert.strictEqual(b.needsHuman.length, 1);
+  assert.strictEqual(b.closedFailed.length, 1);
+  assert.strictEqual(b.needsHuman.length, 0);
   assert.strictEqual(b.failedPendingReview.length, 0);
 });
 

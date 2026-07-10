@@ -83,7 +83,7 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
     return result;
   }
 
-  const buckets = { ready: [], waiting: [], needsHuman: [], failedPendingReview: [], donePendingReview: [], done: [] };
+  const buckets = { ready: [], waiting: [], needsHuman: [], failedPendingReview: [], closedFailed: [], donePendingReview: [], done: [] };
 
   for (const task of tasks) {
     const failed = isFailed(task, overlays);
@@ -102,12 +102,19 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
       buckets.failedPendingReview.push({ ...task, failed, reviewed });
       continue;
     }
-    if (isTerminalDone(task, overlays) || failed) {
-      // Reviewed → Done; genuinely-done-but-not-yet-reviewed work gets its own "Pending review"
-      // bucket so it isn't buried under a long history of already-checked tasks. (A failed task that
-      // reaches here is failed AND reviewed — the failed-and-unreviewed case already went to
-      // failedPendingReview above.) The reviewed flag IS the boundary, so marking a task reviewed
-      // moves it into Done and un-reviewing it moves it back here, automatically, on the next render.
+    // A REVIEWED failure/blocked is closed out — but it is NOT a success, so it gets its own
+    // "Closed — failed" bucket rather than hiding in Done (where a failure looked done, and any task
+    // that depended on it sat silently stranded — the stranded-dependent scan in pre-loop-checkin /
+    // review-failed is what surfaces those). Checked before isTerminalDone so an overturned
+    // done→failed task (manual-fail overlay on a status:done task) lands here, not in Done.
+    if (failed || blockedStatus) {
+      buckets.closedFailed.push({ ...task, failed, reviewed });
+      continue;
+    }
+    if (isTerminalDone(task, overlays)) {
+      // Genuinely done. Reviewed → Done; not-yet-reviewed work gets its own "Pending review" bucket so
+      // it isn't buried under a long history of already-checked tasks. The reviewed flag IS the
+      // boundary, so marking a task reviewed moves it into Done and un-reviewing it moves it back.
       (reviewed ? buckets.done : buckets.donePendingReview).push({ ...task, failed, reviewed });
       continue;
     }
@@ -136,6 +143,7 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
   const byNumericId = (a, b) => numericId(a.id) - numericId(b.id);
   buckets.done.sort(byNumericId);
   buckets.donePendingReview.sort(byNumericId);
+  buckets.closedFailed.sort(byNumericId);
 
   return buckets;
 }
