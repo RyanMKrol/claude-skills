@@ -1,25 +1,26 @@
 ---
-name: implementation-harness-post-run
+name: implementation-harness-loop-prepare
 description: >-
-  Use when the user wants the whole standard follow-up after an unattended loop run in ONE command —
-  phrases like "run the follow-up", "post-run sweep", "triage the run", "do the after-run pass",
-  "/post-run". Chains the existing skills IN ORDER, inline in this conversation:
-  review-failed (only if failed/blocked tasks exist) → convert-ideas (only if the ideas inbox has
-  rows) → pre-loop-checkin (always) → fix-scope-gaps (only when the check-in WARNs and the owner
-  says yes). Every sub-skill runs FULLY — all of its questions and guardrails — nothing is
+  Use when the user wants to get the harness ready for the NEXT unattended loop run in ONE command —
+  phrases like "prepare the loop", "set up the next run", "get the backlog ready to run",
+  "/loop-prepare". Chains the existing skills IN ORDER, inline in this conversation:
+  review-failed (only if the last run left failed/blocked tasks) → convert-ideas (only if the ideas
+  inbox has rows) → pre-loop-checkin (always) → fix-scope-gaps (only when the check-in WARNs and the
+  owner says yes). Every sub-skill runs FULLY — all of its questions and guardrails — nothing is
   streamlined away. Ends at the GO/NO-GO verdict; it NEVER starts the loop. Requires the harness
   scaffolded.
 argument-hint: "[optional: stages to skip, e.g. 'skip ideas' or 'skip failed' — omit to run everything]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion, SendMessage, Artifact, Skill
 ---
 
-# Post-run follow-up (one command for the whole triage sequence)
+# Loop prepare (one command to get the next run ready)
 
-You are the COORDINATOR of the standard post-run sequence the owner would otherwise type as four
-separate commands. You add **no machinery of your own** — each stage IS the existing project-local
-skill, executed faithfully. Your only jobs are: probe which stages are needed, run them in order,
-keep a one-line status trail between stages, and stop at the final GO/NO-GO. Read this whole file,
-then execute in order.
+You are the COORDINATOR of the standard run-preparation sequence the owner would otherwise type as
+four separate commands: triage whatever the last run left behind, fold in the accumulated ideas,
+vet the backlog, and land on a GO/NO-GO. You add **no machinery of your own** — each stage IS the
+existing project-local skill, executed faithfully. Your only jobs are: probe which stages are
+needed, run them in order, keep a one-line status trail between stages, and stop at the final
+GO/NO-GO. Read this whole file, then execute in order.
 
 ## How to run a stage (the one load-bearing rule)
 
@@ -59,7 +60,7 @@ ideas_ct="$(grep -c . .harness/tracking/IDEAS.jsonl 2>/dev/null || true)"
 ```
 
 Honor `$ARGUMENTS` skips (e.g. "skip ideas" drops Stage B; "skip failed" drops Stage A). Then tell
-the owner the plan in one or two lines — e.g. *"Post-run: A review-failed (3 failed/blocked) → B
+the owner the plan in one or two lines — e.g. *"Loop prep: A review-failed (3 failed/blocked) → B
 convert-ideas (5 ideas) → C pre-loop-checkin → D fix-scope-gaps if WARNed"* — noting any stage
 skipped and why (count is zero, or an `$ARGUMENTS` skip). **Do not ask for approval to start** —
 the owner asked for this by invoking the command; the sub-skills ask the real questions.
@@ -102,5 +103,6 @@ End with a compact wrap-up: per-stage one-liners + the final **GO / NO-GO**.
 - On **NO-GO**: list the blockers and the right tool for each (a manual edit, another sweep,
   `/implementation-harness-loop-recover`), so the owner's next action is obvious.
 - If a stage was aborted midway (owner cancel, error): say plainly which stages completed and
-  which didn't, and that re-running `/implementation-harness-post-run` is safe — completed sweeps
-  find nothing left to do, and an interrupted sweep's drafts are adopted by its own recovery check.
+  which didn't, and that re-running `/implementation-harness-loop-prepare` is safe — completed
+  sweeps find nothing left to do, and an interrupted sweep's drafts are adopted by its own
+  recovery check.

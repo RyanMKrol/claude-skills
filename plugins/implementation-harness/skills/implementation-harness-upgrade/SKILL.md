@@ -258,7 +258,7 @@ delisted from the global plugin as of 1.32.0 (or added since); kept in sync here
 | `implementation-harness-convert-ideas/SKILL.md` | `implementation-harness-convert-ideas/SKILL.md` |
 | `implementation-harness-fix-scope-gaps/SKILL.md` | `implementation-harness-fix-scope-gaps/SKILL.md` |
 | `implementation-harness-loop-recover/SKILL.md` | `implementation-harness-loop-recover/SKILL.md` |
-| `implementation-harness-post-run/SKILL.md` | `implementation-harness-post-run/SKILL.md` |
+| `implementation-harness-loop-prepare/SKILL.md` | `implementation-harness-loop-prepare/SKILL.md` |
 | `implementation-harness-pre-loop-checkin/SKILL.md` | `implementation-harness-pre-loop-checkin/SKILL.md` |
 | `implementation-harness-review-failed/SKILL.md` | `implementation-harness-review-failed/SKILL.md` |
 | `implementation-harness-update-ladder/SKILL.md` | `implementation-harness-update-ladder/SKILL.md` |
@@ -295,7 +295,7 @@ For each file, classify:
   at all predates 1.32.0 wholesale (before that version they were global and the project never needed
   local copies) — this is a new category being introduced, not an ambiguous per-file removal the owner
   might have made on purpose; and a missing individual skill dir is a skill added in a version the
-  install hasn't pulled yet (e.g. `post-run`, added in 1.70.0). Always present every missing one as a
+  install hasn't pulled yet (e.g. `loop-prepare`, added in 1.70.0 as `post-run`, renamed in 1.71.0). Always present every missing one as a
   **straightforward add-candidate**, proactively closing the gap where an old install otherwise loses
   access to these skills until it upgrades.
 
@@ -403,7 +403,7 @@ user must always be able to see what diverged before approving.
   for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
   node "$H/dashboard/lib.test.js"                 # the dashboard bucket tests
   for j in "$H"/config/facets.json "$H"/tracking/*.json; do jq empty "$j" || echo "BAD JSON: $j"; done
-  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover post-run pre-loop-checkin review-failed update-ladder; do
+  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover loop-prepare pre-loop-checkin review-failed update-ladder; do
     f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
     [ -f "$f" ] && grep -q "^name: implementation-harness-$s\$" "$f" || echo "WARN: project-local skill $s missing or malformed after upgrade"
   done

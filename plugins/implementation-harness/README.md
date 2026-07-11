@@ -122,7 +122,7 @@ this specific project's `.harness/` version understands) operate a harness that'
 | `implementation-harness-review-failed` | `/implementation-harness-review-failed [id]` | Sweeps every `failed`/`blocked` task, investigates the root cause (one sub-agent each, in parallel), and authors a demonstrably-better follow-up via the same `consolidate-ideas.sh` pipeline. Never a blind retry; never touches the terminal task's status. |
 | `implementation-harness-loop-recover` | `/implementation-harness-loop-recover [id]` | Recovers the loop after a manual interrupt: stops-check, surgical dirty-tree / leftover-worktree cleanup, stale-lock clearing, orphaned-task detection + fix (verified against the DoD), ledger-noise cleanup, then a readiness check. Mutates + pushes — the correcting the stopped loop can't do. |
 | `implementation-harness-update-ladder` | `/implementation-harness-update-ladder [model]` | Add, swap, or remove a rung on this project's difficulty/tier ladder (`config/facets.json`) — handles effort-less models (`effort: null`) and walks the right migration path for a swap vs an insert/remove. |
-| `implementation-harness-post-run` | `/implementation-harness-post-run` | The whole post-run follow-up as one command: chains `review-failed` (if anything failed/blocked) → `convert-ideas` (if the inbox has rows) → `pre-loop-checkin` → `fix-scope-gaps` (on WARNs), executing each constituent skill in full — every question preserved — and ending at the GO/NO-GO verdict. Never starts the loop. |
+| `implementation-harness-loop-prepare` | `/implementation-harness-loop-prepare` | Prepare the next unattended run as one command: chains `review-failed` (if the last run left failed/blocked tasks) → `convert-ideas` (if the inbox has rows) → `pre-loop-checkin` → `fix-scope-gaps` (on WARNs), executing each constituent skill in full — every question preserved — and ending at the GO/NO-GO verdict. Never starts the loop. |
 
 All thirteen are also model-invocable (Claude triggers them from the descriptions when you ask in
 plain language) — the four global ones from any project, the nine project-local ones once
@@ -146,8 +146,8 @@ implementation-harness/
     │   ├── implementation-harness-capture-idea/SKILL.md
     │   ├── implementation-harness-convert-ideas/SKILL.md
     │   ├── implementation-harness-fix-scope-gaps/SKILL.md
+    │   ├── implementation-harness-loop-prepare/SKILL.md
     │   ├── implementation-harness-loop-recover/SKILL.md
-    │   ├── implementation-harness-post-run/SKILL.md
     │   ├── implementation-harness-pre-loop-checkin/SKILL.md
     │   ├── implementation-harness-review-failed/SKILL.md
     │   └── implementation-harness-update-ladder/SKILL.md

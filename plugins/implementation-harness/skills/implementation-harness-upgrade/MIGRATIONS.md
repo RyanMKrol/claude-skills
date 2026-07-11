@@ -42,6 +42,25 @@ Entry format:
 
 ---
 
+## 1.70.1 → 1.71.0 — rename: post-run → loop-prepare (owner naming decision, same skill)
+
+The orchestrator skill shipped in 1.70.0 as `implementation-harness-post-run` is renamed to
+`implementation-harness-loop-prepare`, reframed from "post-run follow-up" to "prepare the NEXT
+unattended run" (the owner thinks of it as the standard way a run gets set up, not as cleanup).
+Same behavior: review-failed → convert-ideas → pre-loop-checkin → fix-scope-gaps, GO/NO-GO, never
+starts the loop.
+
+- renamed/removed: `skills/implementation-harness-post-run/SKILL.md` →
+  `skills/implementation-harness-loop-prepare/SKILL.md`. On upgrade: remove
+  `$T/.claude/skills/implementation-harness-post-run/` if present (only installs that scaffolded
+  at exactly 1.70.0–1.70.1 have it) and add `implementation-harness-loop-prepare/` in its place.
+- mechanism: `README.md` (→ `.harness/README.md`), `harness-CLAUDE.md` (→ `.harness/CLAUDE.md`) —
+  the mention renamed/reframed.
+- config: none.
+- manual attention: none.
+- breaking: anyone who already typed `/implementation-harness-post-run` uses
+  `/implementation-harness-loop-prepare` now.
+
 ## 1.70.0 → 1.70.1 — test-suite bolstering: four new regression suites (no behavior change)
 
 New tests only — no mechanism/logic change. Motivated by a coverage audit tracing recent

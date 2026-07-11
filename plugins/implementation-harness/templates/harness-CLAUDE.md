@@ -116,11 +116,11 @@ Beyond authoring, these skills help RUN the loop safely:
 - **`/implementation-harness-update-ladder`** — interview-driven walkthrough for adding, swapping, or
   removing a rung on `config/facets.json`'s `.tiers.ladder`, including models with no `effort`
   parameter (`effort: null`) and the right migration path for a swap vs an insert/remove.
-- **`/implementation-harness-post-run`** — the whole post-run follow-up as ONE command: chains
-  review-failed (if anything failed/blocked) → convert-ideas (if the inbox has rows) →
-  pre-loop-checkin → fix-scope-gaps (on WARNs), executing each constituent skill in full — all of
-  its questions, none streamlined away — and ending at the GO/NO-GO verdict. It NEVER starts the
-  loop itself (that stays a human-only terminal action, same as above).
+- **`/implementation-harness-loop-prepare`** — get the NEXT unattended run ready as ONE command:
+  chains review-failed (if the last run left failed/blocked tasks) → convert-ideas (if the inbox
+  has rows) → pre-loop-checkin → fix-scope-gaps (on WARNs), executing each constituent skill in
+  full — all of its questions, none streamlined away — and ending at the GO/NO-GO verdict. It
+  NEVER starts the loop itself (that stays a human-only terminal action, same as above).
 
 ## A task touching `.harness/**` MUST be `gate: "needs-human"` — never buildable
 

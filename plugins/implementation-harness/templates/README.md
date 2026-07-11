@@ -76,7 +76,7 @@ flowchart TD
    Investigates each root cause and authors a demonstrably-better follow-up (never a blind retry);
    the follow-ups re-enter the cycle at step 3.
 
-**Or run the whole follow-up as one command:** `/implementation-harness-post-run` chains steps
+**Or prepare the next run as one command:** `/implementation-harness-loop-prepare` chains steps
 6 → 2 → 3 → 4 in order (review-failed if anything failed, convert-ideas if the inbox has rows,
 pre-loop-checkin always, fix-scope-gaps on WARNs), running each constituent skill in full — every
 question included — and ending at the GO/NO-GO verdict. It never starts the loop (step 5 stays
