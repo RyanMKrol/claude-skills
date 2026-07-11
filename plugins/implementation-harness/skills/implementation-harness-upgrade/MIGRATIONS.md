@@ -42,6 +42,29 @@ Entry format:
 
 ---
 
+## 1.70.0 → 1.70.1 — test-suite bolstering: four new regression suites (no behavior change)
+
+New tests only — no mechanism/logic change. Motivated by a coverage audit tracing recent
+regressions (idle-exit 1.65.0, usage-limit miss 1.69.0) to load-bearing loop logic pinned only by
+static greps.
+
+- new files (mechanism, `scripts/`): `select-task.test.sh` (the authoritative shell task-selection
+  via the DRY_RUN entry point — array-order pick, dep/gate/failed/blocked skips, the FORCE_TASK
+  bogus-id safety refusal, drained backlog; runs whichever loop variant is installed),
+  `supervise.test.sh` (supervise↔loop exit-code contract via LOOP= stubs: 3 = hard stop, 5 =
+  rate-limited short retry, other ≠0 = error backoff, MAX_CYCLES; plus the CLAUDECODE refusal),
+  `claudecode-guard.test.sh` (the "only a human starts the loop" invariant: loop/supervise refuse
+  under $CLAUDECODE, guard precedes arg parsing, no bypass knob),
+  `policy-audit.test.sh` (policy.jq's AUDIT mode decay curve — DESIGN.md §12's smoke: counts
+  0/3/5/8/20 → 1000/1000/640/100/100 pm — and the risk-flag mandatory-audit clamp).
+- also (NOT installed, dev-level, listed for completeness): `tests/loop-parity.test.sh` at the
+  plugin root — mechanical byte-parity manifest over the 22 shared functions of the two loop
+  variants; and the marketplace repo CI gains a macOS bash-3.2 job. Neither reaches installs.
+- config: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.69.0 → 1.70.0 — new post-run orchestrator skill (one command for the whole follow-up sequence)
 
 Adds `implementation-harness-post-run`, a project-local coordinator skill that chains the standard

@@ -1,8 +1,12 @@
 name: CI
 
-# Guardrails for the plugin marketplace. Two jobs:
-#   validate    — every script parses (bash 3.2 has no CI runner, so `bash -n` + the repo's own tests
-#                 are the floor), every JSON is valid, the dashboard test suite passes.
+# Guardrails for the plugin marketplace. Three jobs:
+#   validate        — every script parses, every JSON is valid, the dashboard test suite passes,
+#                     every *.test.sh runs (ubuntu, bash 5.x).
+#   validate-bash32 — the SAME shell test suite executed by macOS's /bin/bash 3.2.57 — the
+#                     harness's actual declared target. Ubuntu's bash 5 can't catch a bash-4+
+#                     builtin slipping in (mapfile, ${var,,}, …); this job runs the real thing so
+#                     that regression class fails at PR time instead of on a consumer's Mac.
 #   conventions — enforce the repo's #1 gotchas with tooling instead of discipline:
 #                 (1) any change to a plugin's files ships WITH a version bump in its plugin.json
 #                     (the plugin cache only re-installs on a version change);
@@ -50,6 +54,7 @@ jobs:
           node plugins/implementation-harness/templates/dashboard/lib.test.js
 
       - name: run harness shell test suites (*.test.sh)
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           fail=0
@@ -59,6 +64,10 @@ jobs:
           done < <(find plugins -name '*.test.sh' -print0)
           exit "$fail"
 
+      - name: repo-lock.sh --selftest (not a *.test.sh, so the finder above misses it)
+        timeout-minutes: 2
+        run: bash plugins/implementation-harness/templates/scripts/repo-lock.sh --selftest
+
       - name: jq empty every JSON file
         run: |
           set -euo pipefail
@@ -66,6 +75,27 @@ jobs:
           while IFS= read -r -d '' f; do
             jq empty "$f" || { echo "BAD JSON: $f"; fail=1; }
           done < <(find plugins .claude-plugin -name '*.json' -print0)
+          exit "$fail"
+
+  validate-bash32:
+    runs-on: macos-latest   # ships /bin/bash 3.2.57 — the harness's declared target shell
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: run harness shell test suites under /bin/bash 3.2
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          /bin/bash --version | head -1
+          fail=0
+          while IFS= read -r -d '' t; do
+            echo "── running $t (bash 3.2)"
+            /bin/bash "$t" || { echo "TEST FAILED (bash 3.2): $t"; fail=1; }
+          done < <(find plugins -name '*.test.sh' -print0)
+          /bin/bash plugins/implementation-harness/templates/scripts/repo-lock.sh --selftest \
+            || { echo "TEST FAILED (bash 3.2): repo-lock.sh --selftest"; fail=1; }
           exit "$fail"
 
   conventions:
