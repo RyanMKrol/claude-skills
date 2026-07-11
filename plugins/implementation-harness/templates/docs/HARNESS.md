@@ -32,7 +32,7 @@ to (re)start and interruption is survivable.
 |---|---|
 | `supervise.sh` | Foreground **heartbeat**. Re-runs the loop on a cadence aligned to the token-refresh window. Leave it in a terminal for days; Ctrl-C between cycles. |
 | `loop.sh` | The **single global Ralph loop**. Pick next eligible task → run one `claude -p` → verify → integrate → repeat until done / blocked / capped. |
-| `claude -p` worker | A fresh agent that does **one** task end-to-end against the hardened Definition of Done (§6). |
+| `claude -p` worker | A fresh agent that does **one** task end-to-end against the hardened Definition of Done (§5). |
 | `postflight.sh` | Zero-token, read-only **status board** of where the backlog stands. |
 
 **It is *not*** your product designer (that's `PLAN.md` / design docs), your
@@ -57,7 +57,7 @@ them on its own).
    measures whether that model can do the task *in one cold pass* — the signal the difficulty
    calibration + audit gate depend on. The worklog is observability-only, never read by the builder. A
    task that can't be done cold in one pass is mis-sized → split it. (See `designs/audit-verification.md`.)
-5. **Definition of Done is *empirical* (§6).** "Done" means it compiled, tests passed,
+5. **Definition of Done is *empirical* (§5).** "Done" means it compiled, tests passed,
    **remote CI went green**, and — where the task asks for it — we **watched it actually
    run**. Not "the model believes it's done."
 6. **Determinism where it's cheap; the model only where judgement is needed.** Sync,
@@ -249,7 +249,7 @@ supervise.sh (heartbeat)
                              off origin/main — every attempt is COLD (no resume of partial work).
          3. WORK  (claude):  one `claude -p` (policy-chosen model/effort) IN that worktree: build
                              the task FRESH from its spec in scope, pass the Definition of Done
-                             (§6), update docs in lockstep, commit, push the branch. No merge.
+                             (§5), update docs in lockstep, commit, push the branch. No merge.
          4. GATE  (shell):   watch the branch's CI (`gh run watch`); on green run the structural
                              checks + the sampled blocking audit. all pass → fast-forward main via
                              push (never checks main out), tear down. any fail → tear down → COLD retry.
@@ -512,15 +512,15 @@ the top carries the human note (JSON has no comments). One task object:
 |---|---|
 | `id` | Task identifier, zero-padded, ≥ three digits (`T001`…`T999`). The branch is `tNNN`. |
 | `title` | One-line human summary (shown on the status board). |
-| `status` | `"pending"`, `"done"`, `"blocked"`, or `"failed"` — the **only** status source. Per-attempt retry state lives in `worklog/` + `.result`, not here. The LOOP (not the builder) sets `"done"`, in a follow-up commit, once the build clears the structural checks + the audit gate (§6). `"blocked"` is set by `block_task()` when a task exhausts the top ladder rung — a first-class value (not just a worklog marker), so `task_blocked()`/the dashboard see it directly; `task_blocked()` also falls back to a worklog `failed:blocked` grep for tasks blocked before this existed. `"failed"` is set only via the owner's `manual-fail.json` overlay overturning a false "done" (§8.2) — both are terminal; neither is ever auto-reopened by the loop. |
+| `status` | `"pending"`, `"done"`, `"blocked"`, or `"failed"` — the **only** status source. Per-attempt retry state lives in `worklog/` + `.result`, not here. The LOOP (not the builder) sets `"done"`, in a follow-up commit, once the build clears the structural checks + the audit gate (§5). `"blocked"` is set by `block_task()` when a task exhausts the top ladder rung — a first-class value (not just a worklog marker), so `task_blocked()`/the dashboard see it directly; `task_blocked()` also falls back to a worklog `failed:blocked` grep for tasks blocked before this existed. `"failed"` is set only via the owner's `manual-fail.json` overlay overturning a false "done" (§8.2) — both are terminal; neither is ever auto-reopened by the loop. |
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
 | `gate` | `null` (buildable) or `"needs-human"` (🔒 a one-time human step; recorded `failed:blocked`, never auto-done). The loop skips `needs-human` during selection (§9). To require a human to **review a deliverable before dependents proceed**, don't gate the work itself — author a separate `needs-human` review task that `dependsOn` it and point the dependents at the review task. |
 | `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. Each entry is one of: an **exact path** (`src/auth/session.ts`); a **directory prefix** — a trailing `/`, `/**`, or `/*`, all meaning *everything under it, recursively* (`src/feature/**`); or a **single-level extension glob** (`dir/*.tsx` = any `.tsx` **directly** in `dir`, not nested). Anything else with a glob metacharacter (e.g. a mid-path `**` like `dir/**/*.ts`, or brace expansion) is **not** supported and is flagged by `check-task-scope.sh` at pre-loop-checkin — split it into a directory prefix or explicit paths. |
 | `expectsTest` | Optional boolean. `true` → the loop requires a **test file** to change in the diff (a structural check); say what the test must assert in `## Done when`. Set it for tasks whose correctness should be pinned by a test. |
 | `visualVerify` | Optional boolean. `true` → inject the `VISUAL_VERIFY_HOOK` "actually LOOK at the output" instruction into the builder + auditor prompt **regardless of facets/platform** (a native screen, a mobile simulator, a generated image). `false` → suppress it even for an auto-covered task. **Omit** to use the facets heuristic: auto-fires when `facets.workType` ∈ `VISUAL_VERIFY_WORKTYPES` (default `component style`) on any layer, OR `facets.layer` ∈ `VISUAL_VERIFY_LAYERS` (default `frontend`) unless the work-type is in `VISUAL_VERIFY_SKIP_WORKTYPES` (default `docs config logging`). Maybe-visual work (`bugfix`/`feature`/`migration` off-frontend) is set by the authoring skills, not auto. No-op if `VISUAL_VERIFY_HOOK` is unset. See `docs/designs/visual-verification.md`. |
 | `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from the `spec` on its own judgement. Never required. |
-| `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §6 Definition of Done. Empty = unit/integration + CI suffice. |
-| `spec` | **Required** repo-relative path to the task's per-task Markdown spec (`.harness/tasks/TNNN.md`) — a leading **`## Overview`** (one or two plain-language sentences: the "what & why, at a glance", read first), then `## Do` (the work, kept short) and `## Done when` (the **task-specific** acceptance bar; the **universal** bar in §6 is not repeated). The loop appends its full text to the build prompt. `do`/`doneWhen` do **not** live in the JSON. (`## Overview` is a later convention — specs authored before it are left as-is, no backfill.) |
+| `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §5 Definition of Done. Empty = unit/integration + CI suffice. |
+| `spec` | **Required** repo-relative path to the task's per-task Markdown spec (`.harness/tasks/TNNN.md`) — a leading **`## Overview`** (one or two plain-language sentences: the "what & why, at a glance", read first), then `## Do` (the work, kept short) and `## Done when` (the **task-specific** acceptance bar; the **universal** bar in §5 is not repeated). The loop appends its full text to the build prompt. `do`/`doneWhen` do **not** live in the JSON. (`## Overview` is a later convention — specs authored before it are left as-is, no backfill.) |
 | `facets` | The difficulty-calibration key for buildable tasks: `{ "layer", "workType", "risk": [...] }`, values drawn from `facets.json`. The policy picks the starting tier and escalates from it — this REPLACES per-task `model`/`effort`/`escalation` (a task carries none). **Omitted only for gated / needs-human tasks** (never calibrated). |
 | `tags` | Optional freeform DESCRIPTIVE labels (feature area) — not the calibration key (that's `facets`). |
 

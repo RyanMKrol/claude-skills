@@ -806,8 +806,8 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, 
    work) — build this task FRESH from the spec alone. Stay within the task's `scope` — the exact
    allowed-files list + the HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
 
-2. DEFINITION OF DONE (.harness/docs/HARNESS.md §6 — all must hold before you report `done`):
-   a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/docs/HARNESS.md §6
+2. DEFINITION OF DONE (.harness/docs/HARNESS.md §5 — all must hold before you report `done`):
+   a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/docs/HARNESS.md §5
       (format, lint, tests, build). These MIRROR CI — run them locally first; every check must pass.
       Add tests for new behaviour.
    b. Run the task's integration / end-to-end checks when their preconditions are met. A check that

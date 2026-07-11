@@ -131,7 +131,7 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > - **Already resolved** — the investigation found this is PROVABLY fixed/stale/non-issue: a framework bug
 >   since patched upstream, a later task or manual commit that already touched the same scope and fixed
 >   it, a failure mode that no longer reproduces. This is a FACTUAL finding, not a judgment call. Write
->   `.harness/.pending-tasks/<SLUG>.json` with `{ "units": [], "ideaBullets": [], "report": "<why nothing
+>   `.harness/.pending-tasks/<SLUG>.json` with `{ "units": [], "report": "<why nothing
 >   further is needed>" }`. **No question needed** — the coordinator closes the original out automatically
 >   in Stage 3, citing your report as the reason.
 > - **Follow-up authored** — go to step 4 to shape it. You do NOT have `AskUserQuestion` — you relay
@@ -144,7 +144,7 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >   isn't worth building: it was already deprioritized, the underlying ask is stale/no longer wanted, or a
 >   proper fix's cost isn't justified relative to its value. Unlike "already resolved," this ABANDONS
 >   something the backlog once wanted — that IS a judgment call, so it must be confirmed, not closed
->   silently. Write `.harness/.pending-tasks/<SLUG>.json` with the same `{ "units": [], "ideaBullets": [],
+>   silently. Write `.harness/.pending-tasks/<SLUG>.json` with the same `{ "units": [],
 >   "report": "<why you think it's not worth pursuing>" }` shape as "already resolved" (your `report` text
 >   is what distinguishes them for the coordinator), AND relay a confirm-first question per step 4c below.
 >

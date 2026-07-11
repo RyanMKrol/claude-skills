@@ -233,7 +233,7 @@ Consolidate into ONE glance-able report before the owner starts a run:
   still has other eligible work (note) or the blocker gates *all* remaining work (NO-GO).
 - **Session hygiene**: dirty tree? ahead/behind? loop already running / lock held?
 - **Dependency short-circuits**: list or "none found".
-- **Task definition quality**: tasks with issues (+ which check, a–e), or "all clear".
+- **Task definition quality**: tasks with issues (+ which check, a–f), or "all clear".
 - **Verdict**: plain **GO** (safe to start `.harness/scripts/supervise.sh`), **NO-GO**, or **GO with
   notes** (clean and runnable, but informational notes like dependency short-circuits or unresolved
   needs-human blockers with other work still eligible). A verdict is
@@ -242,7 +242,13 @@ Consolidate into ONE glance-able report before the owner starts a run:
     needs-human task or unmet dependency first (e.g. "mark T012 done in the dashboard first").
   - **A loop is already running / a live lock is held** — don't start a second one; run
     `/implementation-harness-loop-recover` first if the lock is stale.
-  - **A scope-gap advisory on a pending, buildable task** (check (e)) — name the flagged task/file.
+  - **A scope-gap advisory on a pending, buildable task** (check (e), the heuristic file-mention class) —
+    name the flagged task/file; a NO-GO the owner can override if it's a false positive (offer
+    `implementation-harness-fix-scope-gaps`).
+  - **An unsupported scope-glob shape on a pending, buildable task** (check (e), the non-heuristic class) —
+    a **firm** NO-GO (not a maybe): the entry would fail every build attempt as unrecoverable scope-creep,
+    so it must be rewritten to a directory prefix or explicit paths **by hand** before the run
+    (`fix-scope-gaps` fills missing entries but won't rewrite a malformed shape).
   An unresolved needs-human blocker on its own, when other work is still eligible, is **GO with notes**,
   not NO-GO.
 

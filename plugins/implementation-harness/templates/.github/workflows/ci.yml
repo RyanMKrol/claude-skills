@@ -23,7 +23,7 @@ jobs:
 
       # ───────────────────────────────────────────────────────────────────────
       # REPLACE the steps below with YOUR project's Definition of Done.
-      # They MUST match docs/HARNESS.md §6 and what the builder runs locally —
+      # They MUST match docs/HARNESS.md §5 and what the builder runs locally —
       # CI is the authoritative gate, so anything not checked here is not enforced.
       #
       # Examples by stack (delete these comments once you've wired yours):

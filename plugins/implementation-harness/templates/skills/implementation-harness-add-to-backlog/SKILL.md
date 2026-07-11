@@ -84,7 +84,7 @@ Use `AskUserQuestion`. Establish:
    - **do / done-when** — the work, and the task-specific acceptance bar. These go in the per-task
      Markdown spec `.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`), NOT inline in the
      JSON (see §3). Do **not** restate the universal bar (format/lint/test, CI green, docs lockstep)
-     in done-when — that lives once in HARNESS §6.
+     in done-when — that lives once in HARNESS §5.
 4. **Facets (per task) — DESCRIBE the task; the policy decides difficulty.** Difficulty (which model
    + effort to start on) is now AUTO-TUNED by the loop's policy from escalation history — you do NOT
    guess it (see `.harness/docs/designs/difficulty-autotune.md`). Your job is to *classify* the task. Read the

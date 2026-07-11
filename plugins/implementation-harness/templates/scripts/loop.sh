@@ -744,9 +744,9 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (the 
    path (.harness/tasks/<TASK>.md, sections '## Do' / '## Done when') — its FULL TEXT is appended at
    the end of this prompt. Stay within the task's `scope` — the exact allowed-files list + the
    HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
-2. DEFINITION OF DONE (.harness/docs/HARNESS.md §6 — all must hold before you report `done`):
+2. DEFINITION OF DONE (.harness/docs/HARNESS.md §5 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
-      .harness/docs/HARNESS.md §6 (format, lint, tests, build). These MIRROR CI — if CI runs it,
+      .harness/docs/HARNESS.md §5 (format, lint, tests, build). These MIRROR CI — if CI runs it,
       run it locally first. Every check must pass.
    b. Run the task's relevant integration / end-to-end tests when their preconditions are
       met. Tests that need credentials, funds, or external resources you don't have: leave

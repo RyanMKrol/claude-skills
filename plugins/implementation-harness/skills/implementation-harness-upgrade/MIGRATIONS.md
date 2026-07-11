@@ -42,6 +42,34 @@ Entry format:
 
 ---
 
+## 1.71.1 → 1.71.2 — doc-accuracy batch: four falsehoods that reach builders/owners (Q04)
+
+Prose/comment-only corrections, no behavior change:
+1. **DoD section reference §6 → §5** — the Definition of Done is HARNESS.md §5 (§6 is single-flight),
+   but the build prompt in BOTH loop variants, plus six spots in HARNESS.md §8.1/§2/§4, cited §6 —
+   every cold builder was pointed at the wrong section by its own prompt. All corrected to §5.
+2. **`MAX_ATTEMPTS` comment** in `config/harness.env` described pre-ladder behavior ("per task before
+   the loop asks a human"); rewritten to "per RUNG before escalating; blocks a human only after the
+   TOP rung" (matches loop.sh's own default comment).
+3. **pre-loop-checkin** final report enumerated "checks a–e" but §4 defines a–f; and the two check-(e)
+   WARN severities (heuristic file-mention advisory vs firm unsupported-glob NO-GO) were flattened in
+   the verdict list — now a–f, and the two (e) classes are named separately in the verdict.
+4. **review-failed** taught a phantom `ideaBullets` field in the "already resolved"/"not worth
+   pursuing" JSON shapes (consolidate-ideas.mjs reads only `ideaIds`) — field removed from both.
+
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` (build-prompt DoD text §6→§5, mirrored),
+  `docs/HARNESS.md` (§8.1 status/spec/verify rows, §1 table, §2 principle 5, §4 walkthrough — §6→§5).
+- operational skills: `implementation-harness-add-to-backlog/SKILL.md` (HARNESS §6→§5),
+  `implementation-harness-pre-loop-checkin/SKILL.md` (a–e→a–f; verdict names both (e) classes),
+  `implementation-harness-review-failed/SKILL.md` (drop `ideaBullets` from two draft shapes).
+- config: `config/harness.env` — ACTION: none additive (this only rewrites a COMMENT above the
+  existing `MAX_ATTEMPTS` line; the upgrade reconciles config additively and won't touch a user's copy).
+- manual attention: existing installs — the `MAX_ATTEMPTS` comment in your `.harness/config/harness.env`
+  won't be rewritten by the upgrade; update it by hand if you care. Likewise `.github/workflows/ci.yml`
+  (comment "match §6"→"§5") and the example `tasks/T001.md` (Done-when "§6"→"§5") are user-data/root
+  files the upgrade never touches — fix by hand only if you kept the shipped copies.
+- breaking: none.
+
 ## 1.71.0 → 1.71.1 — review-failed relay respects the 4-question AskUserQuestion cap (Q01)
 
 `implementation-harness-review-failed` Stage 3 previously said to make **ONE** `AskUserQuestion`
