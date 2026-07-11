@@ -25,11 +25,13 @@ agent should be able to work from the file alone, without the original conversat
    or with `env -u CLAUDECODE` — several suites exercise the CLAUDECODE refusal) and
    `node plugins/implementation-harness/templates/dashboard/lib.test.js`.
 6. Line numbers in these specs are approximate (v1.71.0) — anchor on function names.
-7. When a proposal is completed, move its file to `proposals/done/` in the implementing commit.
+7. When a proposal is completed, **delete its file** in the implementing commit — git history and
+   the `MIGRATIONS.md` ledger are the durable record, so a finished spec shouldn't linger in the
+   queue (and its index row below is removed too).
 
 ## Recommended order
 
-**Now (correctness/safety):** B01 → B02 → B03 → Q04 → Q03 → Q01 → B09
+**Now (correctness/safety):** B01 → B02 → B03  *(Q04, Q03, Q01, B09 — done)*
 **Next (high value):** B05+C03 → B07 → B04 → B06 → D01 → C01 (the structural fix) → T01 → F01
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
 
@@ -45,11 +47,9 @@ agent should be able to work from the file alone, without the original conversat
 | B06 | Lock granularity — owner CLIs starve for the whole run | bug | P1 | M |
 | B07 | Rate-limit false positives + uncapped audit-path RL loop | bug | P1 | M |
 | B08 | CI-indeterminate re-check parity (in-place) | bug | P2 | S |
-| B09 | Corrupt backlog must fail CLOSED (exit 3) | bug | P2 | S |
 | B10 | Bound the CI watch (`gh run watch`) | bug | P2 | S |
 | B11 | Worktree idle path leaks the tNNN branch | bug | P2 | S |
 | B12 | Loop status pushes must rebase-and-retry | bug | P2 | S |
-| B13 | consolidate-ideas.mjs breaks on paths with spaces | bug | P3 | S |
 | B14 | Dashboard hardening batch (escaping, EADDRINUSE, readBody, spec path) | bug | P2 | S |
 | B15 | Dashboard performance (tail reads, async spawns, parse-error banner) | bug | P2 | M |
 | D01 | `[skip ci]` must be a task opt-in, not builder-controlled | design-drift | P1 | S |
@@ -74,10 +74,7 @@ agent should be able to work from the file alone, without the original conversat
 | F12 | Dashboard: extract the inline client app | feature | P2 | M |
 | F13 | Auditor observations → ideas inbox | feature | P3 | M |
 | F14 | loop-prepare v2: merged agent wave, one relay, one consolidation | feature | P3 | M |
-| Q01 | review-failed: respect the 4-question AskUserQuestion cap | skill-quality | P1 | S |
 | Q02 | Shared relay-protocol reference (dedupe ~60 lines ×2) | skill-quality | P1 | M |
-| Q03 | add-to-backlog: fix the missing `.harness/` path prefixes | skill-quality | P1 | S |
-| Q04 | Doc-accuracy batch (§6→§5 DoD refs, MAX_ATTEMPTS comment, checks a–f, ideaBullets) | skill-quality | P1 | S |
 | Q05 | Origin marker on shared scratch drafts | skill-quality | P2 | S |
 | Q06 | customize: batch the want-it triage | skill-quality | P3 | S |
 | T01 | Fake-claude/fake-gh e2e loop test harness | testing | P1 | L |
@@ -87,4 +84,3 @@ agent should be able to work from the file alone, without the original conversat
 | T05 | Mutation-CLI tests (consolidate-ideas, mark-failed) | testing | P3 | S |
 | T06 | Skill non-ASCII lint + dashboard server smoke | testing | P3 | S |
 | N01 | Retire the redundant `implementation-harness-` skill-name prefix | new-idea | P1 | L |
-| N02 | Rename post-run → loop-prepare | new-idea | — | ✅ done (v1.71.0) |
