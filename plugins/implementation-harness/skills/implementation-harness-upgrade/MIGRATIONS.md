@@ -42,6 +42,22 @@ Entry format:
 
 ---
 
+## 1.71.0 → 1.71.1 — review-failed relay respects the 4-question AskUserQuestion cap (Q01)
+
+`implementation-harness-review-failed` Stage 3 previously said to make **ONE** `AskUserQuestion`
+batching every question from every file — but a single call hard-caps at 4 questions, so any sweep
+reviewing >4 failed tasks (each mandating ≥1 definition-of-done confirmation) hit the cap and either
+errored or silently dropped questions. Stage 3 now mirrors convert-ideas §4: batch in groups of ≤4,
+sequential calls until drained, each question self-contained (one-sentence restatement naming its
+`<TNNN>` in the question text, not only in a header/label). Prose-only change to the relay
+instructions; no behavior/logic in the scripts.
+
+- operational skill: `skills/implementation-harness-review-failed/SKILL.md` — Stage 3 relay
+  paragraph rewritten (the "make ONE AskUserQuestion" clause → the ≤4 batched-calls rules).
+- config: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.70.1 → 1.71.0 — rename: post-run → loop-prepare (owner naming decision, same skill)
 
 The orchestrator skill shipped in 1.70.0 as `implementation-harness-post-run` is renamed to

@@ -275,12 +275,21 @@ rounds**, regenerate and redeploy to the SAME file path each round — the owner
 whole sweep instead of chasing a new link every round. Zero pending questions → skip this entirely,
 nothing to relay.
 
-**Summarize before asking**: emit a short markdown recap — one line per review: its `ideaSummary` (and
-the `<TNNN>` it concerns) — plus the artifact URL from above ("Full drafted context: `<url>` — keep this
-open while answering below") — then make ONE `AskUserQuestion` batching **every** question from **every**
-file (each may carry several — a definition-of-done confirmation, a `close-without-followup`
-confirmation, plus other build-changing decisions), each with a `<TNNN>`-naming header/label. Fold each
-answer back to its `(slug, question)`:
+**Summarize before asking, but don't rely on it**: emit a short markdown recap — one line per review: its
+`ideaSummary` (and the `<TNNN>` it concerns) — plus the artifact URL from above ("Full drafted context:
+`<url>` — keep this open while answering below") — so the owner has the full list up front. This recap is a
+courtesy overview, **not** the question's only source of context: every individual question also opens with
+its own one-sentence, self-contained restatement naming its `<TNNN>` **in the question text itself** (not
+only in a header/label), because the recap can scroll out of view long before a later question is answered.
+
+**Batch in groups of ≤4 — `AskUserQuestion` hard-caps a single call at 4 questions.** Gather every question
+from every `.pending-questions/<slug>.json` (each may carry several — a definition-of-done confirmation, a
+`close-without-followup` confirmation, plus other build-changing decisions), then split into calls of at
+most 4. Keep one review's own questions together within the same call where possible (don't split a task's
+DoD confirmation from its other question across two calls). More than 4 questions total means multiple
+sequential `AskUserQuestion` calls — that's expected, not an error; never try to cram everything into "one"
+call. Give each question a `<TNNN>`-naming header/label too (still useful as a quick visual scan, just not
+load-bearing on its own anymore). Fold each answer back to its `(slug, question)`:
 for a `definition-of-done` answer, update that follow-up's `.pending-tasks/<slug>.json` `specDoneWhen` if
 the owner adjusted it (resume the agent via `SendMessage`, or edit the file yourself), else leave the
 draft; for a `close-without-followup` answer, either leave the `{ "units": [] }` draft as-is (owner
