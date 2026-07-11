@@ -42,6 +42,30 @@ Entry format:
 
 ---
 
+## 1.69.0 → 1.70.0 — new post-run orchestrator skill (one command for the whole follow-up sequence)
+
+Adds `implementation-harness-post-run`, a project-local coordinator skill that chains the standard
+post-run sequence in one command: review-failed (only if failed/blocked tasks exist) →
+convert-ideas (only if the ideas inbox has rows) → pre-loop-checkin (always) → fix-scope-gaps (on
+scope WARNs, owner-approved). It executes each constituent skill by reading its SKILL.md in full —
+every AskUserQuestion round preserved, nothing streamlined away — and ends at the GO/NO-GO verdict;
+it never starts the loop (the `$CLAUDECODE` human-only invariant is restated inside it).
+
+- new files: `skills/implementation-harness-post-run/SKILL.md` → scaffold to
+  `$T/.claude/skills/implementation-harness-post-run/SKILL.md` (same treatment as the other
+  project-local operational skills — straightforward add-candidate on upgrade).
+- mechanism: `README.md` (→ `.harness/README.md`) — workflow section gains the one-command
+  follow-up mention; `harness-CLAUDE.md` (→ `.harness/CLAUDE.md`) — operational-skills section
+  de-hardcodes the "five" count and adds the post-run entry.
+- also fixed in the upgrade skill itself (not an installed file): its project-local skills table
+  was missing the `implementation-harness-fix-scope-gaps` row, so upgrades never content-diffed
+  that skill — installs upgraded between 1.32.0 and 1.69.x may be carrying a stale
+  fix-scope-gaps SKILL.md; this upgrade's normal sweep now reconciles it.
+- config: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.68.2 → 1.69.0 — fix: usage/session-limit detection now scans the RAW stream (was missing every limit)
 
 Fixes a HIGH-impact latent regression. Since the stream-json switch (1.34.0), `run_claude` rebuilds the

@@ -1,7 +1,7 @@
 # implementation-harness
 
 A personal Claude Code plugin that **scaffolds an autonomous implementation harness into any
-project**, authors its task backlog, and operates it via eleven skills (three global, eight
+project**, authors its task backlog, and operates it via thirteen skills (four global, nine
 scaffolded per-project — see [Skills](#skills)).
 
 The harness it installs (the "Ralph Loop") is a single **sequential** shell loop that builds a
@@ -108,7 +108,7 @@ any project) bootstrap and reconcile a harness install (and file bug reports ups
 | `implementation-harness-upgrade` | `/implementation-harness:implementation-harness-upgrade [dir]` | Reconciles an installed `.harness/` (and the eight project-local skills below) against the plugin's bundled reference — refreshes plugin-owned mechanism files, adds new `harness.env` knobs additively, reports first and asks before every change. Also adopts legacy/hand-forked installs. |
 | `implementation-harness-report-issue` | `/implementation-harness:implementation-harness-report-issue` | Files a bug report about the plugin itself as a GitHub issue on `RyanMKrol/claude-skills`. Auto-captures the environment (plugin version, loop variant, bash/OS, tooling), synthesises the session, pushes for logs, scrubs secrets, does a real-bug-vs-misconfig plausibility check, then shows the full draft and files it via `gh` on explicit confirmation. Works with or without a scaffolded `.harness/`. |
 
-Eight **project-local** skills (scaffolded by `create` into your project's own `.claude/skills/`,
+Nine **project-local** skills (scaffolded by `create` into your project's own `.claude/skills/`,
 kept in sync by `upgrade` — invoke bare, no prefix — so their logic can never drift ahead of what
 this specific project's `.harness/` version understands) operate a harness that's already installed:
 
@@ -122,9 +122,10 @@ this specific project's `.harness/` version understands) operate a harness that'
 | `implementation-harness-review-failed` | `/implementation-harness-review-failed [id]` | Sweeps every `failed`/`blocked` task, investigates the root cause (one sub-agent each, in parallel), and authors a demonstrably-better follow-up via the same `consolidate-ideas.sh` pipeline. Never a blind retry; never touches the terminal task's status. |
 | `implementation-harness-loop-recover` | `/implementation-harness-loop-recover [id]` | Recovers the loop after a manual interrupt: stops-check, surgical dirty-tree / leftover-worktree cleanup, stale-lock clearing, orphaned-task detection + fix (verified against the DoD), ledger-noise cleanup, then a readiness check. Mutates + pushes — the correcting the stopped loop can't do. |
 | `implementation-harness-update-ladder` | `/implementation-harness-update-ladder [model]` | Add, swap, or remove a rung on this project's difficulty/tier ladder (`config/facets.json`) — handles effort-less models (`effort: null`) and walks the right migration path for a swap vs an insert/remove. |
+| `implementation-harness-post-run` | `/implementation-harness-post-run` | The whole post-run follow-up as one command: chains `review-failed` (if anything failed/blocked) → `convert-ideas` (if the inbox has rows) → `pre-loop-checkin` → `fix-scope-gaps` (on WARNs), executing each constituent skill in full — every question preserved — and ending at the GO/NO-GO verdict. Never starts the loop. |
 
-All eleven are also model-invocable (Claude triggers them from the descriptions when you ask in
-plain language) — the three global ones from any project, the eight project-local ones once
+All thirteen are also model-invocable (Claude triggers them from the descriptions when you ask in
+plain language) — the four global ones from any project, the nine project-local ones once
 scaffolded into that project.
 
 ## Layout
@@ -138,7 +139,7 @@ implementation-harness/
 │   ├── implementation-harness-customize/SKILL.md
 │   └── implementation-harness-upgrade/{SKILL.md,MIGRATIONS.md,CHECKSUMS.jsonl,gen-checksums.sh}
 └── templates/                 ← the harness itself (single source of truth), vendored here
-    ├── skills/                 ← sources for the eight project-local skills (scaffolded to
+    ├── skills/                 ← sources for the nine project-local skills (scaffolded to
     │                             <project>/.claude/skills/implementation-harness-<name>/SKILL.md
     │                             by create, kept in sync by upgrade)
     │   ├── implementation-harness-add-to-backlog/SKILL.md
@@ -146,6 +147,7 @@ implementation-harness/
     │   ├── implementation-harness-convert-ideas/SKILL.md
     │   ├── implementation-harness-fix-scope-gaps/SKILL.md
     │   ├── implementation-harness-loop-recover/SKILL.md
+    │   ├── implementation-harness-post-run/SKILL.md
     │   ├── implementation-harness-pre-loop-checkin/SKILL.md
     │   ├── implementation-harness-review-failed/SKILL.md
     │   └── implementation-harness-update-ladder/SKILL.md

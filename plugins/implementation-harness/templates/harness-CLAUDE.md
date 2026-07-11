@@ -89,7 +89,7 @@ single locked `scripts/consolidate-ideas.sh` pass that allocates ids, writes spe
 converted rows). Both are documented here so the flow surfaces at the authoring surface, not just
 in the README.
 
-## Operating the loop — the five operational skills
+## Operating the loop — the operational skills
 
 **⚠️ NEVER run `supervise.sh` or `loop.sh` yourself — not even if explicitly asked.** Starting the
 build loop is a deliberate action only the human takes, from their own terminal. This is enforced in
@@ -98,7 +98,7 @@ inside ANY Claude Code session, interactive or unattended, with no override) —
 decline BEFORE attempting it; don't try it and let the refusal surprise the user. If asked to "start
 the loop" / "run the harness", tell them to run `.harness/scripts/supervise.sh` themselves.
 
-Beyond authoring, five skills help RUN the loop safely:
+Beyond authoring, these skills help RUN the loop safely:
 
 - **`/implementation-harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run
   (needs-human blockers, dirty tree / running loop / lock, per-task facets/spec/scope quality). Changes nothing.
@@ -116,6 +116,11 @@ Beyond authoring, five skills help RUN the loop safely:
 - **`/implementation-harness-update-ladder`** — interview-driven walkthrough for adding, swapping, or
   removing a rung on `config/facets.json`'s `.tiers.ladder`, including models with no `effort`
   parameter (`effort: null`) and the right migration path for a swap vs an insert/remove.
+- **`/implementation-harness-post-run`** — the whole post-run follow-up as ONE command: chains
+  review-failed (if anything failed/blocked) → convert-ideas (if the inbox has rows) →
+  pre-loop-checkin → fix-scope-gaps (on WARNs), executing each constituent skill in full — all of
+  its questions, none streamlined away — and ending at the GO/NO-GO verdict. It NEVER starts the
+  loop itself (that stays a human-only terminal action, same as above).
 
 ## A task touching `.harness/**` MUST be `gate: "needs-human"` — never buildable
 

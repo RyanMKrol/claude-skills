@@ -59,7 +59,7 @@ what lets stage 3/4 auto-upgrade it without asking.
 ## 1. Locate + validate the target; detect variant and installed version
 
 - **Target** = the skill argument if given, else the current working directory. Let `T="<target>"`
-  (the repo root — mirrors `create`'s `$T`, needed since the six project-local skills in §3 live at
+  (the repo root — mirrors `create`'s `$T`, needed since the project-local skills in §3 live at
   `$T/.claude/skills/`, not under `$H`) and `H="$T/.harness"`.
 - Require `H/scripts/loop.sh` to exist. If not, this project has no harness — tell the user to run
   `implementation-harness:implementation-harness-create` instead, and stop.
@@ -128,7 +128,7 @@ that's usually a better fix than reconciling the same inline edits on every futu
   drives all owner actions through its dashboard removed the `mark-*.sh` CLIs on purpose.) In adoption
   mode, present missing files as a question — "the reference ships X; your install doesn't have it —
   add it, or was it removed deliberately?" — never as an automatic "new files to add". (Exception: the
-  six `.claude/skills/implementation-harness-*` files — see §3, always a straightforward add-candidate.)
+  `.claude/skills/implementation-harness-*` files — see §3, always a straightforward add-candidate.)
 - **Facet vocabularies belong to the project.** `facets.json`'s `layer`/`workType`/`risk` word lists are
   user config, tailored and self-evolving per project (one real install uses `api / dashboard-logic / db /
   job / service / ui`, not the template's generic set). NEVER "correct" vocabulary toward the template.
@@ -248,15 +248,17 @@ its template source and compare bytes (`cmp -s A B` → identical):
 | `CLAUDE.md` | `harness-CLAUDE.md` |
 | `README.md` | `README.md` |
 
-**Project-local operational skills (plugin-owned; live at `$T/.claude/skills/`, NOT under `$H` — six
-skills delisted from the global plugin as of 1.32.0; kept in sync here instead):**
+**Project-local operational skills (plugin-owned; live at `$T/.claude/skills/`, NOT under `$H` —
+delisted from the global plugin as of 1.32.0 (or added since); kept in sync here instead):**
 
 | Target (under `$T/.claude/skills/`) | Reference (under `$TPL/skills/`) |
 |---|---|
 | `implementation-harness-add-to-backlog/SKILL.md` | `implementation-harness-add-to-backlog/SKILL.md` |
 | `implementation-harness-capture-idea/SKILL.md` | `implementation-harness-capture-idea/SKILL.md` |
 | `implementation-harness-convert-ideas/SKILL.md` | `implementation-harness-convert-ideas/SKILL.md` |
+| `implementation-harness-fix-scope-gaps/SKILL.md` | `implementation-harness-fix-scope-gaps/SKILL.md` |
 | `implementation-harness-loop-recover/SKILL.md` | `implementation-harness-loop-recover/SKILL.md` |
+| `implementation-harness-post-run/SKILL.md` | `implementation-harness-post-run/SKILL.md` |
 | `implementation-harness-pre-loop-checkin/SKILL.md` | `implementation-harness-pre-loop-checkin/SKILL.md` |
 | `implementation-harness-review-failed/SKILL.md` | `implementation-harness-review-failed/SKILL.md` |
 | `implementation-harness-update-ladder/SKILL.md` | `implementation-harness-update-ladder/SKILL.md` |
@@ -288,13 +290,14 @@ For each file, classify:
   - **No match anywhere in `$CHECKSUMS`** → today's behavior, unchanged: capture the unified diff
     (`diff -u "$target" "$ref"`) and the matching ledger note(s); goes in the report for the user to
     adjudicate.
-- **Exception — the six project-local operational skill files above are never a "deliberate removal"
+- **Exception — the project-local operational skill files above are never a "deliberate removal"
   question, even in adoption mode (§1a).** An install with no `.claude/skills/implementation-harness-*`
   at all predates 1.32.0 wholesale (before that version they were global and the project never needed
   local copies) — this is a new category being introduced, not an ambiguous per-file removal the owner
-  might have made on purpose. Always present all six as **straightforward add-candidates**, proactively
-  closing the gap where an old install otherwise loses access to these six now-delisted global skills
-  until it upgrades.
+  might have made on purpose; and a missing individual skill dir is a skill added in a version the
+  install hasn't pulled yet (e.g. `post-run`, added in 1.70.0). Always present every missing one as a
+  **straightforward add-candidate**, proactively closing the gap where an old install otherwise loses
+  access to these skills until it upgrades.
 
 Also from the ledger: list any **renames/removals** (e.g. a doc renamed — the old path present in the
 target should be removed and the new one added) and any **breaking / MAJOR** items needing manual steps.
@@ -400,7 +403,7 @@ user must always be able to see what diverged before approving.
   for s in "$H"/scripts/*.sh; do bash -n "$s" || echo "SYNTAX ERROR: $s"; done
   node "$H/dashboard/lib.test.js"                 # the dashboard bucket tests
   for j in "$H"/config/facets.json "$H"/tracking/*.json; do jq empty "$j" || echo "BAD JSON: $j"; done
-  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover pre-loop-checkin review-failed update-ladder; do
+  for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover post-run pre-loop-checkin review-failed update-ladder; do
     f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
     [ -f "$f" ] && grep -q "^name: implementation-harness-$s\$" "$f" || echo "WARN: project-local skill $s missing or malformed after upgrade"
   done
