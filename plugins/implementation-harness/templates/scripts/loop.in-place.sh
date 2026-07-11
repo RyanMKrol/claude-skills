@@ -29,6 +29,7 @@
 #         .harness/scripts/loop.sh --guard-selftest [path]  # verify the guard regex (or test one path), then exit
 #         .harness/scripts/loop.sh --scope-exempt-selftest [globs path]  # verify SCOPE_EXEMPT_GLOBS matching, then exit
 #         .harness/scripts/loop.sh --scope-selftest [entry file]  # verify scope-entry matching (extension globs), then exit
+#         .harness/scripts/loop.sh --rl-selftest detect|wait …    # verify usage-limit detection + reset parsing, then exit
 # Config: .harness/config/harness.env (sourced if present) and/or the environment.
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
@@ -99,7 +100,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervis
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                   # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -133,7 +134,7 @@ _hms() {
 # quoted). Mirrors supervise.sh's boxed style.
 rl_banner() {
   local secs="$1" outf="$2" note="${3:-}" reset_txt resume
-  reset_txt="$(grep -oiE 'resets[^.)]{0,60}\)?' "$outf" 2>/dev/null | tail -1)"
+  reset_txt="$(grep -hoiE 'resets[^.)]{0,60}\)?' "$outf" "${outf}.jsonl" 2>/dev/null | tail -1)"   # raw sibling too — the notice isn't a text_delta, so it's only in the .jsonl
   resume="$(date -v+"${secs}"S '+%a %H:%M %Z' 2>/dev/null || date -d "+${secs} seconds" '+%a %H:%M %Z' 2>/dev/null || echo "in $(_hms "$secs")")"
   log "══════════════════════════════════════════════════════════════════════"
   log "🛑 Claude usage/session limit hit — NOT a failure; the loop will auto-resume."
@@ -656,7 +657,7 @@ RL_BUFFER="${RL_BUFFER:-300}"   # seconds of slack added on top of a parsed rese
 rl_reset_wait() {
   local out="$1" now line target iso n unit clock secs
   now=$(date +%s)
-  line="$(grep -oiE 'resets?[^.]{0,40}' "$out" 2>/dev/null | tail -1)"
+  line="$(grep -hoiE 'resets?[^.]{0,40}' "$out" "${out}.jsonl" 2>/dev/null | tail -1)"   # scan the raw sibling too (the limit notice is only in the .jsonl, not the reassembled text)
   [ -n "$line" ] || return 1
 
   iso="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})?' | head -1)"
@@ -709,6 +710,22 @@ rl_reset_wait() {
   else
     return 1
   fi
+}
+
+# rl_detect <out> <raw> <rc> — 0 iff the CLI hit a usage/session limit. Scans BOTH the reassembled text
+# ($out) AND the raw stream ($raw). This matters: since the stream-json switch (1.34.0), $out is rebuilt
+# from ONLY text_delta events, but a usage-limit notice ("You've hit your session limit · resets 1am
+# (Europe/London)") is NOT a text_delta — the CLI prints it on stderr / as a result event — so it never
+# lands in $out. Grepping $out alone silently misses the limit and the loop tight-loops on the generic
+# 30s crash backoff instead of sleeping until reset. The notice IS in $raw (the .jsonl, via 2>&1|tee).
+# RL_HARD_RE (the unambiguous "hit your session limit" wording) is trusted in the raw too; RL_RE (the
+# broad net) stays $out-only, so limit-ish words inside tool_result file contents on a crashed build
+# can't be misread as a limit.
+rl_detect() {
+  local out="$1" raw="$2" rc="$3"
+  grep -qiE "$RL_HARD_RE" "$out" "$raw" 2>/dev/null && return 0
+  [ "$rc" -ne 0 ] && grep -qiE "$RL_RE" "$out" 2>/dev/null && return 0
+  return 1
 }
 
 # run_claude <model> <effort> <prompt> <phase: build|audit> → 0 ok | 10 rate-limited | other = failure
@@ -764,11 +781,10 @@ run_claude() {
     > "$out"
   rc=${PIPESTATUS[0]}
   set -e
-  # Limit detection: RL_HARD_RE signals a limit regardless of exit code (the CLI often prints the
-  # notice yet still exits 0); RL_RE (broader) only counts when the command ALSO failed. Either way
-  # return 10 so the caller runs the reset-aware backoff — the loop never exits on a usage limit.
-  if grep -qiE "$RL_HARD_RE" "$out"; then return 10; fi
-  if [ "$rc" -ne 0 ] && grep -qiE "$RL_RE" "$out"; then return 10; fi
+  # Limit detection (see rl_detect): scans the RAW stream too — the notice isn't a text_delta, so it
+  # never lands in the reassembled $out. return 10 → the caller runs the reset-aware backoff; the loop
+  # never exits on a usage limit.
+  if rl_detect "$out" "$raw" "$rc"; then return 10; fi
   return "$rc"
 }
 
@@ -940,6 +956,18 @@ CASES
   [ "$fail" = 0 ] && { echo "scope-match self-test OK (8 cases)"; return 0; } || return 1
 }
 [ "${1:-}" = "--scope-selftest" ] && { scope_selftest "${2:-}" "${3:-}"; exit $?; }
+
+# --rl-selftest detect <out> <raw> <rc> → LIMIT|NOLIMIT ; --rl-selftest wait <out> → <seconds>|none.
+# Exercises usage/session-limit detection (that it scans the RAW stream, not just the reassembled text)
+# and reset-time parsing off-line. Covered by loop-ratelimit.test.sh across BOTH loop variants.
+rl_selftest() {
+  case "${1:-}" in
+    detect) if rl_detect "${2:-/dev/null}" "${3:-/dev/null}" "${4:-0}"; then echo LIMIT; else echo NOLIMIT; fi ;;
+    wait)   local s; s="$(rl_reset_wait "${2:-/dev/null}" || true)"; [ -n "$s" ] && echo "$s" || echo none ;;
+    *) echo "usage: loop.sh --rl-selftest detect <out> <raw> <rc> | wait <out>" >&2; return 2 ;;
+  esac
+}
+[ "${1:-}" = "--rl-selftest" ] && { rl_selftest "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit $?; }
 
 # structural_checks <id> — cheap, model-agnostic gate on the build commit, BEFORE the audit. Any
 # fail = a failed attempt. 0 = pass, 1 = fail.

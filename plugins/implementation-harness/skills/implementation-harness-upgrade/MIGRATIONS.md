@@ -42,6 +42,28 @@ Entry format:
 
 ---
 
+## 1.68.2 → 1.69.0 — fix: usage/session-limit detection now scans the RAW stream (was missing every limit)
+
+Fixes a HIGH-impact latent regression. Since the stream-json switch (1.34.0), `run_claude` rebuilds the
+file it greps for a usage-limit notice (`$out`) from ONLY `text_delta` events. A session-limit notice
+("You've hit your session limit · resets 1am (Europe/London)") is NOT a `text_delta` — the CLI emits it on
+stderr / as a `result` event — so it never lands in `$out`. Detection grepped ONLY `$out`, so it silently
+missed EVERY limit and the loop tight-looped on the generic 30s crash backoff instead of sleeping until the
+reset (burning quota + iterations). The notice IS in `$raw` (the `.jsonl`, via `2>&1|tee`).
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` (parity change, both variants):
+  - new `rl_detect <out> <raw> <rc>` helper — the tight `RL_HARD_RE` ("hit your session limit" wording) is
+    now grepped against BOTH `$out` and `$raw`; the broad `RL_RE` stays `$out`-only (so limit-ish words in
+    tool_result file contents on a crashed build can't be misread as a limit). run_claude calls it.
+  - `rl_reset_wait` and `rl_banner` now also read the raw sibling (`${out}.jsonl`), so the reset time
+    ("resets 1am (Europe/London)") is parsed from where the notice actually is → the loop waits until the
+    reset instead of the exponential fallback.
+  - new `--rl-selftest detect|wait` entry point (added to the FORCE_TASK guard + usage banner) for testing.
+- new files (plugin-source, NOT installed to consumers): `scripts/loop-ratelimit.test.sh` — hermetic
+  regression across both variants (limit-in-raw-only → detected; no false positive from broad words in raw;
+  back-compat with limit-in-$out; reset parsed from the raw sibling).
+- breaking: none — strictly more limits are now caught (correctly), and reset waits are honoured.
+
 ## 1.68.1 → 1.68.2 — dashboard: light-theme brightness hardcoded to 10 (slider removed)
 
 - mechanism: `dashboard/server.js` — the light-theme brightness is now a fixed `LIGHT_LIFT = 10` lightness
