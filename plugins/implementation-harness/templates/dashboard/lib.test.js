@@ -165,6 +165,62 @@ test('waiting propagates transitively through a chain', () => {
   assert.strictEqual(b.waiting.length, 2);
 });
 
+test('waiting task blocked by a needs-human gate is annotated kind "needs-human"', () => {
+  const tasks = { tasks: [
+    { id: 'T001', status: 'pending', gate: 'needs-human', dependsOn: [] },
+    { id: 'T002', status: 'pending', gate: null, dependsOn: ['T001'] },
+  ] };
+  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  assert.deepStrictEqual(b.waiting[0].blockers, [{ id: 'T001', kind: 'needs-human' }]);
+});
+
+test('waiting task blocked by a failed/blocked task pending review is kind "failed-review" (the T499 case)', () => {
+  const tasks = { tasks: [
+    { id: 'T001', status: 'blocked', gate: null, dependsOn: [] },
+    { id: 'T002', status: 'pending', gate: null, dependsOn: ['T001'] },
+  ] };
+  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  // T001 (blocked, unreviewed) lands in failedPendingReview; its dependent waits, annotated WHY —
+  // NOT framed as "waiting on a human task".
+  assert.strictEqual(b.waiting.length, 1);
+  assert.deepStrictEqual(b.waiting[0].blockers, [{ id: 'T001', kind: 'failed-review' }]);
+});
+
+test('waiting task blocked by a reviewed/closed failure is kind "failed-closed" (stranded)', () => {
+  const tasks = { tasks: [
+    { id: 'T001', status: 'blocked', gate: null, dependsOn: [] },
+    { id: 'T002', status: 'pending', gate: null, dependsOn: ['T001'] },
+  ] };
+  const overlays = { ...EMPTY_OVERLAYS, reviews: { T001: { reviewed: true } } };
+  const b = computeBacklog(tasks, overlays, new Set());
+  assert.deepStrictEqual(b.waiting[0].blockers, [{ id: 'T001', kind: 'failed-closed' }]);
+});
+
+test('a dep that is itself only transitively stuck is kind "blocked-upstream"', () => {
+  const tasks = { tasks: [
+    { id: 'T001', status: 'pending', gate: 'needs-human', dependsOn: [] },
+    { id: 'T002', status: 'pending', gate: null, dependsOn: ['T001'] },
+    { id: 'T003', status: 'pending', gate: null, dependsOn: ['T002'] },
+  ] };
+  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  const t003 = b.waiting.find((t) => t.id === 'T003');
+  assert.deepStrictEqual(t003.blockers, [{ id: 'T002', kind: 'blocked-upstream' }]);
+  const t002 = b.waiting.find((t) => t.id === 'T002');
+  assert.deepStrictEqual(t002.blockers, [{ id: 'T001', kind: 'needs-human' }]);
+});
+
+test('blockers lists only the stuck deps; unmetDeps still lists all (mixed case)', () => {
+  const tasks = { tasks: [
+    { id: 'T001', status: 'blocked', gate: null, dependsOn: [] },
+    { id: 'T002', status: 'pending', gate: null, dependsOn: [] },
+    { id: 'T003', status: 'pending', gate: null, dependsOn: ['T001', 'T002'] },
+  ] };
+  const b = computeBacklog(tasks, EMPTY_OVERLAYS, new Set());
+  const t003 = b.waiting.find((t) => t.id === 'T003');
+  assert.deepStrictEqual(t003.unmetDeps, ['T001', 'T002']);
+  assert.deepStrictEqual(t003.blockers, [{ id: 'T001', kind: 'failed-review' }]);
+});
+
 test('a dependency cycle does not infinite-loop (cycle guard)', () => {
   const tasks = {
     tasks: [

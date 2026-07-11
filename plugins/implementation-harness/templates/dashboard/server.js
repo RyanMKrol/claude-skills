@@ -590,6 +590,7 @@ function renderPage() {
   .expand details{margin-top:8px} .expand summary{color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
   .expand .md-body{background:none;border:none;padding:0}
   .dep-link{font-family:ui-monospace,Menlo,monospace;color:var(--accent);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+  .dep-kind{font-size:11px;color:var(--muted);font-style:italic}
   .kv{font-size:12px;color:var(--muted);margin-bottom:6px}
 
   .bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:8px 0 6px;}
@@ -1030,6 +1031,23 @@ function depLinks(ids) {
   return (ids || []).map(id => \`<span class="dep-link" onclick="event.stopPropagation(); openTask('\${id}')">\${esc(id)}</span>\`).join(', ') || '(none)';
 }
 
+// Human label for a blocker kind (see lib.js blockerKind). Empty = ordinary buildable dep, no suffix.
+function blockerLabel(kind) {
+  return ({ 'needs-human': 'needs human', 'failed-review': 'failed — pending review', 'failed-closed': 'failed — closed; rewire needed', 'blocked-upstream': 'blocked upstream' })[kind] || '';
+}
+
+// needsLinks(task) — like depLinks over the task's unmetDeps, but suffixes each stuck dep with WHY
+// it blocks (from task.blockers). A waiting row thus reads "needs: T499 (failed — pending review)".
+function needsLinks(task) {
+  const kinds = {};
+  (task.blockers || []).forEach(b => { kinds[b.id] = b.kind; });
+  return (task.unmetDeps || []).map(id => {
+    const link = \`<span class="dep-link" onclick="event.stopPropagation(); openTask('\${id}')">\${esc(id)}</span>\`;
+    const lbl = kinds[id] ? blockerLabel(kinds[id]) : '';
+    return lbl ? \`\${link} <span class="dep-kind">(\${lbl})</span>\` : link;
+  }).join(', ') || '(none)';
+}
+
 function failPill(task, bucketName) {
   if (bucketName === 'done' || bucketName === 'donePendingReview' || bucketName === 'closedFailed' || !task.buildFailures || !task.buildFailures.count) return '';
   const bf = task.buildFailures, n = bf.count;
@@ -1040,7 +1058,7 @@ function failPill(task, bucketName) {
 function pillsFor(task, bucketName) {
   let pills = '';
   if (bucketName === 'ready' || bucketName === 'waiting') {
-    if (task.unmetDeps && task.unmetDeps.length) pills += \`<span class="pill">needs: \${depLinks(task.unmetDeps)}</span>\`;
+    if (task.unmetDeps && task.unmetDeps.length) pills += \`<span class="pill">needs: \${needsLinks(task)}</span>\`;
     else if (bucketName === 'ready') pills += '<span class="pill buildable">🤖 buildable</span>';
   } else if (bucketName === 'needsHuman') {
     // Distinguish a task the loop gave up on (status:"blocked") from one authored as a human gate.
@@ -1157,7 +1175,7 @@ function renderBacklog(data) {
   document.getElementById('sections').innerHTML =
     renderSection('ready', '🤖', 'Ready', 'Everything the harness can build with no human involved — either right now, or once an earlier, equally-buildable task in its chain lands.', b.ready, b.ready.length)
     + renderSection('needsHuman', '🔒', 'Human Tasks', 'The loop skips these — a needs-human step, or a task it gave up on. Work them yourself, then mark done.', b.needsHuman, b.needsHuman.length)
-    + renderSection('waiting', '⏳', 'Waiting on Human Tasks', 'Buildable, but blocked somewhere upstream by a task a human still has to clear.', b.waiting, b.waiting.length)
+    + renderSection('waiting', '⏳', 'Waiting on Upstream', 'Buildable, but blocked by an upstream task that is not done yet — each row shows why: a needs-human gate, a failed/blocked task pending review (run /review-failed), or an already-closed failure that strands this task until you rewire it.', b.waiting, b.waiting.length)
     + renderSection('failedPendingReview', '🩹', 'Failed — Pending Review', 'The loop gave up on these, or the owner overturned a false success — nobody has confirmed the verdict yet. Investigate (or run /review-failed), then mark reviewed.', b.failedPendingReview, b.failedPendingReview.length)
     + renderSection('donePendingReview', '👀', 'Pending Review', 'Built and integrated on green CI, but not yet human-reviewed. Look over the result, then mark it reviewed to move it into Done — un-reviewing a task moves it back here.', b.donePendingReview, b.donePendingReview.length)
     + renderSection('done', '✅', 'Done', 'Built, integrated, and human-reviewed — closed out.', b.done, \`\${b.done.length}\`)

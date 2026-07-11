@@ -83,6 +83,21 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
     return result;
   }
 
+  // blockerKind(dep) — classify a stuck dependency by WHY it blocks, mirroring the bucket taxonomy,
+  // so the UI can distinguish three states that otherwise look identical in `waiting` but need
+  // different remedies:
+  //   'needs-human'      — a deliberate needs-human gate (do the manual step)
+  //   'failed-review'    — failed / status:"blocked", not yet reviewed (run /review-failed)
+  //   'failed-closed'    — failed / blocked AND reviewed → this task is STRANDED (rewire or abandon)
+  //   'blocked-upstream' — the dep is itself only transitively stuck (its own deps are the real cause)
+  function blockerKind(dep) {
+    if (isFailed(dep, overlays) || dep.status === 'blocked' || blockedIds.has(dep.id)) {
+      return isReviewed(dep, overlays) ? 'failed-closed' : 'failed-review';
+    }
+    if (dep.gate === 'needs-human') return 'needs-human';
+    return 'blocked-upstream';
+  }
+
   const buckets = { ready: [], waiting: [], needsHuman: [], failedPendingReview: [], closedFailed: [], donePendingReview: [], done: [] };
 
   for (const task of tasks) {
@@ -129,7 +144,13 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
     });
     const stuck = unmetDeps.some((d) => isStuck(d));
     if (stuck) {
-      buckets.waiting.push({ ...task, unmetDeps, reviewed });
+      // Attach a per-blocker reason (see blockerKind) for the stuck deps — the UI renders it so the
+      // owner sees whether this task waits on a human gate, a failed task pending review, or a
+      // closed failure that strands it, rather than one flat "waiting on a human task" framing.
+      const blockers = unmetDeps
+        .filter((d) => byId.get(d) && isStuck(d))
+        .map((d) => ({ id: d, kind: blockerKind(byId.get(d)) }));
+      buckets.waiting.push({ ...task, unmetDeps, blockers, reviewed });
     } else {
       // Buildable now, even if it has unmet-but-not-stuck deps — don't hide real work, just
       // annotate it, mirroring a deliberate fix upstream (a task waiting only on other buildable

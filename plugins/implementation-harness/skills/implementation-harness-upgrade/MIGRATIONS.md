@@ -42,6 +42,28 @@ Entry format:
 
 ---
 
+## 1.71.3 → 1.72.0 — dashboard: "Waiting on Upstream" names each blocker's kind (was mislabeled "Human Tasks")
+
+The dashboard's `waiting` bucket collects any buildable task whose unmet dependency is `isStuck` —
+but that covers THREE different upstream states (a needs-human gate, a failed/blocked task pending
+review, an already-closed/reviewed failure), yet the section was titled **"Waiting on Human Tasks"**
+with subtitle "a task a human still has to clear" — wording that only fits the gate case. A task
+waiting on a **failed task pending review** (e.g. dependents of a `status:"blocked"` task) thus read
+as if blocked by a human gate, pointing the owner at the wrong remedy. Now: `computeBacklog` attaches
+a per-blocker `kind` to each waiting task (`needs-human` / `failed-review` / `failed-closed` /
+`blocked-upstream`), each row renders `needs: T499 (failed — pending review)`, and the section is
+retitled **"Waiting on Upstream"** with a subtitle naming all three cases and their remedies. Partially
+overlaps F11 (stranded-dependents list) — F11's terminal-task blast-radius list + rewire command is
+still separate and open.
+
+- mechanism: `dashboard/lib.js` — new `blockerKind()` in `computeBacklog`; waiting tasks now carry a
+  `blockers: [{id, kind}]` array (additive — `unmetDeps` unchanged). `dashboard/server.js` — new
+  client `blockerLabel()`/`needsLinks()` render helpers + `.dep-kind` CSS; `waiting` rows use
+  `needsLinks`; section retitled/re-subtitled. `dashboard/lib.test.js` — 5 new classification tests.
+- config: none.
+- manual attention: none (dashboard is mechanism — the upgrade content-diffs it).
+- breaking: none.
+
 ## 1.71.2 → 1.71.3 — add-to-backlog / update-ladder: prefix every harness path with `.harness/` (Q03)
 
 `implementation-harness-add-to-backlog` targeted `tracking/TASKS.json`, `config/facets.json`,
