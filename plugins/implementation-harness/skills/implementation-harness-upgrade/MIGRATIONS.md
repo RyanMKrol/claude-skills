@@ -42,6 +42,21 @@ Entry format:
 
 ---
 
+## 1.72.0 → 1.72.1 — consolidate-ideas.mjs: derive its path with fileURLToPath (paths with spaces) (B13)
+
+`consolidate-ideas.mjs` derived `HARNESS_DIR` from `new URL(import.meta.url).pathname`, which yields a
+percent-encoded path (`/Users/x/My%20Repo/...`) for any repo whose absolute path contains a space (or
+other special chars) — every subsequent `fs` call then ENOENTs and the whole ideas-consolidation
+pipeline breaks for such repos. Switched to `fileURLToPath(import.meta.url)`, which decodes correctly.
+Only one such derivation existed (audited).
+
+- mechanism: `scripts/consolidate-ideas.mjs` — import `fileURLToPath` from `node:url`; use it for the
+  `HARNESS_DIR` derivation. `scripts/consolidate-rewire.test.sh` — the rewire scenario now runs twice,
+  once under a `mktemp -d` path and once under a `"$TMPROOT/with space"` path (the B13 regression).
+- config: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.71.3 → 1.72.0 — dashboard: "Waiting on Upstream" names each blocker's kind (was mislabeled "Human Tasks")
 
 The dashboard's `waiting` bucket collects any buildable task whose unmet dependency is `isStuck` —

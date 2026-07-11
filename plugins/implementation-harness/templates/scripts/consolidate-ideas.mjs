@@ -37,8 +37,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HARNESS_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+// Use fileURLToPath, NOT new URL(...).pathname — the latter yields a percent-encoded path
+// (e.g. /Users/x/My%20Repo/...) for any repo path containing spaces or other special chars,
+// which then ENOENTs every fs call below and breaks the whole consolidation for such repos.
+const HARNESS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = path.join(HARNESS_DIR, '..');
 const TASKS_PATH = path.join(HARNESS_DIR, 'tracking', 'TASKS.json');
 const IDEAS_PATH = path.join(HARNESS_DIR, 'tracking', 'IDEAS.jsonl');
