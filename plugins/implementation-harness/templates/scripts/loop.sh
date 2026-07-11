@@ -1185,6 +1185,20 @@ audit_gate() {
   log "audit: FAIL for $id (verdict='${verdict:-none}', reasons → $out)"; return 1
 }
 
+# --- Corrupt-backlog pre-flight: a backlog that won't parse must fail CLOSED (exit 3) ------------
+# tj()/select_task swallow all errors (blob's `|| true`, jq's `2>/dev/null`), so a missing, empty,
+# unparseable, or unresolvable-ref TASKS.json would otherwise make select_task return "nothing
+# eligible" → the loop logs "backlog complete", fires `drained`, syncs, and exits 0 → supervise
+# treats that as success and idles the whole token-refresh window. A corrupt backlog must NEVER read
+# as a finished one. Runs before the DRY_RUN block so a dry run surfaces corruption too. (jq empty
+# exits 0 on empty/zero input, so guard non-emptiness explicitly.)
+_backlog_blob="$(blob tracking/TASKS.json)"
+if ! { [ -n "$_backlog_blob" ] && printf '%s' "$_backlog_blob" | jq empty 2>/dev/null; }; then
+  log "FATAL: $TASKS_REF:.harness/tracking/TASKS.json is missing, empty, or not valid JSON — refusing to run (a corrupt backlog must never read as 'backlog complete'). Fix the backlog or TASKS_REF, then restart."
+  exit 3
+fi
+unset _backlog_blob
+
 # --- Dry run: print the task SELECT would build next, then exit (no lock, no work) ---
 if [ "${DRY_RUN:-0}" = "1" ]; then
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true

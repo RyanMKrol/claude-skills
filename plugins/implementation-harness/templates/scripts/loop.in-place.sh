@@ -218,6 +218,14 @@ CASES
 [ "${1:-}" = "--guard-selftest" ] && { guard_selftest "${2:-}"; exit $?; }
 
 [ -f "$BACKLOG" ] || { log "no .harness/tracking/TASKS.json — nothing to build"; exit 3; }
+# A backlog that exists but won't parse (truncated/corrupt) or is empty must ALSO fail CLOSED
+# (exit 3), never read as "backlog complete" (exit 0): select_task swallows jq errors, so a corrupt
+# backlog would otherwise select nothing → the loop logs "backlog complete" and supervise idles the
+# whole token-refresh window on it. (jq empty exits 0 on empty/zero input, so guard emptiness too.)
+if ! { [ -s "$BACKLOG" ] && jq empty "$BACKLOG" 2>/dev/null; }; then
+  log "FATAL: $BACKLOG is empty or not valid JSON — refusing to run (a corrupt backlog must never read as 'backlog complete'). Fix the backlog, then restart."
+  exit 3
+fi
 
 # --- TASKS.json helpers (read from the local backlog file) ------------------
 tj()           { jq "$@" "$BACKLOG" 2>/dev/null; }

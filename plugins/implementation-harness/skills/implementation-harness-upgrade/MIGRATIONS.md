@@ -42,6 +42,28 @@ Entry format:
 
 ---
 
+## 1.72.1 → 1.72.2 — loop: a corrupt/unparseable backlog fails CLOSED (exit 3), not "backlog complete" (B09)
+
+Both variants swallow backlog-read errors (worktree `tj()` via `blob`'s `|| true` + `jq 2>/dev/null`;
+in-place `select_task`), so a missing / empty / unparseable `TASKS.json` (or an unresolvable
+`TASKS_REF` in the worktree variant) made `select_task` return nothing → the loop logged "backlog
+complete", fired `drained`, and exited 0 → supervise treated that as success and idled the whole
+token-refresh window on a corrupt backlog. Now a one-time startup pre-flight validates the backlog
+parses (and is non-empty) and `exit 3`s with a FATAL message otherwise — supervise already hard-stops
+on 3 ("a prerequisite needs a human"), the correct semantics. Fires before the DRY_RUN block too, so
+a dry run also surfaces corruption.
+
+- mechanism: `scripts/loop.sh` — new pre-flight before the DRY_RUN block: reads `blob
+  tracking/TASKS.json`, fails closed if empty or `jq empty` rejects it. `scripts/loop.in-place.sh` —
+  the existing `[ -f "$BACKLOG" ]` existence check is extended with a `[ -s ] && jq empty` validity
+  check. `scripts/select-task.test.sh` — a corrupt-backlog fixture per variant asserting exit 3 +
+  FATAL wording.
+- config: none.
+- manual attention: none.
+- breaking: none. (The two pre-flights are variant-specific — worktree reads the ref via `blob`,
+  in-place reads the local file — so they are intentionally NOT byte-identical and not a shared
+  parity function; loop-parity.test.sh is unaffected.)
+
 ## 1.72.0 → 1.72.1 — consolidate-ideas.mjs: derive its path with fileURLToPath (paths with spaces) (B13)
 
 `consolidate-ideas.mjs` derived `HARNESS_DIR` from `new URL(import.meta.url).pathname`, which yields a

@@ -83,6 +83,17 @@ run_variant_suite() {  # run_variant_suite <label> <loop-src-path>
   out="$(dryrun "$d")"
   assert "[$label] drained backlog (done + needs-human only) → nothing eligible" \
     bash -c "printf '%s' \"\$1\" | grep -q 'nothing eligible'" _ "$out"
+
+  # B09: a corrupt/unparseable backlog must fail CLOSED (exit 3) at startup, BEFORE the DRY_RUN
+  # select — never drain-and-exit-0 (which supervise would treat as "backlog complete" and idle on).
+  # The exit-3 (not 0) is the load-bearing assertion: it proves the pre-flight fired ahead of the
+  # DRY_RUN block, which would otherwise have exited 0.
+  d="$(setup_repo "$src" '{"tasks":[ truncated garbage — not valid json')"
+  out="$(dryrun "$d")"; rc=$?
+  assert "[$label] corrupt TASKS.json → exit 3 (fail closed, not 'backlog complete')" \
+    [ "$rc" -eq 3 ]
+  assert "[$label] corrupt TASKS.json → FATAL wording (not 'nothing eligible'/'would build')" \
+    bash -c "printf '%s' \"\$1\" | grep -qi 'FATAL.*not valid JSON'" _ "$out"
 }
 
 # Plugin source tree carries both variants; an install carries exactly one (as loop.sh, identified
