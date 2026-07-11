@@ -19,8 +19,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, AskUserQuestion
 
 # Update the tier ladder
 
-You walk the user through changing `config/facets.json → .tiers.ladder` — the global difficulty
-escalation ladder (`docs/designs/difficulty-autotune.md`) — for THIS project. Focus target:
+You walk the user through changing `.harness/config/facets.json → .tiers.ladder` — the global difficulty
+escalation ladder (`.harness/docs/designs/difficulty-autotune.md`) — for THIS project. Focus target:
 `$ARGUMENTS` (a model id, if given, skips straight to asking what to do with it). Read this whole
 file, then execute in order.
 
@@ -28,7 +28,7 @@ file, then execute in order.
 
 - Confirm `.harness/docs/HARNESS.md` and `.harness/config/facets.json` exist — if not, this project
   isn't scaffolded; point the user at `implementation-harness:implementation-harness-create` and stop.
-- Read the current `.tiers.ladder` from `config/facets.json` and show it to the user as the starting
+- Read the current `.tiers.ladder` from `.harness/config/facets.json` and show it to the user as the starting
   point.
 - Read `.harness/.harness-version`. **Effort-less rungs (`effort: null`) need >= 1.45.0.** If the
   installed version is older and the user's change would introduce a null-effort rung, tell them
@@ -54,19 +54,19 @@ drifts):
 | Claude Opus 4.8 | `claude-opus-4-8` | ✅ low → max |
 
 If the chosen model has no effort parameter, the new rung's `effort` must be JSON `null` (not omitted,
-not the string `"null"`) — see `config/facets.json`'s `.tiers._about` and
-`docs/designs/difficulty-autotune.md` §2 for why this is safe and requires no other changes.
+not the string `"null"`) — see `.harness/config/facets.json`'s `.tiers._about` and
+`.harness/docs/designs/difficulty-autotune.md` §2 for why this is safe and requires no other changes.
 
 ## 2. Swap path
 
-Follow `docs/HARNESS.md`'s "Bumping the base model" runbook exactly: update the ladder at the same
-position, migrate `ledgers/outcomes.jsonl` / `failures.jsonl` model ids via `sed` at that position,
+Follow `.harness/docs/HARNESS.md`'s "Bumping the base model" runbook exactly: update the ladder at the same
+position, migrate `.harness/ledgers/outcomes.jsonl` / `failures.jsonl` model ids via `sed` at that position,
 verify calibration survived by running `policy.jq` in tier-selection mode before/after for a couple of
 real `(layer, work-type)` cells with history, then commit ladder + both ledgers together.
 
 ## 3. Insert / Remove path
 
-Per `docs/HARNESS.md`'s "Inserting a new rung" note: this is safe for calibration with **no ledger
+Per `.harness/docs/HARNESS.md`'s "Inserting a new rung" note: this is safe for calibration with **no ledger
 migration needed** — `tidx()` re-matches every ledger row fresh by `(model, effort)` against the
 current ladder on every run, never a cached index. Tell the user explicitly: historical rows'
 `startModel`/`startEffort`/`finalModel`/`finalEffort` remain accurate forever; only the diagnostic
@@ -79,9 +79,9 @@ An insert is calibration-*safe*, but that only means the new rung won't corrupt 
 nothing about whether it ever gets **used**. On any cell that's already calibrated to a pricier tier
 (has `>= minN` samples clearing the floor there), the new rung has zero samples and is therefore
 structurally excluded from ever being chosen — it can't accumulate the evidence that would make it
-eligible, so it sits permanently inert on established work (`docs/designs/difficulty-autotune.md`
+eligible, so it sits permanently inert on established work (`.harness/docs/designs/difficulty-autotune.md`
 §2a). After every insert, ask the user whether they want the new rung actually tested on established
-cells, and if so, set `.policy.exploreProbabilityPM` in `config/facets.json` to a nonzero per-mille
+cells, and if so, set `.policy.exploreProbabilityPM` in `.harness/config/facets.json` to a nonzero per-mille
 value (suggest 50–150 as a starting point) — this is what makes the loop occasionally start a task
 one rung below its normal pick specifically to gather that evidence. It's bounded (self-terminates
 once a cell hits `minN` explored samples) and audited (every explored task gets a mandatory audit).
@@ -100,13 +100,13 @@ same upgrade-first offer as above if the installed version predates it.
 ## 4. Cold-start floor
 
 If the change affects rung 0 (a new/changed rung becomes the cheapest), remind the user to update
-`config/harness.env`'s `MODEL`/`EFFORT` to match — leave `EFFORT` unset/empty if the new floor is
+`.harness/config/harness.env`'s `MODEL`/`EFFORT` to match — leave `EFFORT` unset/empty if the new floor is
 itself effort-less.
 
 ## 5. Write + validate
 
-Edit `config/facets.json`'s `.tiers.ladder` to the agreed shape. Validate with
-`jq empty config/facets.json`. Show the user the final ladder before finishing.
+Edit `.harness/config/facets.json`'s `.tiers.ladder` to the agreed shape. Validate with
+`jq empty .harness/config/facets.json`. Show the user the final ladder before finishing.
 
 ## 6. Trade-offs worth remembering
 
@@ -117,6 +117,6 @@ why, and when to revisit.
 
 ## 7. Wrap up
 
-Summarize the final ladder, remind the user this was a project-local `config/facets.json` edit (not a
+Summarize the final ladder, remind the user this was a project-local `.harness/config/facets.json` edit (not a
 plugin change — nothing to upstream), and that the next task the loop picks up will use the new ladder
 immediately, no restart required beyond the loop's normal per-task refresh.

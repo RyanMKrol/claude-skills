@@ -42,6 +42,23 @@ Entry format:
 
 ---
 
+## 1.71.2 → 1.71.3 — add-to-backlog / update-ladder: prefix every harness path with `.harness/` (Q03)
+
+`implementation-harness-add-to-backlog` targeted `tracking/TASKS.json`, `config/facets.json`,
+`config/harness.env`, `config/facet-misfits.jsonl`, `ledgers/…`, `docs/…` **without** the `.harness/`
+prefix throughout (commands AND prose) — run from the repo root (the normal cwd) those paths don't
+exist, so a cheap model could ENOENT and waste turns. Every other skill anchors on `.harness/…`.
+`implementation-harness-update-ladder` had the same drift (its pre-flight used `.harness/config/…`
+but the body said `config/…`). Mechanical sweep: prefixed every repo-relative harness path in both
+skills; the lone facet-vocabulary string `docs/config/logging` (a workType list, not a path) is left
+as-is by design.
+
+- operational skills: `implementation-harness-add-to-backlog/SKILL.md`,
+  `implementation-harness-update-ladder/SKILL.md` — path prefixes only, no logic change.
+- config: none.
+- manual attention: none.
+- breaking: none.
+
 ## 1.71.1 → 1.71.2 — doc-accuracy batch: four falsehoods that reach builders/owners (Q04)
 
 Prose/comment-only corrections, no behavior change:
