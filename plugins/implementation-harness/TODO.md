@@ -5,6 +5,11 @@ under `templates/`, so it isn't installed into scaffolded projects and needs no 
 
 ## From the 2026-07-11 full evaluation (multi-agent review; owner to prioritize)
 
+> **⚠️ Now specced per-item in the repo-root [`/proposals/`](../../proposals/README.md) folder —
+> that folder is the working queue** (one self-sufficient implementation spec per finding, with
+> ground rules, priorities, and a recommended order). The summaries below are kept as the compact
+> overview; when a proposal lands, its file moves to `proposals/done/`.
+
 The evaluation shipped: PRINCIPLES.md (drift guard), the post-run orchestrator skill (1.70.0),
 four regression test suites + the loop-parity gate + a bash-3.2 CI job (1.70.1). Everything below
 was FOUND but deliberately not fixed in that pass — each loop fix needs both variants + a
