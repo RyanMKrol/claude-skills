@@ -303,17 +303,17 @@ Per-variant placement (so nothing unverified reaches `main`):
 
 ## 8. The two variants — where they legitimately differ
 
-- **Status ownership.** In-place: the **loop** owns status (the builder must NOT edit `TASKS.json`; the
-  loop sets it on green). Worktree: the **builder** sets status in its commit (the branch the loop
-  fast-forwards). This difference is intentional to each isolation model.
-- **Worktree done-protocol vs the scope gate (a live wrinkle, stopgap in place).** The worktree builder
-  also edits `TASKS.json` (status), the `README` status row, and `LIMITATIONS.md` — none ever in a
-  task's `scope`. The scope gate would false-fail every worktree task, so the worktree `structural_checks`
-  **allowlists** those bookkeeping files. Loose but functional. The clean fix (`TODO.md` #2): align the
-  worktree done-protocol to the in-place model (loop owns status) so the allowlist can be strict again.
-- **Rate-limit backoff strategy.** local-jobs (in-place) uses exponential backoff and never exits;
-  the plugin uses a fixed poll + exits after `RL_MAX_WAIT` for `supervise.sh` to relaunch. Both
-  "pause + cold re-attempt"; a candidate for alignment (toward poll-and-exit).
+- **Status ownership — the loop owns it in BOTH variants (since v1.6.0).** In-place: `mark_done()`
+  flips status after the gates. Worktree: `record_outcome()` flips `status:"done"` in the same
+  detached-worktree commit as the outcome-ledger row, after structural checks + the audit pass. The
+  builder never edits `TASKS.json` in either variant.
+- **The worktree scope gate is STRICT (since v1.6.0).** The old stopgap allowlist
+  (`TASKS.json`/`README`/`LIMITATIONS.md` bookkeeping) is gone — both variants exempt only the
+  task's own worklog + test files (+ lockfiles and any project-declared `SCOPE_EXEMPT_GLOBS`); a
+  task needing a doc updated declares it in `scope`.
+- **Rate-limit handling.** Both variants share `rl_detect`/`rl_reset_wait` (raw-stream scan since
+  v1.69.0, parsed reset time with backoff bounds); the build path is capped by `RL_MAX_WAIT`, after
+  which the loop exits 5 for `supervise.sh` to relaunch.
 
 ---
 
@@ -380,19 +380,24 @@ clean tree.
 If you suspect the implementation has drifted from this design, these are the load-bearing invariants
 and where they live:
 
-- **Cell key is `(layer × workType)`** — `pick_base` + `audit_gate` read only `.facets.layer` /
-  `.facets.workType`; nothing reads `.facets.risk`. (`policy.jq`, `loop*.sh`)
+- **Cell key is `(layer × workType)`** — `pick_base` + `audit_gate` key calibration on
+  `.facets.layer` / `.facets.workType` only; `.facets.risk` is a cross-cutting modifier passed as
+  `--argjson risk` (forces mandatory audit, clamps the starting rung ≥ 1), never a third join
+  dimension. (`policy.jq`, `loop*.sh`)
 - **Audit is blocking, fails = a normal failed attempt** — `structural_checks`/`audit_gate` returning
   non-zero routes into the *existing* `bump`/escalation path, not a parallel one. (`loop*.sh` done) path)
-- **Auditor tier = `max(opus-medium, builder)`** — `audit_gate` (`(( ai > bi )) && bi=$ai`).
+- **Auditor tier = `max(opus-medium, builder)`** — `audit_gate` compares via `tier_strength` (a
+  total strength order over any `(model, effort)` pair) and raises the auditor only when the
+  builder is strictly stronger.
 - **Sampling decays on *audited* successes only, floored, never zero** — the count filters
   `verification=="audited"`; the curve is `100% → 10%` over `auditStartN → auditFloorN`. (`policy.jq`)
 - **No audit feedback to the builder** — audit reasons go to `worklog/<id>.audit.md`, never the
   builder-read worklog/`.result`.
 - **Every attempt is cold** — `cold_reset` / fresh worktree before each attempt; the prompt forbids
   reading prior state.
-- **Scope is enforced** — `structural_checks` rejects any diff file outside `scope` ∪ {worklog, tests
-  (+ worktree bookkeeping)}; the build prompt injects the scope list.
+- **Scope is enforced** — `structural_checks` rejects any diff file outside `scope` ∪ {worklog,
+  tests, lockfiles, `SCOPE_EXEMPT_GLOBS`} in BOTH variants (strict since v1.6.0); the build prompt
+  injects the scope list.
 - **The two safety guards exist** — `FORCE_TASK` validation in `select_task`; dirty-tree refusal at
   loop start (in-place).
 - **The loop is the sole writer of status + ledger + main** — the builder/auditor never push-to-

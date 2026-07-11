@@ -5,6 +5,16 @@ This is the **maintainer** guide for the `implementation-harness` plugin. The re
 same commit as any plugin change** — the cache only re-installs on a version change). This file adds the
 rules specific to this plugin.
 
+## ⚠️ Check every substantive change against PRINCIPLES.md (the drift guard)
+
+`PRINCIPLES.md` (this dir) is the harness constitution: mission, 11 core principles, and explicit
+non-goals. Before landing any change that touches the loop's behavior, the skills' question flows,
+the ledgers, or the gates, read it and check the change against the principle titles. **If the
+change contradicts a principle or implements a listed non-goal, stop and surface that to the owner
+explicitly** — it may still be right, but only as a deliberate decision. Keep PRINCIPLES.md and
+DESIGN.md §12 updated when an invariant legitimately changes (the code wins; fix the doc in the
+same commit).
+
 ## ⚠️ Front-load clarification into the planning stage (design principle — do not erode)
 
 This plugin has a deliberate division of labour, and it drives how the skills are written:
