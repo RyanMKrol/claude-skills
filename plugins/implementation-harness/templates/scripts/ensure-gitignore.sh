@@ -46,6 +46,7 @@ $START
 # Transient loop scratch (last-iteration verdict) + the generated status board.
 .harness/worklog/.result
 .harness/worklog/.claude-out*
+.harness/worklog/.claude-prompt*
 .harness/worklog/.failures.buf
 .harness/worklog/.current.json
 .harness/worklog/STATUS.md

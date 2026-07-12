@@ -42,6 +42,31 @@ Entry format:
 
 ---
 
+## 1.73.0 → 1.74.0 — loop: the full build/audit prompt goes to a per-phase worklog file, not the terminal
+
+The `PRINT_PROMPT` banner echoed the ENTIRE prompt (huge) to the console on every build and audit,
+burying the cycle boundaries so it was hard to see at a glance where each iteration started/ended. Now
+`run_claude` writes the full prompt to a **per-phase file** under `worklog/`
+(`.claude-prompt.build` / `.claude-prompt.audit`) and prints only a **concise** cycle-boundary banner to
+the console (task / phase / tier / rung·attempt + a pointer to that file). `PRINT_PROMPT=0` still
+silences the console banner; the file is always written.
+
+- mechanism: `scripts/loop.in-place.sh` + `scripts/loop.sh` — `run_claude` rewrites the banner block
+  (full prompt → `$WORKLOG/.claude-prompt.<phase>` in-place / `$LOOP_WT/.harness/worklog/.claude-prompt.<phase>`
+  worktree; concise console banner that points at the file; the old "END … PROMPT" bookend is gone). The
+  `_meta` tier line (model[/effort] + build-only `· rung N · attempt M`) is unchanged.
+  `scripts/ensure-gitignore.sh` — managed block adds `.harness/worklog/.claude-prompt*` (runtime scratch,
+  same class as `.claude-out*`).
+- config: none
+- new files: none (the `.claude-prompt.<phase>` files are gitignored runtime scratch)
+- renamed/removed: none
+- manual attention: none — `ensure-gitignore.sh` runs on upgrade, so the new ignore reaches existing
+  installs automatically.
+- breaking: none — the console output shape changes (a human-facing readability win); no consumer parses
+  the console banner, and the dashboard still reads `.claude-out.*` as before.
+
+---
+
 ## 1.72.3 → 1.73.0 — in-place loop: mechanically stop the builder pushing to main + guarantee one commit per task (enforces P5)
 
 Root cause of two field symptoms (un-reverted red commits piling up on `main`; phantom `empty-diff`

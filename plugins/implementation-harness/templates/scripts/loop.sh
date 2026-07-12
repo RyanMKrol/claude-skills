@@ -944,20 +944,26 @@ run_claude() {
   local out="$LOOP_WT/.harness/worklog/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
   local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
-  # Echo the EXACT prompt handed to Claude (build or audit), wrapped in a heavy banner, so a human
-  # watching the console can read what the agent was actually asked. To stderr (never into claude's
-  # stdin/stdout pipeline below). PRINT_PROMPT=0 in harness.env silences it.
+  # The FULL prompt handed to Claude (build or audit) goes to a PER-PHASE FILE under worklog/, NOT the
+  # console: the prompts are huge and used to bury the cycle boundaries in the terminal, making it hard to
+  # see where each iteration starts/ends. The console now gets only a concise boundary banner (which
+  # task/phase/tier is starting + where to read the prompt). The prompt file is gitignored scratch (like
+  # .claude-out.*), viewable any time. Neither write ever touches claude's stdin/stdout pipeline below.
+  local _ph _meta _bar='================================================================================'
+  _ph="$(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')"
+  # Build banners show the escalation position (rung/attempt — WHY this tier); the audit runs at the fixed
+  # AUDITOR tier, not a ladder rung, so rung/attempt is meaningless there and omitted.
+  _meta="($model${effort:+ / $effort})"
+  [ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"
+  # FULL prompt → per-phase worklog file (always written; this replaces the old console dump). Path mirrors
+  # this variant's .claude-out.* (the worktree's own worklog dir, where the agent + dashboard read).
+  local _pfile="$LOOP_WT/.harness/worklog/.claude-prompt.${phase}"
+  { printf '%s\n=====  %s PROMPT  —  task %s  %s\n%s\n%s\n' \
+      "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar" "$pr"; } > "$_pfile" 2>/dev/null || true
+  # CONCISE cycle-boundary banner → console (PRINT_PROMPT=0 silences it). No prompt body; points at the file.
   if [ "${PRINT_PROMPT:-1}" = 1 ]; then
-    local _ph _meta _bar='================================================================================'
-    _ph="$(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')"
-    # Repeat the model/effort on BOTH the opening and END lines so a human scrolling the console
-    # doesn't have to jump back up past the prompt to see which tier ran. Build banners also show the
-    # escalation position (rung/attempt — WHY this tier); the audit runs at the fixed AUDITOR tier,
-    # not a ladder rung, so rung/attempt is meaningless there and omitted.
-    _meta="($model${effort:+ / $effort})"
-    [ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"
-    { printf '\n%s\n=====  %s PROMPT  —  task %s  %s\n%s\n%s\n%s\n=====  END %s PROMPT  —  task %s  %s\n%s\n\n' \
-        "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar" "$pr" "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar"; } >&2
+    { printf '\n%s\n=====  %s  —  task %s  %s\n=====  full prompt → %s\n%s\n\n' \
+        "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_pfile" "$_bar"; } >&2
   fi
   set +e
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
