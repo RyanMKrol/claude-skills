@@ -782,7 +782,17 @@ run_claude() {
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
   # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude
   # runs. That's exactly the effort-less cold-start floor (Haiku), so a fresh install crash-loops on task 1.
-  ( cd "$ROOT" && "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
+  # PUSH BLOCK (in-place only) — the builder/auditor works DIRECTLY on `main` and must NOT push; the
+  # loop is the sole pusher (P5). We scope git's pre-push hook to THIS agent subprocess via GIT_CONFIG_*
+  # env — NOT a persistent `core.hooksPath`, which would disable the repo's own husky/pre-commit hooks
+  # for the loop and humans too. HARNESS_AGENT=1 is what .harness/scripts/pre-push checks; the loop's
+  # own pushes and human pushes never carry it, so they're never blocked. (The WORKTREE variant omits
+  # this on purpose — there the builder MUST push its isolated branch.) chmod keeps the hook executable
+  # even if an install/copy dropped the bit (git silently ignores a non-executable hook = no enforcement).
+  chmod +x "$ROOT/.harness/scripts/pre-push" 2>/dev/null || true
+  ( cd "$ROOT" \
+      && HARNESS_AGENT=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$ROOT/.harness/scripts" \
+         "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
       --output-format stream-json --include-partial-messages --verbose ${FLAGS[@]+"${FLAGS[@]}"} ) 2>&1 \
     | tee "$raw" \
     | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \
@@ -802,7 +812,11 @@ prompt() {
   printf 'You are the autonomous builder for THIS repo. Build EXACTLY ONE task: %s, then stop.\n' "$tid"
   cat <<'EOF'
 You work DIRECTLY on the `main` branch in the primary checkout — NO worktree, NO new branches.
-Do NOT create/switch branches. Do NOT push. Do NOT merge. The loop pushes + gates on CI after you finish.
+Do NOT create/switch branches. Do NOT merge. **NEVER push** — no `git push`, no flags, not ever, even if
+your global/personal git guidance says to always push after committing (that rule does NOT apply here). The
+loop is the SOLE pusher: it runs your checks, pushes, and gates CI after you finish — a push from you is
+BLOCKED by a git hook and bypasses that gate. `HARNESS_AGENT` is the loop's private env marker: never set,
+unset, or pass it to any command. Your CI is LOCAL (step 2) — run it yourself; you never push to see CI.
 You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, and .harness/docs/HARNESS.md exactly.
 
 1. ORIENT. Read CLAUDE.md (conventions) and README.md (the current implemented state), then find this task:
@@ -835,9 +849,12 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, 
    missing doc. Do NOT edit .harness/tracking/TASKS.json — the loop owns task status. Write your notes to
    .harness/worklog/<TASK>.md (always allowed; a dated entry: what you did, checks run, what remains).
 
-5. COMMIT `<TASK>: <summary>` (do NOT push), staging your intended files explicitly. Your commit
-   MUST include `.harness/worklog/<TASK>.md` — stage it alongside your code. A task is not complete if its
-   worklog isn't committed.
+5. COMMIT — produce EXACTLY ONE commit for the whole task, `<TASK>: <summary>` (do NOT push), staging your
+   intended files explicitly. If you iterate — add a test, fix a failing check after running the DoD — fold
+   it into that SAME commit with `git commit --amend`; NEVER stack a second commit. The loop integrates your
+   one commit and, if CI is red, rolls it back with a single `git revert HEAD` — that clean rollback only
+   works if the whole task is ONE commit. Your commit MUST include `.harness/worklog/<TASK>.md` — stage it
+   alongside your code. A task is not complete if its worklog isn't committed.
 
 6. As your FINAL action, OVERWRITE .harness/worklog/.result with exactly ONE line:
      done <TASK>                     # built + committed (NOT pushed) — loop pushes + gates CI
@@ -1316,6 +1333,22 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
         cold_reset; record_failure "$task" "audit-fail"; bump "$task"; board; continue
+      fi
+      # SINGLE-COMMIT INVARIANT — collapse the agent's commit(s) into exactly ONE before pushing, so a
+      # red-CI revert stays a single `git revert HEAD` ("every task is one commit"). The prompt asks the
+      # builder for one commit (amend to iterate), but a cheap model may stack several; the loop guarantees
+      # it mechanically here. --no-verify: the tree already passed structural + audit — this is a pure
+      # history collapse that must neither re-run hooks nor alter the tree.
+      _sq_n="$(git -C "$ROOT" rev-list --count "origin/$MAIN_BRANCH..HEAD" 2>/dev/null || echo 0)"
+      if [ "${_sq_n:-0}" -gt 1 ]; then
+        _sq_subj="$(git -C "$ROOT" log --reverse --format='%s' "origin/$MAIN_BRANCH..HEAD" 2>/dev/null | head -1)"
+        _sq_body="$(git -C "$ROOT" log --reverse --format='%B' "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
+        if git -C "$ROOT" reset --soft "origin/$MAIN_BRANCH" 2>/dev/null \
+           && git -C "$ROOT" commit -q --no-verify -m "${_sq_subj:-$task: build}" -m "$_sq_body"; then
+          log "squashed $_sq_n commits into one for $task (clean single-commit revert on red CI)"
+        else
+          log "WARN: squash failed for $task — pushing $_sq_n commits as-is; a red-CI revert may be partial."
+        fi
       fi
       heartbeat integrating
       if ! throttled_push "$ROOT" origin "HEAD:$MAIN_BRANCH"; then

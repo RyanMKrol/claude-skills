@@ -401,7 +401,15 @@ and where they live:
 - **The two safety guards exist** — `FORCE_TASK` validation in `select_task`; dirty-tree refusal at
   loop start (in-place).
 - **The loop is the sole writer of status + ledger + main** — the builder/auditor never push-to-
-  complete or mark done.
+  complete or mark done. In-place, this is enforced *mechanically*: `run_claude` points ONLY the agent
+  subprocess's git at `scripts/pre-push` (via `GIT_CONFIG_*` env + `HARNESS_AGENT=1`), which refuses
+  the push — so an advisory-ignoring cheap model still can't bypass the gate (P5). The worktree variant
+  deliberately omits this: its builder MUST push its isolated branch, which CI gates before the loop
+  fast-forwards `main`. (`loop.in-place.sh` run_claude, `scripts/pre-push`, `pre-push.test.sh`)
+- **Every task lands as exactly one commit** — so a red-CI revert is a single `git revert HEAD`. The
+  prompt asks the builder for one commit (amend to iterate); the loop *guarantees* it by squashing
+  `origin/main..HEAD` before pushing (in-place) / before the fast-forward (worktree, in `integrate()`).
+  (`loop*.sh`)
 
 A quick sanity sweep: the audit-probability smoke (`auditCount` 0/3/5/8/20 → `1000/1000/640/100/100`
 per-mille) and `bash -n` on all loop variants.

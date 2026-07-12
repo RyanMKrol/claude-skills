@@ -642,6 +642,24 @@ CASES
 integrate() {
   local branch="$1"
   guard_clean "$branch" || return 1
+  # SINGLE-COMMIT INVARIANT — collapse the branch's commit(s) into ONE before fast-forwarding `main`, so a
+  # task lands as exactly one commit (clean history + a one-line revert later). The prompt asks the builder
+  # for one commit (amend to iterate), but a cheap model may stack several; the loop guarantees it here. The
+  # squashed commit keeps the SAME TREE CI validated (reset --soft preserves it) and its parent is
+  # origin/main, so the push below stays a fast-forward; --no-verify makes it a pure history collapse.
+  local n
+  n="$(git -C "$LOOP_WT" rev-list --count "origin/main..$branch" 2>/dev/null || echo 0)"
+  if [ "${n:-0}" -gt 1 ]; then
+    local subj body
+    subj="$(git -C "$LOOP_WT" log --reverse --format='%s' "origin/main..$branch" 2>/dev/null | head -1)"
+    body="$(git -C "$LOOP_WT" log --reverse --format='%B' "origin/main..$branch" 2>/dev/null)"
+    if git -C "$LOOP_WT" reset --soft "origin/main" 2>/dev/null \
+       && git -C "$LOOP_WT" commit -q --no-verify -m "${subj:-$branch}" -m "$body"; then
+      log "squashed $n commits into one before integrating $branch (single-commit history)"
+    else
+      log "WARN: squash failed for $branch — integrating $n commits as-is."
+    fi
+  fi
   throttled_push "$LOOP_WT" --quiet origin "$branch:main" 2>/dev/null && return 0
   log "ff to main rejected (main moved under us) — soft"; return 1
 }
@@ -759,8 +777,10 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (the 
    itself once your build clears the structural checks + audit gate below, in a follow-up commit
    the loop makes on its own. If a doc (README.md, .harness/docs/LIMITATIONS.md, …) genuinely needs
    updating for THIS task, update it only if it's listed in your `scope` below — otherwise leave it.
-4. COMMIT `<TASK>: <summary>` (INCLUDING `.harness/worklog/<TASK>.md` with a dated entry: what you did,
-   checks run, what remains). Then push THIS branch: `git push -u origin HEAD`. Do NOT merge
+4. COMMIT — produce EXACTLY ONE commit for the whole task, `<TASK>: <summary>` (INCLUDING
+   `.harness/worklog/<TASK>.md` with a dated entry: what you did, checks run, what remains). If you iterate,
+   fold changes into that SAME commit with `git commit --amend` — do NOT stack multiple commits (the loop
+   integrates a task as one commit). Then push THIS branch: `git push -u origin HEAD`. Do NOT merge
    into `main` — the loop watches GitHub CI and fast-forwards main on green. If a previous
    push's CI for this branch failed, run `gh run view --log-failed` and fix the cause first.
 5. As your FINAL action, OVERWRITE `.harness/worklog/.result` with exactly ONE line:
@@ -943,6 +963,12 @@ run_claude() {
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
   # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude
   # runs. That's exactly the effort-less cold-start floor (Haiku), so a fresh install crash-loops on task 1.
+  # NO push-block here (deliberate P9 divergence from loop.in-place.sh): the WORKTREE builder works in an
+  # isolated worktree on a feature branch and is REQUIRED to push THAT branch — CI gates the branch and the
+  # loop fast-forwards `main` only on green, so `main` never sees ungated work. The in-place variant blocks
+  # agent pushes (there the builder is on `main` directly and the loop is the sole pusher); that hazard
+  # simply doesn't exist in this isolation model, so we must NOT set HARNESS_AGENT / a hooks override here
+  # (it would block the branch push the builder legitimately needs to make — see prompt step 4).
   ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
       --output-format stream-json --include-partial-messages --verbose ${FLAGS[@]+"${FLAGS[@]}"} ) 2>&1 \
     | tee "$raw" \

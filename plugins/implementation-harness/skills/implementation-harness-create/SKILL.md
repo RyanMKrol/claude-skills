@@ -170,6 +170,7 @@ fi
 cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scope-lib.sh" "$TPL/scripts/policy.jq" "$H/scripts/"   # scope-lib.sh: shared scope_match, REQUIRED by loop.sh + check-task-scope.sh (they source it — a missing copy aborts them)
 cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$TPL/scripts/scope-gap-dismiss.sh" "$TPL/scripts/rewire-dependents.sh" "$H/scripts/"   # scope-gap-dismiss.sh: fix-scope-gaps' dismissal writer; rewire-dependents.sh: repair a task stranded on an already-reviewed failed dep (pre-loop-checkin points at it)
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
+cp -p "$TPL/scripts/pre-push" "$H/scripts/pre-push"   # git pre-push hook — the IN-PLACE loop points the builder/auditor's git at it (env-scoped, per-subprocess) to block agent pushes to main; dormant in the worktree variant. See loop.sh run_claude.
 cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack)
 touch "$H/.pending-tasks/.gitkeep" "$H/.pending-questions/.gitkeep" "$H/.scope-gap-ignores/.gitkeep"
 cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + tier ladder + policy knobs (tailored below)
@@ -183,7 +184,7 @@ cp -p "$TPL/tracking/human-done.json" "$TPL/tracking/manual-fail.json" "$TPL/tra
 cp -p "$TPL/tracking/IDEAS.jsonl" "$H/tracking/IDEAS.jsonl"   # committed ideas inbox — JSONL, one {id,title,description,capturedAt} object per line — see implementation-harness-capture-idea / -convert-ideas
 cp -p "$TPL/worklog/.gitkeep" "$H/worklog/"
 : >"$H/ledgers/outcomes.jsonl"; : >"$H/ledgers/failures.jsonl"   # seed empty, committed ledgers (calibration input; diagnostics)
-chmod +x "$H/scripts/"*.sh
+chmod +x "$H/scripts/"*.sh "$H/scripts/pre-push"   # pre-push has no .sh extension; git ignores a non-executable hook (= no enforcement), so chmod it explicitly
 jq -r .version "$TPL/../.claude-plugin/plugin.json" > "$H/.harness-version"   # committed marker: which plugin version produced this harness — implementation-harness-upgrade reads it to know what to reconcile
 ```
 

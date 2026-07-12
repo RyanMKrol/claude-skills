@@ -42,6 +42,50 @@ Entry format:
 
 ---
 
+## 1.72.3 → 1.73.0 — in-place loop: mechanically stop the builder pushing to main + guarantee one commit per task (enforces P5)
+
+Root cause of two field symptoms (un-reverted red commits piling up on `main`; phantom `empty-diff`
+soft-fails): the **in-place** builder ran `git push` itself despite the prompt's "do NOT push" (cheap
+models obey the user's global "always push after committing" over an advisory prompt line). An
+agent-pushed commit bypasses the loop's whole gate — it never runs structural/audit, `wait_ci_green`
+never watches it, revert-on-red never fires (the loop only reverts commits IT pushed), and the loop's
+next `origin/main..HEAD` diff is empty → recorded as `empty-diff`. This is a P5 violation ("the loop
+owns pushes"); the fix enforces P5 **mechanically**, not by asking.
+
+- **Enforcement is IN-PLACE ONLY (deliberate P9 divergence).** The worktree builder works in an
+  isolated branch and MUST push it (CI gates the branch; the loop fast-forwards `main` only on green),
+  so `main` never sees ungated work there — a push-block would break it. `run_claude` in the two
+  variants therefore diverges (already did: `cd "$ROOT"` vs `cd "$LOOP_WT"`); neither is in the
+  loop-parity manifest, so no manifest change.
+- **Mechanism (how the block is scoped):** the in-place `run_claude` points ONLY the agent
+  subprocess's git at the harness hooks dir via `GIT_CONFIG_COUNT/KEY_0/VALUE_0=core.hooksPath …` env
+  (NOT a persistent `core.hooksPath`, which would disable the repo's own husky/pre-commit hooks for
+  the loop and humans too) and sets `HARNESS_AGENT=1`. The new `scripts/pre-push` hook refuses a push
+  when `HARNESS_AGENT` is set; the loop's own pushes and human pushes never carry it, so they're never
+  blocked and never see the hook. Needs git ≥ 2.31 (GIT_CONFIG_* env).
+- mechanism: `scripts/loop.in-place.sh` — `run_claude` sets `HARNESS_AGENT=1` + the env-scoped
+  hooks override + `chmod +x` the hook; new **squash-at-gate** before the integration push (collapse
+  `origin/main..HEAD` to one commit with `reset --soft` + `commit --no-verify` so a red-CI revert stays
+  a single `git revert HEAD`); build-prompt top-line rewritten ("NEVER push … `HARNESS_AGENT` is the
+  loop's private marker … your CI is LOCAL") and §5 rewritten (exactly one commit, amend to iterate,
+  why). `scripts/loop.sh` (worktree) — squash-at-`integrate()` before the fast-forward (same
+  single-commit invariant); §4 prompt gains one-commit/amend guidance; `run_claude` gains a comment
+  documenting why it has NO push-block.
+- mechanism (skills): `implementation-harness-create/SKILL.md` — copies `scripts/pre-push` and chmods
+  it explicitly (the `scripts/*.sh` chmod misses it). `implementation-harness-upgrade/SKILL.md` — new
+  mechanism-table row for `scripts/pre-push` (with the chmod note).
+- config: none
+- new files: `scripts/pre-push` (executable git pre-push hook). On upgrade: add it (missing from any
+  pre-1.73.0 `.harness/`) and **`chmod +x`** it — it has no `.sh` extension so the `scripts/*.sh`
+  re-chmod misses it, and git silently ignores a non-executable hook.
+- renamed/removed: none
+- manual attention: none — no persistent git config is written; the hooks override is per-agent-subprocess
+  and re-applied by the loop every run, so nothing to set up by hand and husky/existing hooks are untouched.
+- breaking: none (worktree behavior unchanged except tasks now land squashed as one commit; in-place
+  builders that used to push now correctly can't — the loop still pushes, so end-to-end behavior is intact).
+
+---
+
 ## 1.72.2 → 1.72.3 — dashboard: live-output panels no longer snap back to the bottom when you scroll up
 
 The "Now" strip rebuilds its whole `nowbar` innerHTML every 5s poll (the `origin seen: Ns ago` pill

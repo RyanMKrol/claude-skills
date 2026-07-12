@@ -243,6 +243,7 @@ its template source and compare bytes (`cmp -s A B` → identical):
 | `scripts/postflight.sh` | `$POSTFLIGHT_SRC` (variant-selected above, like `loop.sh`) |
 | `scripts/{supervise,repo-lock,mark-done,mark-failed,mark-reviewed,mark-done-bulk.test,check-task-scope,consolidate-ideas}.sh` | same name under `scripts/` |
 | `scripts/policy.jq`, `scripts/consolidate-ideas.mjs` | same |
+| `scripts/pre-push` | same — git pre-push hook (added 1.73.0). **`chmod +x` it after copy**: it has no `.sh` extension, so the `scripts/*.sh` re-chmod below misses it, and git silently ignores a non-executable hook (= no enforcement). A `.harness/` from before 1.73.0 won't have it → add as a new file. |
 | `dashboard/{server,lib,lib.test}.js` | same |
 | `docs/HARNESS.md`, `docs/LIMITATIONS.md`, `docs/designs/*.md` | same |
 | `CLAUDE.md` | `harness-CLAUDE.md` |
