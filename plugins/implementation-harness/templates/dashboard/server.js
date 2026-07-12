@@ -633,6 +633,7 @@ function renderPage() {
   .nowpill.idle{color:var(--muted)}
   .nowpill.warn{color:var(--yellow);border-color:color-mix(in srgb, var(--yellow) 45%, transparent);background:color-mix(in srgb, var(--yellow) 10%, transparent);font-weight:600}
   .nowpill.bad{color:var(--red);border-color:color-mix(in srgb, var(--red) 40%, transparent);background:color-mix(in srgb, var(--red) 8%, transparent);font-weight:600}
+  .nowbar #nowbar-pills{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-basis:100%}  /* pills on their own row so re-rendering them never touches the persistent live-output panels below */
   .nowbar details{flex-basis:100%;margin-top:2px}
   .nowbar summary{color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
   .nowbar pre{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:260px;overflow:auto;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin:6px 0 0}
@@ -763,20 +764,44 @@ function ago(sec) {
 // renderNow(data) — the live status strip: what the loop is doing RIGHT NOW (from its lock +
 // worklog/.current.json heartbeat), how fresh the rendered data is vs origin, and a collapsible
 // tail of the builder's live output.
-// nowLogDetails(phase, info, cur) — one collapsible live-output panel for a single phase (build or
-// audit). Build and audit are rendered as two INDEPENDENT panels (not one shared one) because they
-// now come from two independent files — see claudeOutTailFor() — so the audit starting no longer
-// blanks out the builder's still-fresh output, and vice versa.
-function nowLogDetails(phase, info, cur) {
-  if (!info || !info.text) return '';
-  const id = 'now-log-' + phase;
-  const open = state.nowLogOpen[phase];
+// The two live-output panels (build + audit) are PERSISTENT DOM, built once by ensureNowLogSkeleton
+// and thereafter only text-updated in place by syncNowLog — the <pre> the reader scrolls is NEVER
+// recreated. This is deliberate: renderNow rebuilds the "Now" strip every 5s, and re-creating a
+// <details open> via innerHTML makes the browser fire a SPURIOUS async \`toggle\` event, whose handler
+// (onNowLogToggle) would snap scrollTop back to the bottom AFTER any restore ran — so a reader who
+// scrolled up to read got yanked to the tail on every poll. Keeping the element alive means the
+// browser preserves its scroll position for free, toggle only fires on a REAL user open/close, and
+// there is no capture/restore race to get wrong. Build and audit are two INDEPENDENT panels (not one
+// shared one) because they come from two independent files — see claudeOutTailFor() — so the audit
+// starting no longer blanks out the builder's still-fresh output, and vice versa.
+function ensureNowLogSkeleton(el) {
+  if (document.getElementById('nowbar-pills')) return;
+  el.innerHTML = '<div id="nowbar-pills"></div>' + ['build', 'audit'].map(function (phase) {
+    const id = 'now-log-' + phase;
+    return \`<details id="\${id}" ontoggle="onNowLogToggle('\${phase}', this)">
+      <summary id="\${id}-sum"></summary>
+      <pre id="\${id}-pre"></pre>
+    </details>\`;
+  }).join('');
+}
+
+function syncNowLog(phase, info, cur) {
+  const details = document.getElementById('now-log-' + phase);
+  const pre = document.getElementById('now-log-' + phase + '-pre');
+  const sum = document.getElementById('now-log-' + phase + '-sum');
+  if (!details || !pre || !sum) return;
+  if (!info || !info.text) { details.style.display = 'none'; return; }  // nothing live for this phase
+  details.style.display = '';
   const activeTask = cur && cur.task && (cur.phase || '').toLowerCase().indexOf(phase === 'audit' ? 'audit' : 'build') !== -1;
-  const label = 'live output — ' + phase + (activeTask ? ' (' + esc(cur.task) + ')' : '');
-  return \`<details id="\${id}" ontoggle="onNowLogToggle('\${phase}', this)"\${open ? ' open' : ''}>
-    <summary>\${label}</summary>
-    <pre id="\${id}-pre">\${esc(info.text)}</pre>
-  </details>\`;
+  sum.textContent = 'live output — ' + phase + (activeTask ? ' (' + cur.task + ')' : '');
+  if (pre.textContent !== info.text) {
+    // Was the reader pinned to the tail BEFORE this update? Measure first, then append. Only when they
+    // were already at the bottom (and the panel is open) do we follow the new tail; otherwise the
+    // browser keeps them exactly where they'd scrolled to, because the element is never replaced.
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 24;
+    pre.textContent = info.text;
+    if (state.nowLogOpen[phase] && atBottom) pre.scrollTop = pre.scrollHeight;
+  }
 }
 
 function onNowLogToggle(phase, el) {
@@ -787,6 +812,7 @@ function onNowLogToggle(phase, el) {
 
 function renderNow(data) {
   const el = document.getElementById('nowbar');
+  ensureNowLogSkeleton(el);   // build the persistent pills container + live-output panels once
   const lock = data.lock || {}, cur = data.current, fr = data.freshness || {};
   const cog = document.getElementById('cog');
   if (cog) cog.classList.toggle('spin', !!(lock.held && lock.alive));
@@ -817,30 +843,11 @@ function renderNow(data) {
   const fetchCls = (fr.lastFetchSec == null || fr.lastFetchSec > 900) ? 'nowpill warn' : 'nowpill idle';
   const fetchNote = data.fetchEverySec > 0 ? ' (auto-fetch ' + data.fetchEverySec + 's)' : '';
   h += '<span class="' + fetchCls + '" title="Age of the last git fetch — the dashboard renders LOCAL files, so origin changes are invisible until something fetches. Set HARNESS_DASHBOARD_FETCH_SECONDS to have the dashboard fetch itself.">origin seen: ' + ago(fr.lastFetchSec) + fetchNote + '</span>';
-  h += nowLogDetails('build', data.build, cur);
-  h += nowLogDetails('audit', data.audit, cur);
-  // Capture each open live-output box's scroll position BEFORE innerHTML rebuilds (and destroys) it, so a
-  // reader who scrolled up to read isn't yanked back to the bottom on every 5s poll. We follow the live
-  // tail (scroll to bottom) ONLY when the reader was already pinned to the bottom, or the box was just
-  // opened / first rendered; otherwise we keep exactly where they'd scrolled to.
-  const priorScroll = {};
-  ['build', 'audit'].forEach(function (phase) {
-    const pre = document.getElementById('now-log-' + phase + '-pre');
-    if (pre) priorScroll[phase] = {
-      top: pre.scrollTop,
-      hidden: pre.clientHeight === 0,                                      // collapsed panel → treat next render as a fresh open
-      atBottom: pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 24  // within ~a line of the tail
-    };
-  });
-  el.innerHTML = h;
-  ['build', 'audit'].forEach(function (phase) {
-    if (!state.nowLogOpen[phase]) return;
-    const pre = document.getElementById('now-log-' + phase + '-pre');
-    if (!pre) return;
-    const prior = priorScroll[phase];
-    if (!prior || prior.hidden || prior.atBottom) pre.scrollTop = pre.scrollHeight;  // follow the tail
-    else pre.scrollTop = prior.top;                                                  // reader scrolled up — leave them be
-  });
+  // Only the PILLS are innerHTML-rebuilt each poll; the persistent live-output panels below are
+  // updated in place so a reader's scroll position survives (see ensureNowLogSkeleton / syncNowLog).
+  document.getElementById('nowbar-pills').innerHTML = h;
+  syncNowLog('build', data.build, cur);
+  syncNowLog('audit', data.audit, cur);
 }
 
 async function refreshBacklog() {

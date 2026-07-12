@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.72.2 → 1.72.3 — dashboard: live-output panels no longer snap back to the bottom when you scroll up
+
+The "Now" strip rebuilds its whole `nowbar` innerHTML every 5s poll (the `origin seen: Ns ago` pill
+ticks each poll). The live-output `<details><pre>` panels were part of that rebuild, so each poll
+DESTROYED and re-created the `<pre>` a reader was scrolling. The 1.68.1 capture/restore fix set
+`scrollTop` back correctly — but re-creating a `<details open>` via innerHTML makes the browser fire a
+**spurious async `toggle` event**, whose handler snapped `scrollTop` to the bottom *after* the restore
+ran → the reader was yanked to the tail on every poll. Fix: the pills and the two live-output panels
+are now separate DOM. The panels are built ONCE (`ensureNowLogSkeleton`) and thereafter only
+text-updated in place (`syncNowLog`) — the `<pre>` is never re-created, so the browser preserves its
+scroll for free, `toggle` fires only on a real user open/close, and the tail is followed only when the
+reader was already pinned to the bottom. Verified in headless Chrome (CDP): scroll-up survives repeated
+polls, a genuine open still jumps to the newest output, and pinned-to-bottom still follows the tail.
+
+- mechanism: `dashboard/server.js` — split `nowbar` into a `#nowbar-pills` container (still
+  innerHTML-rebuilt each poll) + two persistent `<details>` panels; replaced `nowLogDetails()` with
+  `ensureNowLogSkeleton()` + in-place `syncNowLog()`; `renderNow` writes pills to `#nowbar-pills` and
+  syncs the panels instead of re-emitting them. Added a `.nowbar #nowbar-pills` flex rule.
+- config: none
+- new files: none
+- renamed/removed: none
+- manual attention: none
+- breaking: none
+
+---
+
 ## 1.72.1 → 1.72.2 — loop: a corrupt/unparseable backlog fails CLOSED (exit 3), not "backlog complete" (B09)
 
 Both variants swallow backlog-read errors (worktree `tj()` via `blob`'s `|| true` + `jq 2>/dev/null`;
