@@ -4,6 +4,16 @@
 **Affected files**: `templates/scripts/loop.sh` + `loop.in-place.sh` (possibly a new `--reconcile-selftest` flag), NEW `templates/scripts/reconcile-overlays.test.sh`
 **Release**: PATCH bump · MIGRATIONS entry · checksums
 
+## ⚠️ Status — PARTIALLY covered (2026-07-13, v1.77.1)
+
+`select-task.test.sh` gained 2 cases per variant that exercise the overlay-apply transform through the REAL
+`DRY_RUN` path: before a `human-done` entry → the needs-human task's dependent is not eligible; after → it is
+(covers scenario 1, human-done promotes a `needs-human` task, end-to-end). Also in 1.77.1, `reconcile_overlays`
+was refactored to a pure `overlay_apply` helper (shared by the real reconcile + the DRY_RUN preview), so the
+transform now has ONE source. **Still open:** the full `--reconcile-selftest` with scenarios 2–6 (ordinary-task
+guard, manual-fail flips, no-op idempotence/byte-stability, per-variant push assertion) and the `lib.js`
+cross-check in `lib.test.js`. This remains the bulk of T03.
+
 ## Problem
 
 The overlay promotion rules — `human-done.json` promotes ONLY `gate:"needs-human"` tasks to done;
