@@ -124,6 +124,17 @@ Use `AskUserQuestion`. Establish:
    to the harness's own machinery is uniquely dangerous (it can corrupt `TASKS.json` or defeat the
    loop's own safety rails, edited by the very process it constrains). See `.harness/CLAUDE.md`.
 
+   **Convention-defining / cross-cutting tasks need a scope that matches their blast radius — or a gate.**
+   A task that turns on or reconfigures a WHOLE-REPO tool — the initial scaffold, a formatter / linter /
+   `tsconfig` / CI change, anything whose `format` / `lint` / `test` command sweeps the entire tree — must,
+   to make that check pass, touch files ACROSS the repo, not just a tight per-file `scope`. Handing it a
+   narrow scope is a predictable scope-gate collision (the tool rewrites/loads files outside `scope` →
+   structural creep → discarded build → wasted escalation). Author such a task with EITHER a `scope` that
+   honestly covers its blast radius (the config files + every dir the tool rewrites) OR `gate: "needs-human"`
+   when it is the foundation-setting bootstrap itself (this is why the scaffold task T001 is needs-human).
+   And whatever sets the tool up MUST exclude the vendored `.harness/**` and the harness-authored root prose
+   (`CLAUDE.md` / `README.md`) from it — see the repo `CLAUDE.md` Tooling notes.
+
    **Pair every "options to choose between" task with a review + a hardcode follow-up.** When a
    task builds MULTIPLE options for the owner to pick among (toggleable styles, strategy variants,
    A/B layouts), author — **in the same edit** — *three* linked tasks, never the chooser alone:

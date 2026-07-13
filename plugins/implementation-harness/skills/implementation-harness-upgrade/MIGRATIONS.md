@@ -42,6 +42,43 @@ Entry format:
 
 ---
 
+## 1.76.0 → 1.77.0 — scaffold task is needs-human + host-config self-consistency (ESM dashboard, tooling exclusions)
+
+Two related fixes to a class of "harness-vendored assets assume things about the host repo" bugs surfaced
+on fresh ESM Node installs:
+
+1. **The T001 scaffold task is now `needs-human` by default.** It's the one task that defines the project-wide
+   conventions (formatter/linter/tsconfig/CI) gating every later build, and its whole-repo tooling sweeps a
+   tree that already vendors files the loop must never touch (`.harness/**` + the `CLAUDE.md`/`README.md` prose
+   create writes) — "whole-repo tool + narrow scope" is a predictable scope-gate collision. So the foundation
+   is bootstrapped by hand; the loop skips T001 and records `failed:blocked` until a human marks it done. A new
+   cross-cutting-task authorship rule (in `add-to-backlog`) generalises this: convention-defining / whole-tree-
+   tooling tasks need a scope matching their blast radius, or a gate. create/CLAUDE.md now also require the
+   project's own DoD tooling to EXCLUDE `.harness/**` + the harness-authored root prose (ship `.prettierignore`,
+   eslint `ignores`, test-glob scoping).
+2. **The dashboard now ships `.harness/dashboard/package.json` `{"type":"commonjs"}`.** The dashboard is CJS;
+   in a host repo whose root `package.json` sets `"type":"module"`, Node treated the dashboard's `.js` as ESM
+   and `require` threw — dashboard completely unusable. The package-scope boundary makes the dashboard's module
+   system self-contained, correct under both ESM and CJS hosts. (Verified: direct `node lib.test.js` fails
+   under an ESM host without it, passes with it.)
+
+- mechanism: `skills/.../implementation-harness-add-to-backlog/SKILL.md` — new "cross-cutting / convention-
+  defining tasks need a matching scope or a gate" rule in §5 (next to the existing `.harness/**`-is-needs-human
+  non-negotiable). `dashboard/package.json` — NEW file, `{"type":"commonjs"}`.
+- config: none
+- new files: `dashboard/package.json` (the upgrade adds it via the checksum/new-file path — a consumer who
+  already added an identical local workaround coincides harmlessly).
+- renamed/removed: none
+- manual attention (NOT auto-applied — user-data / root files; affect NEW installs via create only):
+  `tracking/TASKS.json` T001 example → `gate:"needs-human"`, no facets, empty scope; `tasks/T001.md` →
+  rewritten as a human runbook; repo-root `CLAUDE.md` "Tooling notes" → new bullet requiring `.harness/**`
+  exclusion from the project's format/lint/test tooling. An EXISTING install keeps its own T001 and root
+  `CLAUDE.md`; to adopt the new scaffold-task convention or the tooling-exclusion note, apply these by hand.
+- breaking: none for a running loop. Behavioral: a fresh `create` now leaves T001 as a human step rather than
+  a buildable task, so the loop stops for the human on the scaffold before building features.
+
+---
+
 ## 1.75.0 → 1.76.0 — dashboard: the per-task model badge shows start → end when a task escalated
 
 A done task's model badge showed only the tier that FINISHED it. It now shows the escalation story —

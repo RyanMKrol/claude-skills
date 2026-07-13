@@ -7,13 +7,12 @@
       "title": "Project scaffold + CI green on an empty build",
       "status": "pending",
       "dependsOn": [],
-      "gate": null,
+      "gate": "needs-human",
       "tags": ["scaffold"],
-      "scope": ["project manifest", "src/ entrypoint", ".github/workflows/ci.yml"],
+      "scope": [],
       "design": null,
       "verify": [],
-      "spec": ".harness/tasks/T001.md",
-      "facets": { "layer": "infra", "workType": "config", "risk": [] }
+      "spec": ".harness/tasks/T001.md"
     },
     {
       "id": "T002",

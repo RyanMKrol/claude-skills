@@ -171,7 +171,7 @@ cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scop
 cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$TPL/scripts/scope-gap-dismiss.sh" "$TPL/scripts/rewire-dependents.sh" "$H/scripts/"   # scope-gap-dismiss.sh: fix-scope-gaps' dismissal writer; rewire-dependents.sh: repair a task stranded on an already-reviewed failed dep (pre-loop-checkin points at it)
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
 cp -p "$TPL/scripts/pre-push" "$H/scripts/pre-push"   # git pre-push hook — the IN-PLACE loop points the builder/auditor's git at it (env-scoped, per-subprocess) to block agent pushes to main; dormant in the worktree variant. See loop.sh run_claude.
-cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack)
+cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$TPL/dashboard/package.json" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack). package.json pins the dashboard to CommonJS ("type":"commonjs") so it runs even when the host repo's package.json sets "type":"module" (else Node treats these .js as ESM and `require` throws).
 touch "$H/.pending-tasks/.gitkeep" "$H/.pending-questions/.gitkeep" "$H/.scope-gap-ignores/.gitkeep"
 cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + tier ladder + policy knobs (tailored below)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/docs/"
@@ -251,6 +251,17 @@ Build each from the corresponding template, substituting the interview answers. 
   to append the harness-managed scratch block (loop scratch, atomic-write temps, the ideas->tasks
   pipeline dirs, scope-gap dismissals) inside its markers — the template file itself no longer carries
   those entries; this script is their single source of truth and is what keeps them current on upgrade.
+- **Keep the project's own tooling off the vendored harness tree (self-consistency).** The DoD
+  `format`/`lint`/`test` commands run over the WHOLE repo, which now contains `.harness/**` (hand-written
+  `dashboard/*.js`, docs, JSON) and the `CLAUDE.md`/`README.md` prose this skill writes — none of it meant to
+  satisfy the formatter the project will configure. Unhandled, that means **red CI out of the box** and
+  out-of-scope reformats on later builds. So exclude them from whatever tooling the DoD uses: for a JS/TS
+  toolchain write a **`.prettierignore`** containing `.harness/` and `CLAUDE.md` now (harmless if the project
+  later picks a different formatter), and T001's runbook adds `.harness/**` to the eslint flat-config
+  `ignores` + scopes test discovery so `node --test`/jest skip `.harness/dashboard/*.test.js`. Python/Go
+  usually need nothing (no `.py`/`.go` lives under `.harness/`). This is the same self-consistency the
+  dashboard's own `package.json` provides for the module system — the harness vendors assets the host repo's
+  whole-tree tooling must not claim.
 - **`.harness/docs/HARNESS.md`** — leave it **pristine** (do NOT edit §5's example commands in place — an
   inline edit to a plugin-owned prose file breaks the clean-upgrade path). The authoritative DoD commands
   live in `.github/workflows/ci.yml` and `.harness/config/harness.env`; if the project wants its real
@@ -270,15 +281,28 @@ outcomes ledger.
 **Each task's `do` + `done-when` do NOT live in the JSON** — they go in a per-task Markdown spec at
 `.harness/tasks/TNNN.md` (sections `## Do` / `## Done when`), referenced by the task's `spec` field.
 Every BUILDABLE task also carries `facets: { layer, workType, risk[] }` (values from
-`.harness/config/facets.json`); gated (gate / needs-human) tasks carry neither facets nor a real spec body.
+`.harness/config/facets.json`); gated / needs-human tasks carry NO facets and no BUILD spec — but a
+needs-human task still gets a short **human-runbook** spec (`## Overview` + `## Do` = the human step +
+`## Done when`), which is what the loop surfaces to the person (T001 below is the canonical example).
 The shipped `.harness/tasks/T00N.md` are examples — when you replace the example tasks, write a
 matching `.harness/tasks/TNNN.md` for each new task and delete the unused example specs.
 
-- Always include **T001 = "Project scaffold + CI green on an empty build"** (`dependsOn: []`) — its
-  job is to prove the CI gate end-to-end before any feature work. Give it a full task object
-  (it's mechanical, it builds at the cheap cold-start floor like every task; the policy escalates only on real failure).
+- Always include **T001 = "Project scaffold + CI green on an empty build"** (`dependsOn: []`,
+  **`gate: "needs-human"`, NO `facets`**) — the scaffold is the ONE task that DEFINES the project-wide
+  conventions (formatter / linter / tsconfig / CI) that gate every later build, and its whole-repo tooling
+  sweeps a tree that ALREADY contains files the loop must never touch (the vendored `.harness/**` plus the
+  `CLAUDE.md` / `README.md` prose this skill just wrote). "Whole-repo tool + a scaffold's narrow scope" is a
+  predictable scope-gate collision, and it's a one-time job with the smallest automation payoff — so the
+  foundation is bootstrapped **by hand**. Write its `.harness/tasks/T001.md` as a **human runbook**
+  (`## Overview`; `## Do` = create the manifest + entrypoint, wire the real DoD commands into CI, get
+  format/lint/test green, and **configure the tooling to EXCLUDE `.harness/**` and the harness-authored root
+  prose** — see step 5's ignore bullet; `## Done when` = CI green on `main`, DoD commands match §5, `.harness/**`
+  excluded). The loop skips it and records `failed:blocked`; once done, mark it with
+  `.harness/scripts/mark-done.sh T001` (or the dashboard) so its dependents unblock. (This mirrors the
+  cross-cutting-task rule `implementation-harness-add-to-backlog` applies to convention-defining work.)
 - If the user described features, offer to **chain into `implementation-harness-add-to-backlog`** now to draft
-  the rest of the backlog rather than leaving only T001. If they decline, leave just T001.
+  the rest of the backlog (each buildable feature `dependsOn: ["T001"]`) rather than leaving only T001. If
+  they decline, leave just T001.
 - Never leave the shipped example T002–T005 unless the user explicitly wants them.
 - Keep it valid: end with `jq empty "$T/.harness/tracking/TASKS.json"` and fix any error before continuing.
 
@@ -298,6 +322,7 @@ done
 "$T/.harness/scripts/mark-done-bulk.test.sh" >/dev/null || echo "FAIL: mark-done-bulk.test.sh failed"
 jq empty "$T/.harness/tracking/human-done.json" "$T/.harness/tracking/manual-fail.json" "$T/.harness/tracking/reviews.json" || echo "FAIL: an owner-overlay file is not valid JSON"
 command -v node >/dev/null || echo "WARN: node not installed — the dashboard and ideas pipeline (.harness/dashboard/, .harness/scripts/consolidate-ideas.mjs) need it regardless of this project's own stack"
+[ "$(jq -r '.type' "$T/.harness/dashboard/package.json" 2>/dev/null)" = commonjs ] || echo "FAIL: dashboard/package.json missing or not {\"type\":\"commonjs\"} — dashboard breaks under an ESM host project"
 node --check "$T/.harness/dashboard/server.js" 2>/dev/null || echo "FAIL: dashboard/server.js has a syntax error"
 node --check "$T/.harness/dashboard/lib.js" 2>/dev/null || echo "FAIL: dashboard/lib.js has a syntax error"
 node "$T/.harness/dashboard/lib.test.js" >/dev/null 2>&1 || echo "FAIL: dashboard/lib.test.js failed"

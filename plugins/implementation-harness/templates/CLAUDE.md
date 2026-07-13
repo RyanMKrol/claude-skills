@@ -178,6 +178,13 @@ them, don't abandon the task:**
 - Define your stack's exact format/lint/test/build commands once in
   [`.harness/docs/HARNESS.md`](./.harness/docs/HARNESS.md) §5 and mirror them verbatim in
   `.github/workflows/ci.yml`. CI is the authoritative gate.
+- **Your tooling must not sweep the vendored harness tree.** The repo vendors `.harness/**`
+  (hand-written `dashboard/*.js`, docs, JSON) plus the harness-authored root prose (`CLAUDE.md` /
+  `README.md`), none of it written to your formatter/linter's rules. Exclude them from every
+  whole-repo DoD command (`.prettierignore` with `.harness/` + `CLAUDE.md`, `.harness/**` in eslint
+  `ignores`, test globs that skip `.harness/dashboard/*.test.js`) — otherwise `format --check` is red
+  out of the box and a build's `format --write` reformats out-of-scope files. Any task that reconfigures
+  a whole-repo tool must keep that exclusion intact.
 - Before pushing, the code should pass that full suite locally — it mirrors CI exactly.
 - Tasks marked **🔒 needs-human** require the user (credentials, provisioning, anything
   spending real money or touching production). Do not attempt the human-gated portion
