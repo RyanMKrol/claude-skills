@@ -4,6 +4,19 @@
 **Affected files**: `templates/scripts/loop.sh` + `loop.in-place.sh`: `rl_detect` (parity-manifest function — keep byte-identical), the audit-path RL retry loop inside the done path, `rl_selftest`
 **Release**: MINOR bump · MIGRATIONS entry (mechanism, both variants) · checksums · parity (rl_detect IS in tests/loop-parity.test.sh's manifest)
 
+## ⚠️ Status — PARTIALLY LANDED (2026-07-13, v1.74.1)
+
+- ✅ **Fix 1 (tool_result false positives) — DONE.** `rl_detect` now runs the raw stream through a new
+  `rl_cli_said` helper that drops `type:"user"` (tool_result) events before the `RL_HARD_RE` grep, keeping
+  non-JSON stderr + result/assistant events. Both variants, kept parity-identical.
+- ✅ **Fix 3 (rl_selftest fixtures) — DONE.** `loop-ratelimit.test.sh` gained case 4a (hard wording only in a
+  tool_result + success → NOLIMIT) and 4b (genuine notice on a non-JSON stderr line → LIMIT).
+- ❌ **Fix 2 (cap the audit-path RL loop) — STILL OPEN.** The done-path auditor retry (`loop.sh` ~L1221–1230
+  / in-place equivalent: `if [ "$arc" = 10 ]; then … sleep "$rlpoll"; continue`) still has NO
+  `rl_waited`/`RL_MAX_WAIT` accounting — unlike the build path (~L1397+). A genuine, prolonged audit-path
+  limit loops forever. (The most common trigger — the false positive from Fix 1 — is now gone, so this is
+  much less likely to fire, but the unbounded-loop hazard remains.) **This is the remaining work on B07.**
+
 ## Problem
 
 Two related defects in the 1.69.0 rate-limit fix:
