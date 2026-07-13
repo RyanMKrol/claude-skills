@@ -42,6 +42,47 @@ Entry format:
 
 ---
 
+## 1.78.0 → 1.79.0 — catch invalid GitHub Actions workflow YAML before it reaches main (actionlint) + CI-run-matching + idle-path safety
+
+Closes a class of failure where the loop can build, audit, and merge a task that silently breaks the
+project's own `.github/workflows/*.yml` (valid YAML but invalid per GitHub Actions' schema — e.g. a
+flow-sequence where a scalar is required), which kills the whole CI run at parse time. Three independent parts:
+
+1. **Local actionlint gate (prevention).** `structural_checks` (both variants) now runs `actionlint` on any
+   changed `.github/workflows/*.yml` BEFORE the push — something `LOCAL_DOD` (the project's own build/test)
+   can't catch. New `scripts/ensure-actionlint.sh` fetches the pinned, checksum-verified binary into
+   gitignored `.harness/.bin/`. Best-effort: if it can't be fetched (offline), the loop WARNs + SKIPs
+   (doesn't block) — the new independent `.github/workflows/lint-workflows.yml` CI job is the authoritative
+   catch (a separate workflow so it still runs even when the main `ci.yml` is the broken file).
+2. **CI-run matching (loud failure).** New shared `ci_find_run`/`ci_conclusion`/`ci_status_now` helpers:
+   `wait_ci_green` now matches the run by workflow NAME first, then by FILE PATH — GitHub reports a run's
+   `workflowName` as `.github/workflows/…` (the path) when the file can't be parsed, so the old exact-name
+   match found nothing and sat out the full `CI_TIMEOUT` as "indeterminate". A path-matched (name-unresolved)
+   run is now treated as RED immediately with a loud warning.
+3. **Idle-path safety.** The `idle` reconcile no longer marks a task done without a point-in-time CI re-check
+   of main HEAD (`ci_status_now`): CI red ⇒ `block_task` (never silently trust "work is on main"); green /
+   no-CI / indeterminate ⇒ reconcile as before.
+
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — actionlint block in `structural_checks`
+  (`STRUCT_FAIL_KIND=workflow-lint`; warn+skip on fetch failure); new byte-identical `ci_find_run`/
+  `ci_conclusion`/`ci_status_now` (now in `tests/loop-parity.test.sh`'s manifest); `wait_ci_green`
+  path-fallback + red-on-unresolved-name; idle-handler CI re-check. `scripts/ensure-actionlint.sh` — NEW
+  (pinned, checksum-verified downloader). `scripts/ensure-gitignore.sh` — managed block adds `.harness/.bin/`.
+  `scripts/loop-actionlint.test.sh` — NEW static regression test. `docs/HARNESS.md` — §5 note.
+- config: `config/harness.env` — ACTION: add `: "${LINT_WORKFLOW_FILES:=1}"` and `: "${ACTIONLINT_VERSION:=1.7.12}"`
+  if absent (don't touch existing values).
+- new files: `scripts/ensure-actionlint.sh` (mechanism — upgrade adds it via the new-file/checksum path);
+  `.github/workflows/lint-workflows.yml` (repo-root backstop — see manual attention).
+- renamed/removed: none
+- manual attention: `.github/workflows/lint-workflows.yml` is a repo-root file the upgrade never writes — an
+  existing install gets the *local* actionlint gate + all loop hardening automatically (mechanism + config),
+  but to add the independent CI backstop copy `templates/.github/workflows/lint-workflows.yml` into the repo
+  by hand (optional; the local gate + Part 2's red-on-broken-workflow already gate the loop).
+- breaking: none. actionlint is best-effort (warn+skip if unavailable); `LINT_WORKFLOW_FILES=0` disables the
+  local check. The idle CI re-check degrades to prior behavior when `gh` is unavailable (returns indeterminate).
+
+---
+
 ## 1.77.1 → 1.78.0 — worktree loop: gate LOCAL_DOD before the branch push (loop owns the tNNN push) + slow-check prompt hardening
 
 Two fixes, both grounded in a real run where the worktree loop kept pushing branches whose builds then

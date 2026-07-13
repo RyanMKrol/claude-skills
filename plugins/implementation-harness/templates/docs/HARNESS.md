@@ -302,8 +302,11 @@ A task is **done** only when **all** of the following hold. The loop will **not*
 5. **Structural + audit gate** *(see `designs/audit-verification.md`)*. Before marking done the loop
    also enforces **structural checks** (the diff touches the task's `scope`; if `expectsTest: true`, a
    test file changed — both the `scope` and the `expectsTest` requirement are injected into the build
-   prompt, so the builder is *told* each up front, not just judged on it after) and — when the task is
-   **sampled** (per-cell audit decay) — a **blocking audit**
+   prompt, so the builder is *told* each up front, not just judged on it after; and, when the diff
+   touches `.github/workflows/*.yml`, a local **`actionlint`** run — `LINT_WORKFLOW_FILES`,
+   `ACTIONLINT_VERSION` — that catches workflow YAML which is valid YAML but invalid per GitHub Actions'
+   own schema, before the push; best-effort, backed by the independent `lint-workflows.yml` CI job) and —
+   when the task is **sampled** (per-cell audit decay) — a **blocking audit**
    by a fresh stronger agent (`max(opus-medium, builder tier)`) verifying the diff against the spec's
    `## Done when`, which must return PASS. A structural/audit FAIL is a `failed:soft` → cold retry /
    escalate. Each outcome is logged to `outcomes.jsonl` tagged `audited`/`ci-only`.

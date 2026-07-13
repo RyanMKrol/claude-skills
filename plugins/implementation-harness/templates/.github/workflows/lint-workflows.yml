@@ -1,0 +1,26 @@
+# Independent GitHub Actions workflow linter — a SEPARATE workflow from your main CI (ci.yml) on
+# purpose: if ci.yml itself becomes malformed, GitHub can't schedule ANY of its jobs (so an actionlint
+# step placed *inside* ci.yml would never run), but this file is evaluated independently and still runs.
+# It reuses the harness's own pinned, checksum-verified actionlint installer, so the version matches the
+# loop's local structural-check (.harness/config/harness.env ACTIONLINT_VERSION). Managed by the
+# implementation-harness plugin; safe to edit or delete if you don't want it.
+name: Lint workflows
+
+on:
+  push:
+    paths: ['.github/workflows/**']
+  pull_request:
+    paths: ['.github/workflows/**']
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate GitHub Actions workflow YAML with actionlint
+        run: |
+          bin="$(.harness/scripts/ensure-actionlint.sh "$PWD")"
+          "$bin" -color

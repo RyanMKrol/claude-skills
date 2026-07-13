@@ -167,11 +167,12 @@ else
   cp -p "$TPL/scripts/loop.sh" "$H/scripts/loop.sh"
   cp -p "$TPL/scripts/postflight.sh" "$H/scripts/postflight.sh"            # worktree board: reads origin/main + detects the tNNN build branch
 fi
-cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scope-lib.sh" "$TPL/scripts/policy.jq" "$H/scripts/"   # scope-lib.sh: shared scope_match, REQUIRED by loop.sh + check-task-scope.sh (they source it — a missing copy aborts them)
+cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scope-lib.sh" "$TPL/scripts/policy.jq" "$TPL/scripts/ensure-actionlint.sh" "$H/scripts/"   # scope-lib.sh: shared scope_match, REQUIRED by loop.sh + check-task-scope.sh (they source it — a missing copy aborts them). ensure-actionlint.sh: fetches the pinned actionlint into .harness/.bin for structural_checks' workflow-YAML gate.
 cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$TPL/scripts/scope-gap-dismiss.sh" "$TPL/scripts/rewire-dependents.sh" "$H/scripts/"   # scope-gap-dismiss.sh: fix-scope-gaps' dismissal writer; rewire-dependents.sh: repair a task stranded on an already-reviewed failed dep (pre-loop-checkin points at it)
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
-cp -p "$TPL/scripts/pre-push" "$H/scripts/pre-push"   # git pre-push hook — the IN-PLACE loop points the builder/auditor's git at it (env-scoped, per-subprocess) to block agent pushes to main; dormant in the worktree variant. See loop.sh run_claude.
+cp -p "$TPL/scripts/pre-push" "$H/scripts/pre-push"   # git pre-push hook — BOTH loop variants point the builder/auditor's git at it (env-scoped, per-subprocess) to block agent pushes so the loop is the sole pusher (the local gate runs before the push). See run_claude.
 cp -p "$TPL/dashboard/server.js" "$TPL/dashboard/lib.js" "$TPL/dashboard/lib.test.js" "$TPL/dashboard/package.json" "$H/dashboard/"   # portable backlog viewer — `node .harness/dashboard/server.js` (needs Node on the machine, regardless of the target project's own stack). package.json pins the dashboard to CommonJS ("type":"commonjs") so it runs even when the host repo's package.json sets "type":"module" (else Node treats these .js as ESM and `require` throws).
+cp -p "$TPL/.github/workflows/lint-workflows.yml" "$T/.github/workflows/lint-workflows.yml"   # verbatim (no placeholders) — an INDEPENDENT actionlint CI job that stays valid even if the project's own ci.yml becomes malformed. Distinct from ci.yml (personalized in §5).
 touch "$H/.pending-tasks/.gitkeep" "$H/.pending-questions/.gitkeep" "$H/.scope-gap-ignores/.gitkeep"
 cp -p "$TPL/config/facets.json" "$H/config/facets.json"   # facet vocabulary + tier ladder + policy knobs (tailored below)
 cp -p "$TPL/docs/HARNESS.md" "$TPL/docs/LIMITATIONS.md" "$H/docs/"
@@ -314,10 +315,11 @@ grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
 grep -q "CI_WORKFLOW:=${W}" "$T/.harness/config/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-for s in loop.sh supervise.sh postflight.sh repo-lock.sh scope-lib.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh scope-gap-dismiss.sh rewire-dependents.sh consolidate-ideas.sh; do
+for s in loop.sh supervise.sh postflight.sh repo-lock.sh scope-lib.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh scope-gap-dismiss.sh rewire-dependents.sh consolidate-ideas.sh ensure-actionlint.sh; do
   test -x "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s not executable"
   bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"
 done
+test -f "$T/.github/workflows/lint-workflows.yml" || echo "WARN: .github/workflows/lint-workflows.yml (independent actionlint CI backstop) missing"
 "$T/.harness/scripts/repo-lock.sh" --selftest >/dev/null || echo "FAIL: repo-lock self-test failed"
 "$T/.harness/scripts/mark-done-bulk.test.sh" >/dev/null || echo "FAIL: mark-done-bulk.test.sh failed"
 jq empty "$T/.harness/tracking/human-done.json" "$T/.harness/tracking/manual-fail.json" "$T/.harness/tracking/reviews.json" || echo "FAIL: an owner-overlay file is not valid JSON"

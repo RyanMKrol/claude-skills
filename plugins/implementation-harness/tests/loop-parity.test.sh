@@ -27,9 +27,9 @@ assert "worktree variant exists with its marker" grep -q '^# harness-loop-varian
 assert "in-place variant exists with its marker" grep -q '^# harness-loop-variant: in-place' "$IP"
 
 # Verified byte-identical at the time this manifest was authored (v1.70.x). Alphabetical.
-MANIFEST="_custom_preamble _hms _visual_verify_custom board bump gtier guard_selftest heartbeat \
-in_scope_exempt log rand_pm record_failure rl_banner rl_detect rl_selftest run_hook \
-run_integrate_hook scope_exempt_selftest scope_selftest throttled_push tier_strength \
+MANIFEST="_custom_preamble _hms _visual_verify_custom board bump ci_conclusion ci_find_run ci_status_now \
+gtier guard_selftest heartbeat in_scope_exempt log rand_pm record_failure rl_banner rl_detect rl_selftest \
+run_hook run_integrate_hook scope_exempt_selftest scope_selftest throttled_push tier_strength \
 visual_verify_block"
 
 carve() { sed -n "/^$1() {/,/^}/p" "$2"; }

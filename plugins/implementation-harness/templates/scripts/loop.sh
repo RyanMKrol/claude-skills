@@ -522,6 +522,50 @@ cleanup_task() {   # tear down after a successful integrate
 }
 
 # --- GitHub CI gate ---------------------------------------------------------
+# ci_find_run <branch-or-empty> <sha> — echo the databaseId of the CI run for <sha>, matching the
+# workflow by NAME ($CI_WORKFLOW) first, then falling back to its FILE PATH. GitHub reports a run's
+# workflowName as ".github/workflows/…" (the raw path) instead of the resolved `name:` when the workflow
+# file itself can't be parsed — so a path-shaped workflowName is the signature of a MALFORMED workflow
+# (a valid-YAML-but-invalid-schema CI file). Without this fallback the exact-name match finds nothing and
+# the caller sits out the full CI_TIMEOUT then calls it "indeterminate". Sets CI_NAME_UNRESOLVED=1 when
+# the fallback matched (caller warns + treats as red), else 0. (Shared with ci_status_now / the idle guard.)
+CI_NAME_UNRESOLVED=0
+ci_find_run() {
+  local br="$1" sha="$2" id; local -a ba=(); [ -n "$br" ] && ba=(--branch "$br")
+  CI_NAME_UNRESOLVED=0
+  id="$(gh run list ${ba[@]+"${ba[@]}"} --limit 20 --json databaseId,headSha,workflowName \
+          --jq ".[] | select(.headSha==\"$sha\" and .workflowName==\"$CI_WORKFLOW\") | .databaseId" 2>/dev/null | head -1 || true)"
+  if [ -z "$id" ]; then
+    id="$(gh run list ${ba[@]+"${ba[@]}"} --limit 20 --json databaseId,headSha,workflowName \
+            --jq ".[] | select(.headSha==\"$sha\" and (.workflowName|startswith(\".github/workflows/\"))) | .databaseId" 2>/dev/null | head -1 || true)"
+    [ -n "$id" ] && CI_NAME_UNRESOLVED=1
+  fi
+  printf '%s' "$id"
+}
+
+# ci_conclusion <runid> — 0 green | 1 red | 2 indeterminate, from the run's SETTLED conclusion. Only a
+# real failure is RED; cancelled/skipped/stale/neutral is indeterminate (never revert good work over a
+# concurrency-cancel).
+ci_conclusion() {
+  local concl; concl="$(gh run view "$1" --json status,conclusion --jq '.status + "/" + (.conclusion // "")' 2>/dev/null || true)"
+  case "$concl" in
+    completed/success) return 0 ;;
+    completed/failure|completed/timed_out|completed/startup_failure|completed/action_required) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# ci_status_now <branch-or-empty> <sha> — POINT-IN-TIME CI status for <sha> (NO waiting): 0 green | 1 red
+# | 2 indeterminate/no-run. Used by the idle-reconcile guard so a task is never marked done while its
+# main-HEAD CI is red or was never confirmed.
+ci_status_now() {
+  command -v gh >/dev/null 2>&1 || return 2
+  local id; id="$(ci_find_run "$1" "$2")"
+  [ -n "$id" ] || return 2
+  [ "${CI_NAME_UNRESOLVED:-0}" = 1 ] && return 1
+  ci_conclusion "$id"
+}
+
 wait_ci_green() {   # 0=green 1=red 2=indeterminate
   local branch="$1" sha runid="" waited=0
   command -v gh >/dev/null 2>&1 || { log "gh not installed — cannot gate CI"; return 2; }
@@ -529,31 +573,26 @@ wait_ci_green() {   # 0=green 1=red 2=indeterminate
   [ -n "$sha" ] || { log "cannot resolve origin/$branch"; return 2; }
   log "waiting for CI ($CI_WORKFLOW) on $branch ($sha)…"
   while [ "$waited" -lt "$CI_TIMEOUT" ]; do
-    runid="$(gh run list --branch "$branch" --limit 20 \
-               --json databaseId,headSha,workflowName \
-               --jq ".[] | select(.headSha==\"$sha\" and .workflowName==\"$CI_WORKFLOW\") | .databaseId" \
-               2>/dev/null | head -1 || true)"
+    runid="$(ci_find_run "$branch" "$sha")"
     [ -n "$runid" ] && break
     sleep "$WAIT_SECONDS"; waited=$((waited + WAIT_SECONDS))
   done
   [ -n "$runid" ] || { log "no '$CI_WORKFLOW' run appeared for $sha within ${CI_TIMEOUT}s"; return 2; }
+  # A run GitHub reported by FILE PATH (name unresolved) is the signature of a malformed workflow file —
+  # treat as RED immediately (never wait it out or merge over it) with a loud, actionable warning.
+  if [ "${CI_NAME_UNRESOLVED:-0}" = 1 ]; then
+    log "⚠ CI RED (run $runid): GitHub could NOT resolve the workflow's name (reported it by file path) for $sha — the .github/workflows file is almost certainly MALFORMED. Run: gh run view $runid --log-failed"
+    return 1
+  fi
   # `gh run watch --exit-status`'s bare exit conflates a genuine CI failure with a watch hiccup and a
-  # run CANCELLED by a newer push. Watch to settle, then read the run's ACTUAL conclusion and classify
-  # on THAT — only a real failure is RED; cancelled/skipped/stale/neutral returns 2 (indeterminate).
+  # run CANCELLED by a newer push. Watch to settle, then read the run's ACTUAL conclusion via ci_conclusion.
   gh run watch "$runid" --exit-status >/dev/null 2>&1 || true
-  local latest concl
-  latest="$(gh run list --branch "$branch" --limit 20 --json databaseId,headSha,workflowName \
-              --jq ".[] | select(.headSha==\"$sha\" and .workflowName==\"$CI_WORKFLOW\") | .databaseId" \
-              2>/dev/null | head -1 || true)"
-  [ -n "$latest" ] && runid="$latest"
-  concl="$(gh run view "$runid" --json status,conclusion --jq '.status + "/" + (.conclusion // "")' 2>/dev/null || true)"
-  case "$concl" in
-    completed/success)
-      log "CI GREEN (run $runid)"; return 0 ;;
-    completed/failure|completed/timed_out|completed/startup_failure|completed/action_required)
-      log "CI RED (run $runid, $concl) — gh run view $runid --log-failed"; return 1 ;;
-    *)
-      log "CI INDETERMINATE (run $runid, conclusion='${concl:-unknown}') — NOT treating as red (likely concurrency-cancelled/skipped)"; return 2 ;;
+  local latest; latest="$(ci_find_run "$branch" "$sha")"; [ -n "$latest" ] && runid="$latest"
+  ci_conclusion "$runid"; local st=$?
+  case "$st" in
+    0) log "CI GREEN (run $runid)"; return 0 ;;
+    1) log "CI RED (run $runid) — gh run view $runid --log-failed"; return 1 ;;
+    *) log "CI INDETERMINATE (run $runid) — NOT treating as red (likely concurrency-cancelled/skipped)"; return 2 ;;
   esac
 }
 
@@ -1158,6 +1197,30 @@ CHANGED
   if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then
     STRUCT_FAIL_KIND="test-missing"; log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
   fi
+  # GitHub Actions workflow validation (see ensure-actionlint.sh) — a change to .github/workflows/*.yml
+  # can be perfectly valid YAML yet REJECTED by GitHub's own schema (e.g. a flow-sequence where a scalar
+  # is required), which kills the whole run at parse time — something LOCAL_DOD (the project's own
+  # typecheck/test/build) can't catch. actionlint validates the schema LOCALLY, before the push. Fires
+  # ONLY when the diff touches a workflow file (the common task pays nothing). Best-effort: if the linter
+  # can't be fetched (offline / rate-limited) WARN + SKIP rather than block — the scaffolded
+  # lint-workflows.yml CI job is the authoritative catch. LINT_WORKFLOW_FILES=0 disables it.
+  if [ "${LINT_WORKFLOW_FILES:-1}" != 0 ]; then
+    local wf al allog
+    wf="$(printf '%s\n' "$changed" | grep -E '^\.github/workflows/.+\.(yml|yaml)$' | while IFS= read -r f; do [ -f "$LOOP_WT/$f" ] && printf '%s\n' "$f"; done)"
+    if [ -n "$wf" ]; then
+      if al="$("$ROOT/.harness/scripts/ensure-actionlint.sh" "$ROOT" 2>/dev/null)" && [ -x "$al" ]; then
+        allog="$LOOP_WT/.harness/worklog/.actionlint.log"
+        if ! ( cd "$LOOP_WT" && printf '%s\n' "$wf" | xargs "$al" ) >"$allog" 2>&1; then
+          STRUCT_FAIL_KIND="workflow-lint"; STRUCT_FAIL_DETAIL="$(tail -n 20 "$allog" 2>/dev/null | tr '\n' '⏎')"
+          log "structural: $id — actionlint REJECTED a .github/workflows change (invalid GitHub Actions schema) — fail (last lines:)"; tail -n 20 "$allog" 2>/dev/null | sed 's/^/    /' >&2
+          return 1
+        fi
+        log "structural: actionlint OK on changed workflow file(s)"
+      else
+        log "structural: WARN — actionlint unavailable (couldn't fetch); SKIPPING local workflow-YAML validation for $id. The lint-workflows.yml CI job still gates it; set LINT_WORKFLOW_FILES=0 to silence."
+      fi
+    fi
+  fi
   if [ -n "$LOCAL_DOD" ]; then
     log "structural: running LOCAL_DOD → $LOCAL_DOD"
     # Capture output so a LOCAL_DOD failure records a "why" instead of a silent >/dev/null.
@@ -1523,9 +1586,21 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         block_task "$task" "repeated idle: work appears on main but status never persisted to done — needs a human to mark it done or fix the divergence"
         idle_task=""; idle_count=0
       else
-        log "agent reports idle on $task — Done-when already met on main; reconciling status=done and continuing."
-        record_outcome "$task" false
-        heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
+        # GUARD: "work already on main" is NOT proof CI verified it — a prior wait_ci_green that couldn't
+        # find a run (e.g. a malformed workflow file GitHub reported by path, not name) can leave a commit
+        # on main, unmarked and un-reverted; the next cold attempt then reads it as idle. Re-check the
+        # ACTUAL CI status for origin/main HEAD (point-in-time, no wait) before flipping status=done.
+        idle_sha="$(git -C "$ROOT" rev-parse "$TASKS_REF" 2>/dev/null || true)"
+        idle_ci=2; if [ -n "$idle_sha" ]; then idle_ci=0; ci_status_now "" "$idle_sha" || idle_ci=$?; fi
+        if [ "$idle_ci" = 1 ]; then
+          log "idle on $task but CI for origin/main ($idle_sha) is RED — refusing to reconcile done; BLOCKING for a human (a prior revert-on-red didn't happen, or the workflow file is broken)."
+          block_task "$task" "idle-but-ci-red: work is on main but its CI is failing — needs a human (check the latest CI run / the .github/workflows file)"
+          idle_task=""; idle_count=0
+        else
+          log "agent reports idle on $task — Done-when already met on main ($([ "$idle_ci" = 0 ] && echo 'CI green' || echo 'CI status unconfirmed — proceeding as before')); reconciling status=done and continuing."
+          record_outcome "$task" false
+          heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
+        fi
       fi
       ;;
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;

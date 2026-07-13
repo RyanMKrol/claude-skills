@@ -63,6 +63,8 @@ $START
 # scope-gap dismissals — check-task-scope.sh's per-task "already reviewed" record (fix-scope-gaps)
 .harness/.scope-gap-ignores/*
 !.harness/.scope-gap-ignores/.gitkeep
+# harness-fetched tool binaries (e.g. actionlint — ensure-actionlint.sh) — machine-specific, never committed
+.harness/.bin/
 $END
 MANAGED_EOF
 MANAGED="${MANAGED%$'\n'}"   # strip the single trailing newline read captured before EOF
