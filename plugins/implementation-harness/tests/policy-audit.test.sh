@@ -7,10 +7,10 @@
 # taper to the auditFloor (100pm) at auditFloorN (8), never below the floor — plus the risk clamp
 # (any risk flag ⇒ mandatory 1000pm, bypassing the decay entirely). The invocation mirrors
 # audit_gate's exact arg shape in loop.sh (the tier-branch args are inert dummies here).
-# Run standalone: .harness/scripts/policy-audit.test.sh
+# Run standalone: plugins/implementation-harness/tests/policy-audit.test.sh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 POLICY_JQ="$SCRIPT_DIR/policy.jq"
 FAIL=0
 

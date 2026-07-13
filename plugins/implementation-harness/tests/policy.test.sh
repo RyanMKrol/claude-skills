@@ -6,10 +6,10 @@
 # successive real policy.jq calls, exactly mirroring what the loop would write for a real explored
 # task, to prove the epsilon-greedy probe actually self-terminates: promotion on success, permanent
 # rejection on failure. No git repo / filesystem state needed — everything lives in bash variables.
-# Run standalone: .harness/scripts/policy.test.sh
+# Run standalone: plugins/implementation-harness/tests/policy.test.sh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 POLICY_JQ="$SCRIPT_DIR/policy.jq"
 FAIL=0
 

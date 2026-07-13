@@ -12,7 +12,7 @@
 #
 # PLUGIN-SOURCE test: runs in the plugin's CI, not copied into a consumer .harness/.
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 TPL="$(cd "$SCRIPT_DIR/.." && pwd)"   # templates/
 FAIL=0
 assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "FAIL - $desc"; FAIL=1; fi; }

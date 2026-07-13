@@ -12,7 +12,7 @@
 # PLUGIN-SOURCE test: exercises both loop variants + scope-lib.sh, which only coexist here in templates/.
 # Runs in the plugin's CI, not copied into a consumer's .harness/.
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 FAIL=0
 assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "FAIL - $desc"; FAIL=1; fi; }
 

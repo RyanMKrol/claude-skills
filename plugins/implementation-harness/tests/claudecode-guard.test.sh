@@ -7,10 +7,10 @@
 # selftest entry points (the guard must run before arg parsing).
 # Works in the plugin source tree (both variants present) AND in an install (one variant, as
 # loop.sh): it tests whichever of the three scripts exist next to it. Run standalone:
-#   .harness/scripts/claudecode-guard.test.sh
+#   plugins/implementation-harness/tests/claudecode-guard.test.sh
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 FAIL=0
 
 assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "FAIL - $desc"; FAIL=1; fi; }

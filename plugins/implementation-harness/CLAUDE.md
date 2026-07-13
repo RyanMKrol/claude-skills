@@ -138,7 +138,7 @@ migrates a fork onto this by extracting inline edits into `custom/`). Rules when
   by copy; add-if-missing on upgrade, never overwrite the user's real file). **Adding a new lifecycle event
   = a `run_hook <event>` call at the fire point in BOTH loop variants (keep them in parity) + a new
   `on-<event>.sh.example` stub + a row in the `docs/HARNESS.md` §8.3 event table.** Hooks run as non-fatal
-  children and must never fire on an error/prereq exit (`exit 3`); `templates/scripts/loop-extend.test.sh`
+  children and must never fire on an error/prereq exit (`exit 3`); `tests/loop-extend.test.sh`
   covers the guard extension + the dispatcher.
 - **Any new `custom/` extension point MUST be added to the customization catalog** in
   `skills/implementation-harness-customize/SKILL.md` §1 (name, files, a `since: <version>`, and a drafting
@@ -153,6 +153,16 @@ migrates a fork onto this by extracting inline edits into `custom/`). Rules when
   as `.harness/scripts/loop.sh`; each carries a `# harness-loop-variant:` header the upgrade reads to pick
   the right reference. **Keep both variants in parity** and keep those markers intact. Run `bash -n` on any
   edited `*.sh` (target: bash 3.2 — no bash-4 builtins).
+- ⚠️ **Plugin-CI tests live in `plugins/implementation-harness/tests/`, NEVER in `templates/scripts/`.**
+  `templates/` is what gets *scaffolded into a consumer's `.harness/`* — but a consumer installs exactly ONE
+  loop variant (as `loop.sh`) and has no `loop.in-place.sh`, so any `*.test.sh` that compares both variants
+  (or otherwise assumes the plugin's two-variant layout) BREAKS there. Such a test placed under
+  `templates/scripts/` gets checksummed as mechanism and the **upgrade tries to add it to consumers**, where
+  it fails (the exact incident this rule prevents). So: a new `*.test.sh` goes in `tests/` (resolve the
+  scripts under test via `"$(dirname "${BASH_SOURCE[0]}")/../templates/scripts"`, like the others). The CI
+  runner (`find plugins -name '*.test.sh'`) finds it there regardless. The **only** `*.test.sh` that may live
+  in `templates/scripts/` is `mark-done-bulk.test.sh` — the one self-test `create`'s validation gate runs
+  *inside* the consumer; it must be self-contained (never reference the other variant).
 - The scaffolded `.harness/.harness-version` marker is written by `create` (and re-stamped by `upgrade`)
   from `plugin.json`'s `version` — it's what lets an upgrade know the starting point. It's not a template
   file; don't add one.

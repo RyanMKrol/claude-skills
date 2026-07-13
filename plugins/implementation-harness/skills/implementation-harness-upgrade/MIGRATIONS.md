@@ -42,6 +42,40 @@ Entry format:
 
 ---
 
+## 1.79.0 → 1.80.0 — plugin-CI tests relocated out of templates/ (they were leaking into consumers) + upgrade prunes leaked copies
+
+Root-caused from a real upgrade incident (ryankrol.co.uk, in-place): plugin-CI test suites lived under
+`templates/scripts/*.test.sh` — the *scaffolded mechanism* dir — even though most compare BOTH loop variants
+and self-label "PLUGIN-SOURCE … not copied into a consumer". Because they sat in `templates/scripts/`,
+`gen-checksums` listed them and the **upgrade added them to consumers**, where they FAIL: a consumer installs
+only one loop variant (as `loop.sh`) and has no `loop.in-place.sh`, and worktree-only assertions don't match
+an in-place `loop.sh`. The upgrade already encodes the variant split for `loop.sh`/`postflight.sh` (via the
+`# harness-loop-variant:` header); the tests were the gap.
+
+Fix: **all 18 plugin-CI tests moved from `templates/scripts/` to `plugins/implementation-harness/tests/`**
+(joining `loop-parity.test.sh`), so they are structurally never scaffolded — they drop out of the checksum
+ledger, and the CI runner (`find plugins -name '*.test.sh'`) still finds them. Only `mark-done-bulk.test.sh`
+remains under `templates/scripts/` (the one self-test `create`'s validation runs *in* the consumer). Each
+moved test resolves the scripts-under-test via `"$(dirname "${BASH_SOURCE[0]}")/../templates/scripts"`. The
+maintainer `CLAUDE.md` now encodes the rule so it can't regress.
+
+- mechanism: `skills/implementation-harness-upgrade/SKILL.md` — new Stage-4 **prune-leaked-tests** step: any
+  `.harness/scripts/*.test.sh` except `mark-done-bulk.test.sh` is a leaked plugin-CI test; the upgrade offers
+  to remove it (default remove — plugin-source, never user content). Self-heals installs that leaked them.
+- config: none
+- new files: none
+- renamed/removed: **18 files removed from `templates/scripts/`** and relocated to `tests/` (plugin-CI only,
+  not shipped): `claudecode-guard`, `consolidate-rewire`, `idle-reconcile`, `loop-actionlint`, `loop-extend`,
+  `loop-nounset`, `loop-pushblock`, `loop-ratelimit`, `policy`, `policy-audit`, `pre-push`,
+  `print-prompt-banner`, `rewire-dependents`, `scope-exempt`, `scope-gap-dismiss`, `scope-match`,
+  `select-task`, `supervise` (all `*.test.sh`). They vanish from the checksum ledger for this version.
+- manual attention: none — the upgrade's prune step handles consumer cleanup automatically (offers to remove
+  leaked copies). A consumer that never leaked them sees a no-op.
+- breaking: none — these tests never ran meaningfully in a consumer (that was the bug); removing them stops
+  failing/irrelevant runs. `mark-done-bulk.test.sh` (the real consumer self-test) is untouched.
+
+---
+
 ## 1.78.0 → 1.79.0 — catch invalid GitHub Actions workflow YAML before it reaches main (actionlint) + CI-run-matching + idle-path safety
 
 Closes a class of failure where the loop can build, audit, and merge a task that silently breaks the

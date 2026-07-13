@@ -6,7 +6,7 @@
 # run_claude, which points ONLY the agent subprocess's git at this hook via GIT_CONFIG_* env.
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 HOOK="$SCRIPT_DIR/pre-push"
 FAIL=0
 assert() { local d="$1"; shift; if "$@"; then echo "ok - $d"; else echo "FAIL - $d"; FAIL=1; fi; }

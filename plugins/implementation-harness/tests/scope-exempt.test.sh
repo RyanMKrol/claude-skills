@@ -9,10 +9,10 @@
 # This is a PLUGIN-SOURCE test: it exercises BOTH loop variants, which only coexist here in
 # templates/. It runs in the plugin's CI and is NOT copied into a consumer's .harness/ (an install
 # has only one variant). Run it from the plugin checkout:
-#   plugins/.../templates/scripts/scope-exempt.test.sh
+#   plugins/.../tests/scope-exempt.test.sh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 FAIL=0
 assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "FAIL - $desc"; FAIL=1; fi; }
 

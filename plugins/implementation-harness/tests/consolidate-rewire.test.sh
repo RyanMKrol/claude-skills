@@ -9,7 +9,7 @@
 # and ENOENTed every fs call, breaking consolidation for any repo whose path has a space).
 # Plugin-source test: runs in the plugin's CI, not copied into a consumer .harness/.
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 command -v node >/dev/null 2>&1 || { echo "SKIP - node not available"; exit 0; }
 command -v jq   >/dev/null 2>&1 || { echo "SKIP - jq not available"; exit 0; }
 FAIL=0

@@ -11,10 +11,10 @@
 #   • a valid forced id is honored; a drained backlog reports nothing eligible.
 # Spins throwaway repos (mktemp -d); worktree-variant decisions are read from origin/main (a bare
 # remote), in-place from the local checkout — each fixture matches its variant's contract.
-# Run standalone: .harness/scripts/select-task.test.sh
+# Run standalone: plugins/implementation-harness/tests/select-task.test.sh
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 FAIL=0
 TMPS=()
 cleanup() { local d; for d in ${TMPS[@]+"${TMPS[@]}"}; do rm -rf "$d"; done; }

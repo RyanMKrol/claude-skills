@@ -389,6 +389,19 @@ Apply exactly what was approved:
   original incident) is finally self-healed. Report the line it prints (added / refreshed / already
   current). If `ensure-gitignore.sh` isn't present (the user skipped adding this new file on a pre-1.55.0
   upgrade), note that the managed block can't be maintained until it's added.
+- **Prune leaked plugin-CI test files** (added 1.80.0). Plugin-CI tests live in the plugin's own `tests/`
+  dir and are NEVER installed into a consumer — but earlier upgrades wrongly treated `templates/scripts/*.test.sh`
+  as consumer mechanism and added them to `.harness/scripts/`, where they FAIL: a consumer installs only one
+  loop variant (as `loop.sh`) and has no `loop.in-place.sh`, so any test that compares both variants breaks.
+  Any `.harness/scripts/*.test.sh` **except `mark-done-bulk.test.sh`** (the one self-test `create`'s
+  validation runs in-place) is such a leak — a `*.test.sh` under `scripts/` is provably plugin-source, never
+  user content. Detect them:
+  ```bash
+  ls "$H"/scripts/*.test.sh 2>/dev/null | grep -v '/mark-done-bulk\.test\.sh$'
+  ```
+  If any exist, offer to `rm` them (a single batched `AskUserQuestion`, default **remove** — they're no
+  longer shipped and only produce failing/irrelevant runs). Report what was removed. This self-heals installs
+  that leaked them before the 1.80.0 relocation, regardless of version range.
 
 Cleanly-unmodified stale files may be grouped into a single "refresh these N files?" confirmation, but the
 user must always be able to see what diverged before approving.

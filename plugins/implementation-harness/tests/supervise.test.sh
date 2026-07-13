@@ -9,10 +9,10 @@
 #   exit 0  → normal cadence; MAX_CYCLES bounds the run.
 # A mislabeled exit either buries a human-fixable error in retry noise or idles a healthy run for
 # hours — this is load-bearing unattended-operation logic. Run standalone:
-#   .harness/scripts/supervise.test.sh
+#   plugins/implementation-harness/tests/supervise.test.sh
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/scripts" && pwd)"
 SUPERVISE="$SCRIPT_DIR/supervise.sh"
 FAIL=0
 TMP="$(mktemp -d)"
