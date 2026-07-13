@@ -7,5 +7,18 @@
 .idea/
 .vscode/
 
+# Secrets — never commit API keys (e.g. ELEVENLABS_API_KEY). Use environment variables.
+.env
+.env.*
+*.pem
+
+# jbp-lesson-deck: local build artifacts / copyrighted textbook content must never be committed.
+# Per-user state lives in $JBP_DECK_HOME (~/.jbp-lesson-deck) OUTSIDE the repo; these are just
+# belt-and-suspenders in case anything is run from within the checkout.
+*.apkg
+plugins/jbp-lesson-deck/**/state/
+plugins/jbp-lesson-deck/**/work/
+__pycache__/
+
 # Note: plugins/implementation-harness/templates/gitignore is shipped dot-less ON PURPOSE
 # (it becomes the scaffolded project's .gitignore) — it must NOT be ignored here.
