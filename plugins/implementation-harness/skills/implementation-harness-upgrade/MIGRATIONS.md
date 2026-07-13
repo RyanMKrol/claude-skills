@@ -42,6 +42,42 @@ Entry format:
 
 ---
 
+## 1.77.1 → 1.78.0 — worktree loop: gate LOCAL_DOD before the branch push (loop owns the tNNN push) + slow-check prompt hardening
+
+Two fixes, both grounded in a real run where the worktree loop kept pushing branches whose builds then
+failed CI, with the deterministic local DoD almost never catching anything first:
+
+1. **Worktree: LOCAL_DOD now gates BEFORE the push.** `LOCAL_DOD` lives in `structural_checks()`. The
+   in-place variant already ran it pre-push, but the **worktree** variant had the builder push its own
+   `tNNN` branch, so the loop's order was [agent push] → CI → `structural_checks`(LOCAL_DOD) → audit — the
+   one enforced local gate ran *after* CI already gated (a standing **P5 violation**: "the loop owns
+   pushes"). Now the worktree builder commits but does NOT push; the **loop** is the sole pusher. New
+   done-path order: build+commit → `structural_checks`(LOCAL_DOD) → loop pushes `tNNN` → `wait_ci_green` →
+   `audit_gate` (kept post-CI — the one deliberate divergence, preserves "don't pay for the audit until
+   free CI is green") → `integrate`. A locally-broken build never reaches CI or origin. The agent push is
+   blocked mechanically by the already-shipped `pre-push` hook (reused from in-place via
+   `HARNESS_AGENT`/`GIT_CONFIG_*` env scoping).
+2. **Both variants: slow-check prompt hardening.** The build prompt's DoD step now tells the builder to run
+   every check to COMPLETION (extended tool timeout or background+poll for multi-minute builds/tests) and
+   never report `done` while a check is still running / unobserved — an incomplete check is `failed:soft`,
+   not `done`. Tier-independent (issue: the cheapest tier was most exposed to premature `done`).
+
+- mechanism: `scripts/loop.sh` — `run_claude` blocks the agent push (`HARNESS_AGENT`/`GIT_CONFIG_*` +
+  `chmod` the hook); `prompt()` step 4/5 (agent commits, does NOT push; `done` = "built+committed, NOT
+  pushed"); done-path reorder (`structural_checks` + loop push before `wait_ci_green`; audit stays post-CI);
+  DoD prompt slow-check hardening. `scripts/loop.in-place.sh` — DoD prompt slow-check hardening (parity;
+  its push model was already correct). `scripts/pre-push` — header comment corrected (now used by BOTH
+  variants). `docs/HARNESS.md` — loop-shape diagram (§ loop) + §5 item 4 updated to "loop pushes, gates,
+  then merges" (the builder never pushes). `scripts/loop-pushblock.test.sh` — NEW static regression test.
+- config: none
+- new files: `scripts/loop-pushblock.test.sh` (auto-discovered by CI's `find … -name '*.test.sh'`).
+- renamed/removed: none
+- manual attention: none — all mechanism/plugin-owned; the upgrade content-diffs and refreshes them.
+- breaking: none for a running loop. Behavioral: existing worktree installs' *builders* become push-blocked
+  (intended — the loop pushes instead); the loop only ever starts cold, so no in-flight run is affected.
+
+---
+
 ## 1.77.0 → 1.77.1 — loop: DRY_RUN preview now reflects owner overlays (no more false "nothing eligible")
 
 `DRY_RUN=1 loop.sh` selected against the raw `TASKS.json`, because it short-circuits BEFORE

@@ -776,7 +776,11 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (the 
 2. DEFINITION OF DONE (.harness/docs/HARNESS.md §5 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
       .harness/docs/HARNESS.md §5 (format, lint, tests, build). These MIRROR CI — if CI runs it,
-      run it locally first. Every check must pass.
+      run it locally first. Every check must pass. Run every check to COMPLETION and read its real
+      exit status: for a SLOW check (a multi-minute build/test), request an extended tool timeout or
+      run it in the background and POLL to completion — never fire it under a default-timeout blocking
+      call and assume it passed. A check that times out, is still running, or whose result you did not
+      OBSERVE is NOT a pass — that is `failed:soft` (retryable), never `done`.
    b. Run the task's relevant integration / end-to-end tests when their preconditions are
       met. Tests that need credentials, funds, or external resources you don't have: leave
       them as they are and record `failed:blocked` if the task's core needs them — never
@@ -791,11 +795,16 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (the 
 4. COMMIT — produce EXACTLY ONE commit for the whole task, `<TASK>: <summary>` (INCLUDING
    `.harness/worklog/<TASK>.md` with a dated entry: what you did, checks run, what remains). If you iterate,
    fold changes into that SAME commit with `git commit --amend` — do NOT stack multiple commits (the loop
-   integrates a task as one commit). Then push THIS branch: `git push -u origin HEAD`. Do NOT merge
-   into `main` — the loop watches GitHub CI and fast-forwards main on green. If a previous
-   push's CI for this branch failed, run `gh run view --log-failed` and fix the cause first.
-5. As your FINAL action, OVERWRITE `.harness/worklog/.result` with exactly ONE line:
-     done <TASK> <branch>                 # built, committed, pushed — ready for CI + merge
+   integrates a task as one commit). Do NOT push and do NOT merge — **NEVER `git push`**, not ever, even if
+   your global git guidance says to always push after committing (that rule does NOT apply here). The loop is
+   the SOLE pusher: after you finish it runs your checks (structural + LOCAL_DOD), pushes your `<branch>`,
+   watches GitHub CI, and fast-forwards `main` on green — a push from you is BLOCKED by a git hook and
+   bypasses that local gate. `HARNESS_AGENT` is the loop's private env marker: never set, unset, or pass it
+   to any command. Your CI is LOCAL (step 2) — run it yourself; you never push to see CI.
+5. As your FINAL action, OVERWRITE `.harness/worklog/.result` with exactly ONE line. Report `done` ONLY
+   when every Definition-of-Done check has FINISHED and PASSED — never while a check is still running or its
+   outcome is unknown (that is `failed:soft`):
+     done <TASK> <branch>                 # built + committed on <branch> (NOT pushed) — loop pushes + gates CI
      failed:soft <TASK> <reason>          # transient / partial — retry is worthwhile
      failed:blocked <TASK> <reason>       # needs-human / unmet prereq — do NOT retry
      waiting <TASK> <unmet-deps>          # a dependency is not merged yet
@@ -989,13 +998,20 @@ run_claude() {
   # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
   # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude
   # runs. That's exactly the effort-less cold-start floor (Haiku), so a fresh install crash-loops on task 1.
-  # NO push-block here (deliberate P9 divergence from loop.in-place.sh): the WORKTREE builder works in an
-  # isolated worktree on a feature branch and is REQUIRED to push THAT branch — CI gates the branch and the
-  # loop fast-forwards `main` only on green, so `main` never sees ungated work. The in-place variant blocks
-  # agent pushes (there the builder is on `main` directly and the loop is the sole pusher); that hazard
-  # simply doesn't exist in this isolation model, so we must NOT set HARNESS_AGENT / a hooks override here
-  # (it would block the branch push the builder legitimately needs to make — see prompt step 4).
-  ( cd "$LOOP_WT" && "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
+  # PUSH BLOCK (both variants now) — the builder commits its `tNNN` branch in the worktree but must NOT
+  # push it; the LOOP is the sole pusher (P5), so the deterministic local gate (structural_checks / LOCAL_DOD)
+  # runs BEFORE the branch ever reaches origin/CI (see the done-path). We scope git's pre-push hook to THIS
+  # agent subprocess via GIT_CONFIG_* env — NOT a persistent `core.hooksPath`, which would disable the repo's
+  # own husky/pre-commit hooks for the loop and humans too. HARNESS_AGENT=1 is what .harness/scripts/pre-push
+  # checks; the loop's own pushes (the tNNN push + the ff to main) and human pushes never carry it, so they're
+  # never blocked. The hooks dir is the PRIMARY checkout's `.harness/scripts` (the worktree shares $ROOT's
+  # .git; core.hooksPath is an absolute path, not a worktree-relative ref, so it resolves correctly). chmod
+  # keeps the hook executable even if an install/copy dropped the bit (git silently ignores a non-executable
+  # hook = no enforcement).
+  chmod +x "$ROOT/.harness/scripts/pre-push" 2>/dev/null || true
+  ( cd "$LOOP_WT" \
+      && HARNESS_AGENT=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$ROOT/.harness/scripts" \
+         "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
       --output-format stream-json --include-partial-messages --verbose ${FLAGS[@]+"${FLAGS[@]}"} ) 2>&1 \
     | tee "$raw" \
     | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \
@@ -1432,12 +1448,27 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   read -r status rtask extra <"$RESULT" || true
   case "$status" in
     done)
-      log "task $rtask built on branch $branch"
+      log "task $rtask built + committed on $branch (local — loop gates, then pushes)"
+      # DETERMINISTIC LOCAL GATE FIRST — structural_checks (scope/empty-diff/expectsTest + LOCAL_DOD) runs
+      # on the local branch HEAD in the worktree, BEFORE the branch ever reaches origin/CI. A build that
+      # fails it is a failed attempt that never pushed anything — no wasted CI run, no branch on origin.
+      # (This is the fix for LOCAL_DOD running post-CI; the LOOP — not the builder — now pushes, per P5.)
+      if ! structural_checks "$task"; then
+        log "structural checks failed for $task — discarding (never pushed) + cold retry."; cleanup_task "$branch"; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
+      fi
+      # Local gate passed → the LOOP pushes the branch (sole pusher, P5) so CI can run and integrate can ff it.
+      # A PLAIN push (not throttled_push): PUSH_COOLDOWN_SECONDS throttles *main integration* pushes, not the
+      # per-attempt branch push. cleanup_task deletes any stale remote `tNNN` before each cold attempt, so a
+      # non-ff rejection here means a genuine race → soft-fail + cold retry (never force-clobber).
+      heartbeat pushing
+      if ! git -C "$LOOP_WT" push --quiet origin "$branch"; then
+        log "push of $branch rejected (remote moved / race) — tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "push-race" "couldn't push $branch to origin"; bump "$task"; board; continue
+      fi
       # A [skip ci]-tagged build commit never creates a workflow run, so wait_ci_green would sit out
       # the full CI_TIMEOUT and then loop on indeterminate. Skip the CI wait for such commits (an
-      # operational / scope:[] task) and go straight to the structural + audit gates.
+      # operational / scope:[] task) and go straight to the audit gate.
       if [ "$REQUIRE_CI" = "1" ] && git -C "$ROOT" log -1 --format=%s "origin/$branch" 2>/dev/null | grep -qF '[skip ci]'; then
-        log "[skip ci] build on $branch — no CI run expected; proceeding to structural + audit gates."
+        log "[skip ci] build on $branch — no CI run expected; proceeding to audit gate."
       elif [ "$REQUIRE_CI" = "1" ]; then
         heartbeat awaiting-ci
         ci_rc=0; wait_ci_green "$branch" || ci_rc=$?
@@ -1460,11 +1491,9 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
           log "CI RED for $task — failed attempt; tearing down for a COLD retry."; cleanup_task "$branch"; record_failure "$task" "ci-red" "CI checks failed on the branch"; bump "$task"; board; continue
         fi
       fi
-      # Structural gate THEN the blocking audit, on the CI-green branch, BEFORE integrating — so
-      # nothing unaudited reaches main. Either fail = a failed attempt (tear down → cold retry).
-      if ! structural_checks "$task"; then
-        log "structural checks failed for $task — tearing down branch + cold retry."; cleanup_task "$branch"; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
-      fi
+      # Blocking audit AFTER CI green (deliberate divergence from in-place: don't pay for the expensive
+      # audit until free CI confirms the build), BEFORE integrating — so nothing unaudited reaches main.
+      # (structural_checks/LOCAL_DOD already ran above, pre-push.) A fail = a failed attempt (cold retry).
       heartbeat auditing
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — tearing down branch (never integrated) + cold retry."; cleanup_task "$branch"; record_failure "$task" "audit-fail"; bump "$task"; board; continue

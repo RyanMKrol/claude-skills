@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
 # implementation-harness pre-push hook — refuses pushes made from inside a harness AGENT session.
 #
-# WHY: in the IN-PLACE loop variant the builder works DIRECTLY on `main` and must NOT push — the loop
-# is the sole pusher (it runs the local DoD + the independent audit, pushes, then gates on CI and
-# reverts on red). A builder that pushes its own commits bypasses that whole gate: the work lands on
-# `main` ungated, red CI is never reverted (the loop only reverts commits IT pushed), and the loop's
-# next diff comes back empty (origin/main already advanced) — recorded as a phantom `empty-diff`
-# soft-fail. This is a P5 violation ("the loop owns pushes"); this hook enforces P5 mechanically,
-# because the prompt's "do NOT push" is only advisory and cheap models ignore it (often because the
-# user's own global git guidance says "always push after committing").
+# WHY: in BOTH loop variants the builder must NOT push — the loop is the sole pusher (P5), because it
+# runs the deterministic LOCAL gate (structural checks + LOCAL_DOD) BEFORE anything reaches origin/CI.
+#   • IN-PLACE: the builder works DIRECTLY on `main`; a self-push lands work ungated (red CI is never
+#     reverted — the loop only reverts commits IT pushed) and empties the loop's next diff (a phantom
+#     `empty-diff` soft-fail).
+#   • WORKTREE: the builder commits its `tNNN` branch but must not push it; the loop pushes the branch
+#     ONLY after the local gate passes, so a locally-broken build never burns a CI run or lands on origin.
+# Either way a builder self-push bypasses the local gate. This is a P5 violation ("the loop owns pushes");
+# this hook enforces P5 mechanically, because the prompt's "do NOT push" is only advisory and cheap models
+# ignore it (often because the user's own global git guidance says "always push after committing").
 #
 # HOW IT'S SCOPED (this is the important part): the loop does NOT persist `core.hooksPath`. Instead
-# `run_claude` points the AGENT's git at this hooks dir for the duration of the agent subprocess only,
-# via `GIT_CONFIG_*` env vars (see loop.in-place.sh). So this hook fires ONLY for the agent's git —
-# the loop's own pushes and any human `git push` use the repo's normal hooks (husky/pre-commit stay
-# intact and never see this file). The `HARNESS_AGENT` guard below is belt-and-suspenders: even if
-# this hook were ever wired persistently, it refuses ONLY agent-marked pushes, never a human's.
-#
-# The WORKTREE variant deliberately does NOT activate this: there the builder works in an isolated
-# worktree on a feature branch and is REQUIRED to push that branch (CI gates the branch; the loop
-# fast-forwards `main` only on green). So it never sets HARNESS_AGENT and this hook stays dormant.
+# `run_claude` (in BOTH variants) points the AGENT's git at this hooks dir for the duration of the agent
+# subprocess only, via `GIT_CONFIG_*` env vars. So this hook fires ONLY for the agent's git — the loop's
+# own pushes (the branch push + the ff to main) and any human `git push` use the repo's normal hooks
+# (husky/pre-commit stay intact and never see this file). The `HARNESS_AGENT` guard below is
+# belt-and-suspenders: even if this hook were ever wired persistently, it refuses ONLY agent-marked
+# pushes, never a human's.
 
 if [ -n "${HARNESS_AGENT:-}" ]; then
   echo "" >&2
