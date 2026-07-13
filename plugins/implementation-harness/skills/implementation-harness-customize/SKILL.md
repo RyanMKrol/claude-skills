@@ -83,6 +83,17 @@ what `create`/`upgrade`/this skill all walk — see the maintainer `CLAUDE.md`).
      and write one line (blank lines and `#`-comments are ignored; the first remaining line wins — keep it
      short, it's the browser tab title too).
 
+7. **Test-file patterns** — `custom/test-file-patterns.txt` · since **1.81.0**
+   - *What:* extra patterns for "what counts as a test file", used by the `expectsTest: true` gate and the
+     test-file scope-creep exemption. The built-in conventions already cover the common shapes AND CamelCase
+     test dirs/files (`UITests/`, `FooTests.swift`, `BarTest.kt`); add lines here only for a convention they
+     miss (e.g. Android `androidTest/`, a top-level `e2e/`, `.feature` files). One ERE fragment per line,
+     OR-appended to the built-ins (they always stay active; a bad regex is ignored with a WARN).
+   - *Draft:* ask whether the project has a test layout the built-ins wouldn't recognize (mainly non-standard
+     folder names). If so, copy `test-file-patterns.txt.example` → `test-file-patterns.txt` and write one ERE
+     fragment per line. Verify with `.harness/scripts/loop.sh --test-selftest <path>` (prints `TEST`/`NOT-TEST`,
+     run from a real terminal — the loop refuses to run inside a Claude session).
+
 > Also note (not a `custom/` file): the `INTEGRATE_HOOK` and `VISUAL_VERIFY_HOOK` commands live in
 > `config/harness.env` and are normally set during `create`'s interview. Mention them if relevant, but this
 > walkthrough is about the `custom/` overlay.

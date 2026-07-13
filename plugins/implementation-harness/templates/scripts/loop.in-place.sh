@@ -27,6 +27,7 @@
 # Usage:  .harness/scripts/loop.sh [TNNN]          # optional: force a specific task id this run
 #         DRY_RUN=1 .harness/scripts/loop.sh       # print the task it WOULD build, then exit
 #         .harness/scripts/loop.sh --guard-selftest [path]  # verify the guard regex (or test one path), then exit
+#         .harness/scripts/loop.sh --test-selftest <path>   # print TEST/NOT-TEST — is <path> seen as a test file? then exit
 #         .harness/scripts/loop.sh --scope-exempt-selftest [globs path]  # verify SCOPE_EXEMPT_GLOBS matching, then exit
 #         .harness/scripts/loop.sh --scope-selftest [entry file]  # verify scope-entry matching (extension globs), then exit
 #         .harness/scripts/loop.sh --rl-selftest detect|wait …    # verify usage-limit detection + reset parsing, then exit
@@ -100,7 +101,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervis
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                   # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -171,6 +172,11 @@ if [ -f "$SENSITIVE_EXTRA_FILE" ]; then
   fi
 fi
 
+# Project-defined test-file patterns (custom/test-file-patterns.txt) → TEST_FILE_EXTRA_RE, so
+# structural_checks' expectsTest gate + the test-file scope exemption recognise this repo's own
+# convention (e.g. Xcode UITests/). Built-in conventions always stay active; a bad regex is ignored.
+test_patterns_load "$HARNESS_DIR" || log "WARN: custom/test-file-patterns.txt has an invalid regex — ignoring it; using the built-in test-file conventions only."
+
 # --- Pre-push guard: refuse to push if anything sensitive is in the new commits ----
 guard_clean() {
   local bad
@@ -216,6 +222,10 @@ CASES
   [ "$fail" = 0 ] && { echo "guard self-test OK (16 cases)"; return 0; } || return 1
 }
 [ "${1:-}" = "--guard-selftest" ] && { guard_selftest "${2:-}"; exit $?; }
+# --test-selftest <path>: print TEST / NOT-TEST for <path> against the EFFECTIVE test-file matcher (built-in
+# conventions + any custom/test-file-patterns.txt) — a "does the harness see this as a test?" probe. Handy
+# to confirm an unusual convention (e.g. Xcode UITests/) is recognized before relying on expectsTest.
+[ "${1:-}" = "--test-selftest" ] && { if is_test_path "${2:-}"; then echo TEST; else echo "NOT-TEST"; fi; exit 0; }
 
 [ -f "$BACKLOG" ] || { log "no .harness/tracking/TASKS.json — nothing to build"; exit 3; }
 # A backlog that exists but won't parse (truncated/corrupt) or is empty must ALSO fail CLOSED
@@ -1083,7 +1093,7 @@ structural_checks() {
     # its lockfile would otherwise trip scope-creep the moment `npm install` (etc.) rewrites it as a
     # side effect of the manifest change — a real incident this exemption exists to prevent.
     case "$f" in */package-lock.json|package-lock.json|*/yarn.lock|yarn.lock|*/pnpm-lock.yaml|pnpm-lock.yaml) continue ;; esac
-    if printf '%s\n' "$f" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then continue; fi
+    if is_test_path "$f"; then continue; fi
     if in_scope_exempt "$f"; then continue; fi
     inscope=0
     while IFS= read -r s; do
@@ -1100,7 +1110,7 @@ $changed
 CHANGED
   if [ -n "$creep" ]; then STRUCT_FAIL_KIND="scope-creep"; STRUCT_FAIL_DETAIL="${creep# }"; log "structural: $id changed files OUTSIDE scope (scope creep):$creep — fail"; return 1; fi
   want_test="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.expectsTest // false')"
-  if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | grep -qiE '(\.test\.|\.spec\.|_test\.|(^|/)test_|(^|/)tests?/)'; then
+  if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | any_test_path; then
     STRUCT_FAIL_KIND="test-missing"; log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
   fi
   # GitHub Actions workflow validation (see ensure-actionlint.sh) — a change to .github/workflows/*.yml

@@ -274,7 +274,7 @@ For each file, classify:
   Missing **`custom/` scaffolding** is always an add-candidate (scaffolding, not user content): the prose
   overlay stubs (an install predating the overlay won't have them, and the pristine files' `@custom/…`/pointer
   references need them) AND the extension `.example` stubs (`custom/hooks/on-*.sh.example`,
-  `custom/sensitive-paths.txt.example`). Offer to add any that are missing; never treat a missing `custom/`
+  `custom/sensitive-paths.txt.example`, `custom/test-file-patterns.txt.example`). Offer to add any that are missing; never treat a missing `custom/`
   scaffolding file as a deliberate removal — and NEVER overwrite a user's REAL `custom/hooks/*.sh` or
   `custom/sensitive-paths.txt` (that's their content).
 - **differs from the CURRENT reference** → before treating this as a judgment call, check whether it's

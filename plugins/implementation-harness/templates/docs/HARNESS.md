@@ -522,7 +522,7 @@ the top carries the human note (JSON has no comments). One task object:
 | `dependsOn` | Array of task ids that must be **done + merged** before this task is eligible. |
 | `gate` | `null` (buildable) or `"needs-human"` (🔒 a one-time human step; recorded `failed:blocked`, never auto-done). The loop skips `needs-human` during selection (§9). To require a human to **review a deliverable before dependents proceed**, don't gate the work itself — author a separate `needs-human` review task that `dependsOn` it and point the dependents at the review task. |
 | `scope` | Files this task should touch — now a **structural gate**: the loop requires the task's diff to touch these (and flags creep). Keep it accurate. Each entry is one of: an **exact path** (`src/auth/session.ts`); a **directory prefix** — a trailing `/`, `/**`, or `/*`, all meaning *everything under it, recursively* (`src/feature/**`); or a **single-level extension glob** (`dir/*.tsx` = any `.tsx` **directly** in `dir`, not nested). Anything else with a glob metacharacter (e.g. a mid-path `**` like `dir/**/*.ts`, or brace expansion) is **not** supported and is flagged by `check-task-scope.sh` at pre-loop-checkin — split it into a directory prefix or explicit paths. |
-| `expectsTest` | Optional boolean. `true` → the loop requires a **test file** to change in the diff (a structural check); say what the test must assert in `## Done when`. Set it for tasks whose correctness should be pinned by a test. |
+| `expectsTest` | Optional boolean. `true` → the loop requires a **test file** to change in the diff (a structural check); say what the test must assert in `## Done when`. Set it for tasks whose correctness should be pinned by a test. "Test file" is matched by built-in conventions (incl. Xcode/JVM CamelCase like `UITests/`, `FooTests.swift`) plus any project patterns in `custom/test-file-patterns.txt` (§8.3) — probe with `scripts/loop.sh --test-selftest <path>`. |
 | `visualVerify` | Optional boolean. `true` → inject the `VISUAL_VERIFY_HOOK` "actually LOOK at the output" instruction into the builder + auditor prompt **regardless of facets/platform** (a native screen, a mobile simulator, a generated image). `false` → suppress it even for an auto-covered task. **Omit** to use the facets heuristic: auto-fires when `facets.workType` ∈ `VISUAL_VERIFY_WORKTYPES` (default `component style`) on any layer, OR `facets.layer` ∈ `VISUAL_VERIFY_LAYERS` (default `frontend`) unless the work-type is in `VISUAL_VERIFY_SKIP_WORKTYPES` (default `docs config logging`). Maybe-visual work (`bugfix`/`feature`/`migration` off-frontend) is set by the authoring skills, not auto. No-op if `VISUAL_VERIFY_HOOK` is unset. See `docs/designs/visual-verification.md`. |
 | `design` | **Optional** path to a fuller design doc, or `null`. A path = the build pass **reads that doc** first; `null` = the agent builds from the `spec` on its own judgement. Never required. |
 | `verify` | Optional array naming extra **empirical** checks (e.g. `"run-app"`, `"live-api"`) that drive the §5 Definition of Done. Empty = unit/integration + CI suffice. |
@@ -584,6 +584,14 @@ per line (blank/`#` lines ignored), **OR-appended** to the built-in guard. **App
 *tighten* the guard, never loosen it. If the combined regex won't compile, the file is ignored with a WARN
 and the base guard stays fully active (a bad custom pattern can never wedge the loop or disable the guard).
 Probe a path with `scripts/loop.sh --guard-selftest <path>` (prints `BLOCK`/`ALLOW`).
+
+**Test-file patterns — `custom/test-file-patterns.txt`.** Extra patterns for "what counts as a test file",
+used by the `expectsTest: true` gate and the test-file scope-creep exemption. One ERE fragment per line
+(blank/`#` lines ignored), **OR-appended** to the built-in conventions (which stay active regardless; a bad
+regex is ignored with a WARN). The built-ins already recognize `.test.`/`.spec.`/`_test.` names, `test_`/
+`tests/` segments, AND CamelCase test dirs/files (`UITests/`, `FooTests.swift`, `BarTest.kt` — without
+matching plain words like `latest/`); add lines here only for a convention they miss (e.g. `androidTest/`,
+a top-level `e2e/`, `.feature`). Probe a path with `scripts/loop.sh --test-selftest <path>` (`TEST`/`NOT-TEST`).
 
 **Visual-verification prompt snippets — `custom/visual-verify-build.md` / `custom/visual-verify-audit.md`.**
 When the visual-verification block fires for a task (the `VISUAL_VERIFY_HOOK` is set AND the task opts in —

@@ -334,7 +334,7 @@ grep -q '.harness/.scope-gap-ignores' "$T/.gitignore" || echo "WARN: scope-gap-i
 [ -f "$T/.harness/tracking/IDEAS.jsonl" ] || echo "WARN: tracking/IDEAS.jsonl inbox missing (should be a committed starter)"
 for f in custom/CLAUDE.md custom/README.md custom/docs/HARNESS.md custom/docs/LIMITATIONS.md; do test -f "$T/.harness/$f" || echo "FAIL: customization overlay $f missing"; done
 grep -q '^@custom/CLAUDE.md' "$T/.harness/CLAUDE.md" || echo "FAIL: .harness/CLAUDE.md missing its @custom/CLAUDE.md import (overlay won't load)"
-for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done
+for f in custom/hooks/on-drained.sh.example custom/sensitive-paths.txt.example custom/test-file-patterns.txt.example; do test -f "$T/.harness/$f" || echo "FAIL: custom extension stub $f missing"; done
 for s in add-to-backlog capture-idea convert-ideas fix-scope-gaps loop-recover loop-prepare pre-loop-checkin review-failed update-ladder; do
   f="$T/.claude/skills/implementation-harness-$s/SKILL.md"
   test -f "$f" || echo "FAIL: project-local skill implementation-harness-$s missing at .claude/skills/"

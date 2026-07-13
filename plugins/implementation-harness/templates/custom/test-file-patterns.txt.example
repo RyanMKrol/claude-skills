@@ -1,0 +1,17 @@
+# test-file-patterns.txt — extra "what counts as a test file" patterns for THIS project.
+# Copy to `test-file-patterns.txt` (drop the .example) to activate. One extended-regex (ERE) fragment per
+# line; blank lines and #-comments ignored. Matched case-INSENSITIVELY against each changed file's path.
+#
+# WHY: the loop's `expectsTest: true` gate ("this build must include a test") and the scope-creep
+# exemption ("a NEW test file may live outside the task's declared scope") both decide "is this a test
+# file?" by pattern. The BUILT-IN conventions already cover the common shapes and stay active regardless:
+#   • .test. / .spec. / _test. in the filename, or a `test_` / `tests/` path segment (JS/Python/Go/Ruby);
+#   • CamelCase segments ending in Test/Tests — e.g. `UITests/`, `FooTests.swift`, `BarTest.kt` (Xcode/
+#     Swift/Java/Kotlin), recognized WITHOUT matching plain-English dirs like `latest/`.
+# Add lines here ONLY for a convention the built-ins miss. Check any path with:
+#   .harness/scripts/loop.sh --test-selftest <path>      # prints TEST / NOT-TEST (run from a real terminal)
+#
+# Examples:
+# (^|/)androidTest/                 # Android instrumented tests
+# (^|/)e2e/                         # a top-level end-to-end suite
+# \.feature$                        # Cucumber/Gherkin feature files

@@ -42,6 +42,41 @@ Entry format:
 
 ---
 
+## 1.80.0 → 1.81.0 — test-file detection recognizes CamelCase conventions (Xcode UITests/) + is project-extensible via custom/
+
+Bug (real incident, basket T019): the `expectsTest: true` gate and the test-file scope-creep exemption both
+decide "is this a test file?" with one regex whose `(^|/)tests?/` anchor requires a separator before "test".
+Apple's own `UITests/` convention glues "UI" onto "Tests" (no separator), so nothing under `UITests/` was
+ever recognized as a test — an iOS task needing a UITest failed "no test file" on every attempt and escalated
+all the way up the ladder without any model being able to fix a blind spot in the harness's own bookkeeping.
+
+Fix + extensibility:
+- The 4 inline greps (2 sites × 2 variants) are replaced by ONE shared matcher in `scope-lib.sh`
+  (`is_test_path` / `any_test_path`). Built-ins now also match **case-sensitive CamelCase** test dirs/files —
+  `UITests/`, `FooTests.swift`, `BarTest.kt` — via a capital-`T` rule that deliberately does NOT match
+  plain-English dirs like `latest/`.
+- New `custom/` extension point **`custom/test-file-patterns.txt`** (mirrors `sensitive-paths.txt`): one ERE
+  fragment per line, OR-appended to the built-ins (loaded by `test_patterns_load` into `TEST_FILE_EXTRA_RE`;
+  a bad regex is ignored with a WARN, built-ins always stay active). Consumers can teach the harness their
+  own convention (Android `androidTest/`, `.feature`, …) without forking the loop.
+- New `scripts/loop.sh --test-selftest <path>` probe (both variants) → prints `TEST`/`NOT-TEST`.
+
+- mechanism: `scripts/scope-lib.sh` — new `is_test_path`/`any_test_path`/`test_patterns_load` (the single
+  matcher); `scripts/loop.sh` + `scripts/loop.in-place.sh` — call `test_patterns_load` at startup, the two
+  structural_checks sites now call the matcher, new `--test-selftest` dispatch + usage line + FORCE_TASK
+  exclusion. `docs/HARNESS.md` — §8.3 test-file-patterns paragraph + §8.1 `expectsTest` note.
+- config: none
+- new files: `custom/test-file-patterns.txt.example` (custom/ scaffolding — the upgrade offers to add it if
+  missing, like the other `.example` stubs; never overwrites a user's real `test-file-patterns.txt`).
+- renamed/removed: none
+- manual attention: none — matcher + stub reach existing installs via the mechanism refresh + custom-stub
+  add. A project with a non-standard test layout can then activate the stub (see the customize catalog,
+  feature 7, since 1.81.0).
+- breaking: none — strictly MORE files count as tests now (the built-ins are a superset of the old regex);
+  no previously-recognized test stops being recognized.
+
+---
+
 ## 1.79.0 → 1.80.0 — plugin-CI tests relocated out of templates/ (they were leaking into consumers) + upgrade prunes leaked copies
 
 Root-caused from a real upgrade incident (ryankrol.co.uk, in-place): plugin-CI test suites lived under
