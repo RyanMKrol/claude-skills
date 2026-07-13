@@ -35,6 +35,13 @@ DRAINED_JSON='{"version":1,"tasks":[
   {"id":"T001","status":"done","dependsOn":[],"gate":null},
   {"id":"T002","status":"pending","dependsOn":[],"gate":"needs-human"}
 ]}'
+# Overlay preview: T001 is needs-human (loop skips it) and T002 depends on it. With no overlay the
+# backlog is stuck; once the owner marks T001 done in human-done.json, the DRY_RUN preview must
+# reconcile in-memory and show T002 as eligible — matching the next real iteration.
+OVERLAY_JSON='{"version":1,"tasks":[
+  {"id":"T001","status":"pending","dependsOn":[],"gate":"needs-human"},
+  {"id":"T002","status":"pending","dependsOn":["T001"],"gate":null}
+]}'
 
 setup_repo() {  # setup_repo <loop-src-path> <backlog-json> → echoes repo path
   local src="$1" backlog="$2" d bare
@@ -55,6 +62,12 @@ setup_repo() {  # setup_repo <loop-src-path> <backlog-json> → echoes repo path
 dryrun() {  # dryrun <repo> [force-task] → combined stdout+stderr
   local d="$1"; shift
   ( cd "$d" && env -u CLAUDECODE DRY_RUN=1 bash .harness/scripts/loop.sh "$@" 2>&1 )
+}
+
+write_human_done() {  # write_human_done <repo> <json> — commit+push an owner human-done overlay
+  local d="$1" json="$2"
+  printf '%s\n' "$json" >"$d/.harness/tracking/human-done.json"
+  ( cd "$d" && git add -A && git commit -q -m overlay && git push -q origin main 2>/dev/null || true )
 }
 
 run_variant_suite() {  # run_variant_suite <label> <loop-src-path>
@@ -83,6 +96,17 @@ run_variant_suite() {  # run_variant_suite <label> <loop-src-path>
   out="$(dryrun "$d")"
   assert "[$label] drained backlog (done + needs-human only) → nothing eligible" \
     bash -c "printf '%s' \"\$1\" | grep -q 'nothing eligible'" _ "$out"
+
+  # DRY_RUN reflects owner overlays in-memory (regression: preview used to skip reconcile and
+  # under-report eligible work between an overlay action and the next real iteration).
+  d="$(setup_repo "$src" "$OVERLAY_JSON")"
+  out="$(dryrun "$d")"
+  assert "[$label] overlay preview: before human-done, needs-human T001 blocks its dependent → nothing eligible" \
+    bash -c "printf '%s' \"\$1\" | grep -q 'nothing eligible'" _ "$out"
+  write_human_done "$d" '{"T001":{"done":true}}'
+  out="$(dryrun "$d")"
+  assert "[$label] overlay preview: after owner marks needs-human T001 done, dependent T002 is eligible" \
+    bash -c "printf '%s' \"\$1\" | grep -q 'would build: T002'" _ "$out"
 
   # B09: a corrupt/unparseable backlog must fail CLOSED (exit 3) at startup, BEFORE the DRY_RUN
   # select — never drain-and-exit-0 (which supervise would treat as "backlog complete" and idle on).

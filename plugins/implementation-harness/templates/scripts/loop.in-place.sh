@@ -228,7 +228,10 @@ if ! { [ -s "$BACKLOG" ] && jq empty "$BACKLOG" 2>/dev/null; }; then
 fi
 
 # --- TASKS.json helpers (read from the local backlog file) ------------------
-tj()           { jq "$@" "$BACKLOG" 2>/dev/null; }
+# tj — query TASKS.json. Normally reads the local $BACKLOG. When DRY_TASKS is set (the DRY_RUN preview,
+# see below), it queries THAT in-memory JSON instead, so the preview selects against the SAME overlay-
+# reconciled view the real run builds — without reconcile_overlays' write.
+tj()           { if [ -n "${DRY_TASKS:-}" ]; then jq "$@" <<<"$DRY_TASKS" 2>/dev/null; else jq "$@" "$BACKLOG" 2>/dev/null; fi; }
 all_tasks()    { tj -r '.tasks[].id'; }
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
@@ -390,22 +393,30 @@ mark_done() {
 # (mark-failed.sh). Run at the top of every iteration so an owner action taken mid-run (from a
 # separate process on this same checkout) takes effect promptly. The loop remains the SOLE writer
 # of TASKS.json — the overlay files themselves are read-only inputs here, never written.
-reconcile_overlays() {
-  local hd md tmp="$BACKLOG.tmp" new
-  [ -f "$HUMAN_DONE" ] || echo '{}' >"$HUMAN_DONE"
-  [ -f "$MANUAL_FAIL" ] || echo '{}' >"$MANUAL_FAIL"
-  hd="$(cat "$HUMAN_DONE" 2>/dev/null || echo '{}')"
-  md="$(cat "$MANUAL_FAIL" 2>/dev/null || echo '{}')"
-  # human-done promotes ONLY a needs-human task (the overlay is authored only for those; the gate
-  # guard stops a stray entry marking an ordinary task done without ever building it). manual-fail
-  # overturns ANY not-yet-failed task (usually a "done" false success, but an owner may pre-fail a
-  # task they know is wrong) — task_failed() then keeps it terminal in select_task.
-  new="$(jq -c --argjson hd "$hd" --argjson md "$md" '
+# overlay_apply <tasks-json> — PURE transform: echo TASKS.json with owner-overlay verdicts applied
+# in-memory (human-done "done" for a needs-human task; manual-fail "failed" for any not-yet-failed
+# task). NO writes, NO git. Shared by reconcile_overlays (which then persists) and the DRY_RUN preview
+# (which must NOT persist). human-done promotes ONLY a needs-human task (the overlay is authored only for
+# those; the gate guard stops a stray entry marking an ordinary task done unbuilt). manual-fail overturns
+# ANY not-yet-failed task — task_failed() then keeps it terminal in select_task.
+overlay_apply() {
+  local tasks="$1" hd md
+  [ -n "$tasks" ] || return 1
+  hd="$(cat "$HUMAN_DONE" 2>/dev/null)"; [ -n "$hd" ] || hd='{}'
+  md="$(cat "$MANUAL_FAIL" 2>/dev/null)"; [ -n "$md" ] || md='{}'
+  jq -c --argjson hd "$hd" --argjson md "$md" '
     .tasks |= map(
       if (.status != "failed") and ($md[.id].failed == true) then .status = "failed"
       elif (.gate == "needs-human") and (.status != "done") and ($hd[.id].done == true) then .status = "done"
       else . end
-    )' "$BACKLOG" 2>/dev/null)"
+    )' <<<"$tasks" 2>/dev/null
+}
+
+reconcile_overlays() {
+  local tmp="$BACKLOG.tmp" new
+  [ -f "$HUMAN_DONE" ] || echo '{}' >"$HUMAN_DONE"
+  [ -f "$MANUAL_FAIL" ] || echo '{}' >"$MANUAL_FAIL"
+  new="$(overlay_apply "$(cat "$BACKLOG" 2>/dev/null)")"
   [ -n "$new" ] || return 0
   [ "$new" = "$(jq -c '.' "$BACKLOG" 2>/dev/null)" ] && return 0
   printf '%s\n' "$new" | jq '.' >"$tmp" && mv "$tmp" "$BACKLOG" || { rm -f "$tmp"; return 0; }
@@ -1149,6 +1160,10 @@ audit_gate() {
 # --- Dry run ----------------------------------------------------------------
 if [ "${DRY_RUN:-0}" = "1" ]; then
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
+  # Match the real run's POST-reconcile view (an owner's human-done/manual-fail overlay takes effect on
+  # the next real iteration) WITHOUT reconcile_overlays' write/commit/push — apply the overlays in
+  # memory only, so a just-marked-done needs-human task's dependents show as eligible here too.
+  DRY_TASKS="$(overlay_apply "$(cat "$BACKLOG" 2>/dev/null)" || true)"
   sel="$(select_task || true)"
   [ -n "$sel" ] && echo "DRY-RUN → would build: $sel" \
                 || echo "DRY-RUN → nothing eligible (backlog done or all gate/human-blocked)"

@@ -159,7 +159,10 @@ command -v jq >/dev/null 2>&1 || { log "jq is required to parse TASKS.json — i
 # --- TASKS.json / worklog helpers (read from origin/main, NOT any working tree) -
 # TASKS.json is the structured backlog (schema: .harness/docs/HARNESS.md §8.1), parsed with jq.
 blob()         { git -C "$ROOT" show "$TASKS_REF:.harness/$1" 2>/dev/null || true; }
-tj()           { blob tracking/TASKS.json | jq "$@" 2>/dev/null; }        # query TASKS.json
+# tj — query TASKS.json. Normally reads the committed backlog from $TASKS_REF. When DRY_TASKS is set
+# (the DRY_RUN preview, see below), it queries THAT in-memory JSON instead, so the preview selects
+# against the SAME overlay-reconciled view the real run builds — without reconcile_overlays' write.
+tj()           { if [ -n "${DRY_TASKS:-}" ]; then jq "$@" <<<"$DRY_TASKS" 2>/dev/null; else blob tracking/TASKS.json | jq "$@" 2>/dev/null; fi; }
 all_tasks()    { tj -r '.tasks[].id'; }                                   # in array (=dependency) order
 task_done()    { tj -e --arg id "$1" '.tasks[]|select(.id==$id)|.status=="done"' >/dev/null; }
 deps_for()     { tj -r --arg id "$1" '.tasks[]|select(.id==$id)|.dependsOn[]?' | tr '\n' ' '; }
@@ -395,20 +398,28 @@ record_outcome() {
 # detached-worktree commit (mirrors record_outcome/block_task). Read-only inputs; run once per
 # iteration (after the fetch, before select_task) so an owner action taken mid-run takes effect
 # promptly. Cheap no-op when nothing changed — only touches a worktree if a flip is needed.
-reconcile_overlays() {
-  local hd md tasks new
+# overlay_apply <tasks-json> — PURE transform: echo TASKS.json with owner-overlay verdicts applied
+# in-memory (human-done "done" for a needs-human task; manual-fail "failed" for any not-yet-failed
+# task). NO writes, NO git. Shared by reconcile_overlays (which then persists) and the DRY_RUN preview
+# (which must NOT persist). human-done promotes ONLY a needs-human task (the gate guard stops a stray
+# entry marking an ordinary task done unbuilt); manual-fail is kept terminal by task_failed() in select_task.
+overlay_apply() {
+  local tasks="$1" hd md
+  [ -n "$tasks" ] || return 1
   hd="$(blob tracking/human-done.json)"; [ -n "$hd" ] || hd='{}'
   md="$(blob tracking/manual-fail.json)"; [ -n "$md" ] || md='{}'
-  tasks="$(blob tracking/TASKS.json)"; [ -n "$tasks" ] || return 0
-  # human-done promotes ONLY a needs-human task (the gate guard stops a stray entry marking an
-  # ordinary task done unbuilt); manual-fail overturns ANY not-yet-failed task, kept terminal by
-  # task_failed() in select_task.
-  new="$(jq -c --argjson hd "$hd" --argjson md "$md" '
+  jq -c --argjson hd "$hd" --argjson md "$md" '
     .tasks |= map(
       if (.status != "failed") and ($md[.id].failed == true) then .status = "failed"
       elif (.gate == "needs-human") and (.status != "done") and ($hd[.id].done == true) then .status = "done"
       else . end
-    )' <<<"$tasks" 2>/dev/null)"
+    )' <<<"$tasks" 2>/dev/null
+}
+
+reconcile_overlays() {
+  local tasks new
+  tasks="$(blob tracking/TASKS.json)"; [ -n "$tasks" ] || return 0
+  new="$(overlay_apply "$tasks")"
   [ -n "$new" ] || return 0
   [ "$new" = "$(jq -c '.' <<<"$tasks" 2>/dev/null)" ] && return 0
   remove_wt
@@ -1243,6 +1254,10 @@ unset _backlog_blob
 # --- Dry run: print the task SELECT would build next, then exit (no lock, no work) ---
 if [ "${DRY_RUN:-0}" = "1" ]; then
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || true
+  # Match the real run's POST-reconcile view (an owner's human-done/manual-fail overlay takes effect on
+  # the next real iteration) WITHOUT reconcile_overlays' write/commit/push — apply the overlays in
+  # memory only, so a just-marked-done needs-human task's dependents show as eligible here too.
+  DRY_TASKS="$(overlay_apply "$(blob tracking/TASKS.json)" || true)"
   sel="$(select_task || true)"
   [ -n "$sel" ] && echo "DRY-RUN → would build: $sel" \
                 || echo "DRY-RUN → nothing eligible (backlog done or all gate/human-blocked)"

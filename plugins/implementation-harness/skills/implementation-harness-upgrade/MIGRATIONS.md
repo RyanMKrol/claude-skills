@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.77.0 → 1.77.1 — loop: DRY_RUN preview now reflects owner overlays (no more false "nothing eligible")
+
+`DRY_RUN=1 loop.sh` selected against the raw `TASKS.json`, because it short-circuits BEFORE
+`reconcile_overlays()` runs (correctly — reconcile mutates `TASKS.json` and commits+pushes, which a
+read-only preview must not do). So in the window between an owner marking a `needs-human` task done
+(`human-done.json`, via the dashboard / `mark-done.sh`) and the next real iteration, the preview under-
+reported: it showed "nothing eligible" even though the next real pass reconciles that task to done and
+builds its dependents. Fix: extract the PURE overlay transform into a new `overlay_apply()` (no writes,
+no git), shared by `reconcile_overlays` (which then persists) and the DRY_RUN block (which applies it
+in-memory into a `DRY_TASKS` global that `tj()` reads) — so the preview matches the real run's post-
+reconcile view with zero side effects.
+
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — new `overlay_apply()` pure helper;
+  `reconcile_overlays()` refactored to call it; `tj()` reads `DRY_TASKS` when set; the DRY_RUN block
+  populates `DRY_TASKS` via `overlay_apply` (kept in parity across both variants — worktree reads
+  sources from `$TASKS_REF` blobs, in-place from the local `$BACKLOG`/overlay files).
+  `scripts/select-task.test.sh` — 2 new cases per variant (before human-done → nothing eligible; after
+  → the dependent is eligible).
+- config: none
+- new files: none
+- renamed/removed: none
+- manual attention: none — pure mechanism content-diff; the upgrade reconciles it.
+- breaking: none — DRY_RUN is a read-only preview; the real run was already correct. No side effects added.
+
+---
+
 ## 1.76.0 → 1.77.0 — scaffold task is needs-human + host-config self-consistency (ESM dashboard, tooling exclusions)
 
 Two related fixes to a class of "harness-vendored assets assume things about the host repo" bugs surfaced
