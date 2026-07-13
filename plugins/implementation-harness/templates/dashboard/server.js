@@ -15,7 +15,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
-const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, ideasFromJsonl, liveOutputFromJsonl } = require('./lib');
+const { computeBacklog, parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, ideasFromJsonl, liveOutputFromJsonl, modelProgression } = require('./lib');
 
 const HARNESS_DIR = path.join(__dirname, '..');
 const ROOT = path.join(HARNESS_DIR, '..');
@@ -147,7 +147,8 @@ function loadState() {
       // not a gap to leave blank, it's a distinct, equally real "who completed this" answer.
       const oc = outcomesByTask[task.id];
       if (oc && (oc.finalModel || oc.finalEffort)) {
-        task.completedWith = { model: oc.finalModel || null, effort: oc.finalEffort || null };
+        task.completedWith = { model: oc.finalModel || null, effort: oc.finalEffort || null,
+                               startModel: oc.startModel || null, startEffort: oc.startEffort || null };
       } else {
         const hd = overlays.humanDone[task.id];
         if (hd && hd.done === true) task.completedWith = { human: true };
@@ -671,6 +672,7 @@ function renderPage() {
   #qtip-popup{position:fixed;z-index:50;max-width:260px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);padding:7px 10px;border-radius:7px;font-size:11.5px;font-weight:400;line-height:1.4;text-transform:none;letter-spacing:normal;box-shadow:0 4px 14px rgba(0,0,0,.35);pointer-events:none;display:none}
   .facet-name{font-weight:600}
   .model-tag{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .model-tag .mstart{opacity:.55}
   .cold-tag{font-size:10px;color:var(--muted);margin-left:5px}
   .refgrid{display:flex;gap:16px;flex-wrap:wrap}
   .refcard{flex:1;min-width:240px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-size:13px}
@@ -1089,8 +1091,19 @@ function pillsFor(task, bucketName) {
       if (cw.human) {
         pills += '<span class="pill" title="No ledgers/outcomes.jsonl row for this task — it was marked done via the human-done overlay (a needs-human gate, or a task completed by hand), not built by the loop.">🧑 implemented manually</span>';
       } else {
-        const label = esc(cw.model || '?') + (cw.effort ? '/' + esc(cw.effort) : '');
-        pills += '<span class="pill model-tag" title="The model/effort that completed this task, from ledgers/outcomes.jsonl">' + label + '</span>';
+        const prog = modelProgression(cw);
+        if (prog && prog.escalated) {
+          // Started cheaper and climbed the ladder — show start → end so the escalation is visible at a
+          // glance (each step up = a failed attempt at the cheaper tier before it succeeded higher).
+          const shown = '<span class="mstart">' + esc(prog.start) + '</span> → ' + esc(prog.end);
+          pills += '<span class="pill model-tag" title="Escalated: started on ' + esc(prog.start)
+                 + ', completed on ' + esc(prog.end) + ' — each step up the tier ladder is a failed attempt '
+                 + 'at the cheaper tier. From ledgers/outcomes.jsonl.">' + shown + '</span>';
+        } else {
+          const label = esc((prog && prog.end) || cw.model || '?');
+          pills += '<span class="pill model-tag" title="Built on ' + label + ' — the first tier tried, no '
+                 + 'escalation needed. From ledgers/outcomes.jsonl.">' + label + '</span>';
+        }
       }
     }
   }

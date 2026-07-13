@@ -392,8 +392,23 @@ function liveOutputFromJsonl(text) {
   return { text: buf, tool };
 }
 
+// modelProgression(cw) — from a task's `completedWith` ({model,effort,startModel,startEffort} attached
+// in server.js from the outcomes ledger), derive the start→end model story so the badge can show at a
+// glance whether (and how far) a task escalated. Returns null for a human-completed / model-less task.
+// `escalated` is true iff the task STARTED at a cheaper tier and CLIMBED — i.e. the cold-start model
+// (+effort) differs from the one that finally succeeded; that difference is exactly one-per-failed-rung,
+// so start→end is a direct read of "how many iterations the harness needed". Returns RAW label strings
+// (no HTML escaping) — the caller escapes when it renders.
+function modelProgression(cw) {
+  if (!cw || cw.human || (!cw.model && !cw.effort)) return null;
+  const label = (m, e) => (m || '?') + (e ? '/' + e : '');
+  const end = label(cw.model, cw.effort);
+  const start = cw.startModel ? label(cw.startModel, cw.startEffort) : null;
+  return { start, end, escalated: !!(start && start !== end) };
+}
+
 module.exports = {
   computeBacklog, isTerminalDone, isFailed, isNeedsHuman, isReviewed, numericId,
-  liveOutputFromJsonl,
+  liveOutputFromJsonl, modelProgression,
   parseJsonl, coldTierIndex, harnessCells, recentActivity, failureKinds, mdToHtml, ideasFromJsonl,
 };

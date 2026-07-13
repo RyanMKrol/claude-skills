@@ -42,6 +42,28 @@ Entry format:
 
 ---
 
+## 1.75.0 → 1.76.0 — dashboard: the per-task model badge shows start → end when a task escalated
+
+A done task's model badge showed only the tier that FINISHED it. It now shows the escalation story —
+`startModel → finalModel` — whenever the cold-start tier differs from the tier that succeeded, so you can
+see at a glance how many rungs a task climbed (each step up = a failed attempt at the cheaper tier). A task
+that built on its first tier still shows a single badge (no arrow). Fully back-compatible: outcome rows
+that predate `startModel` (or lack it) simply render the single end-model badge as before. The start→end
+derivation is a new pure `modelProgression()` helper in `dashboard/lib.js` (unit-tested); the loop already
+records `startModel`/`startEffort` in every outcome row, so no ledger/loop change was needed.
+
+- mechanism: `dashboard/lib.js` — new exported `modelProgression(cw)` pure helper; `dashboard/server.js` —
+  `loadState` carries `startModel`/`startEffort` onto `task.completedWith`, the done-badge renderer shows the
+  `start → end` progression (dim start via new `.model-tag .mstart` CSS) with an escalation-explaining
+  tooltip; `dashboard/lib.test.js` — 5 new `modelProgression` cases.
+- config: none
+- new files: none
+- renamed/removed: none
+- manual attention: none — dashboard is mechanism; the upgrade content-diffs and refreshes it.
+- breaking: none — presentational; reads only fields the outcomes ledger already carries.
+
+---
+
 ## 1.74.0 → 1.74.1 — loop: usage-limit detection no longer false-positives on limit wording the agent merely READ
 
 `rl_detect` grepped the unambiguous `RL_HARD_RE` limit wording against the RAW stream (`$raw`)

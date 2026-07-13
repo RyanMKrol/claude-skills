@@ -4,7 +4,7 @@
 'use strict';
 
 const assert = require('assert');
-const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, failureKinds, mdToHtml, ideasFromJsonl, liveOutputFromJsonl } = require('./lib');
+const { computeBacklog, harnessCells, recentActivity, coldTierIndex, parseJsonl, failureKinds, mdToHtml, ideasFromJsonl, liveOutputFromJsonl, modelProgression } = require('./lib');
 
 const EMPTY_OVERLAYS = { humanDone: {}, manualFail: {}, reviews: {} };
 let pass = 0;
@@ -485,6 +485,39 @@ test('liveOutputFromJsonl skips a garbled line and keeps concatenating (mirrors 
 test('liveOutputFromJsonl handles empty/missing input', () => {
   assert.deepStrictEqual(liveOutputFromJsonl(''), { text: '', tool: null });
   assert.deepStrictEqual(liveOutputFromJsonl(null), { text: '', tool: null });
+});
+
+test('modelProgression flags an escalation (start tier differs from the tier that finished)', () => {
+  const p = modelProgression({ model: 'claude-sonnet-5', effort: 'high', startModel: 'claude-haiku-4-5', startEffort: null });
+  assert.strictEqual(p.escalated, true);
+  assert.strictEqual(p.start, 'claude-haiku-4-5');
+  assert.strictEqual(p.end, 'claude-sonnet-5/high');
+});
+
+test('modelProgression is NOT escalated when it built on the first tier (start == end)', () => {
+  const p = modelProgression({ model: 'claude-haiku-4-5', effort: null, startModel: 'claude-haiku-4-5', startEffort: null });
+  assert.strictEqual(p.escalated, false);
+  assert.strictEqual(p.end, 'claude-haiku-4-5');
+});
+
+test('modelProgression escalation compares effort too (same model, higher effort = escalated)', () => {
+  const p = modelProgression({ model: 'claude-sonnet-5', effort: 'high', startModel: 'claude-sonnet-5', startEffort: 'low' });
+  assert.strictEqual(p.escalated, true);
+  assert.strictEqual(p.start, 'claude-sonnet-5/low');
+  assert.strictEqual(p.end, 'claude-sonnet-5/high');
+});
+
+test('modelProgression: no start recorded (older rows) → not escalated, end still shown', () => {
+  const p = modelProgression({ model: 'claude-sonnet-5', effort: 'high' });
+  assert.strictEqual(p.escalated, false);
+  assert.strictEqual(p.start, null);
+  assert.strictEqual(p.end, 'claude-sonnet-5/high');
+});
+
+test('modelProgression returns null for a human-completed / model-less task', () => {
+  assert.strictEqual(modelProgression({ human: true }), null);
+  assert.strictEqual(modelProgression(null), null);
+  assert.strictEqual(modelProgression({}), null);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
