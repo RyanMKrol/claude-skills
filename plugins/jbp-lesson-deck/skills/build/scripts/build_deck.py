@@ -17,6 +17,8 @@ import os, re, sys, json, shutil
 import cutlet, genanki
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from tts_common import slug  # noqa: E402  (shared kana->mp3 filename with the TTS phase)
 DEFAULTS = os.path.join(HERE, "..", "defaults")
 HOME = os.path.expanduser(os.environ.get("JBP_DECK_HOME", "~/.jbp-lesson-deck"))
 
@@ -48,6 +50,10 @@ MEDIA = os.environ.get("JBP_MEDIA_DIR") or (sys.argv[2] if len(sys.argv) > 2 els
 OUT = os.environ.get("JBP_OUT") or (sys.argv[3] if len(sys.argv) > 3 else
                                     os.path.join(HOME, "decks", "Lesson.apkg"))
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
+# audio dir (from the TTS phase). Voice-specific by default so switching voices never reuses
+# another voice's files. If a card's mp3 exists here it's attached; else the card is silent.
+AUDIO_DIR = os.environ.get("JBP_AUDIO_DIR") or (sys.argv[4] if len(sys.argv) > 4 else
+            os.path.join(HOME, "audio", os.environ.get("JBP_TTS_VOICE", "default")))
 
 # ---- page lookup: map each item to the textbook page (audit-table cross-reference) ----
 _raw = open(XHTML, encoding="utf-8").read() if XHTML and os.path.exists(XHTML) else ""
@@ -146,33 +152,44 @@ def add(kana, eng, hint, group, page_override=None):
     img = f'<img src="{img_file}">' if img_file else ""
     if img_file and MEDIA:
         media_files.append(os.path.join(MEDIA, img_file))
-    # Audio field intentionally empty (TTS phase not implemented)
-    deck.add_note(genanki.Note(model=model, fields=[kana, rom, eng, hint, img, "", ""]))
+    # audio: attach the generated mp3 for this kana if the TTS phase has produced it
+    aud = ""
+    af = os.path.join(AUDIO_DIR, slug(kana))
+    if os.path.exists(af):
+        aud = f"[sound:{os.path.basename(af)}]"; media_files.append(af)
+    deck.add_note(genanki.Note(model=model, fields=[kana, rom, eng, hint, img, aud, ""]))
     REVIEW.append({"group": group, "eng": eng, "kana": kana, "rom": rom,
-                   "page": page_of(kana, page_override), "img": bool(img_file)})
+                   "page": page_of(kana, page_override), "img": bool(img_file), "aud": bool(aud)})
 
 for kana, eng, hint in VOCAB:            add(kana, eng, hint, "Vocab")
 for kana, eng, hint in NUMBERS:          add(kana, eng, hint, "Numbers", page_override="11")
 for kana, eng, hint in KEY:              add(kana, eng, hint, "KeySent", page_override="10")
 for kana, eng, hint in GRAMMAR:          add(kana, eng, hint, "Grammar", page_override="10")
 
+# manifest for the TTS phase (generate_audio.py reads this)
+WORK = os.path.join(HOME, "work"); os.makedirs(WORK, exist_ok=True)
+json.dump([{"kana": r["kana"], "group": r["group"]} for r in REVIEW],
+          open(os.path.join(WORK, "cards.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
 # ---------------- AUDIT TABLE (mandatory hand-off) ----------------
 def _w(s, n):  # display width honoring wide CJK glyphs
     return s + " " * max(0, n - sum(2 if ord(c) > 0x2e80 else 1 for c in s))
-print("\n" + "=" * 92)
+n_aud = sum(r["aud"] for r in REVIEW)
+print("\n" + "=" * 96)
 print(f"AUDIT TABLE — {DECK_TITLE.split('::')[-1]}   (✓ = present; Page = textbook page)")
-print("=" * 92)
-print(f"{_w('ENGLISH',26)} {_w('KANA',20)} {_w('ROMAJI',24)} {'PG':3} {'IMG':3}")
-print("-" * 92)
+print("=" * 96)
+print(f"{_w('ENGLISH',26)} {_w('KANA',20)} {_w('ROMAJI',24)} {'PG':3} {'IMG':3} {'AUD':3}")
+print("-" * 96)
 for g in ("Vocab", "Numbers", "KeySent", "Grammar"):
     rows = [r for r in REVIEW if r["group"] == g]
     if not rows: continue
-    print(f"── {g} ({len(rows)}) " + "─" * 66)
+    print(f"── {g} ({len(rows)}) " + "─" * 70)
     for r in rows:
-        print(f"{_w(r['eng'][:25],26)} {_w(r['kana'],20)} {_w(r['rom'][:23],24)} {r['page']:3} {'✓' if r['img'] else '·':3}")
-print("-" * 92)
-print(f"notes: {len(REVIEW)}  cards: {len(REVIEW)*2}   |   with image: {sum(r['img'] for r in REVIEW)}"
-      f"   |   audio: pending (TTS phase)")
+        print(f"{_w(r['eng'][:25],26)} {_w(r['kana'],20)} {_w(r['rom'][:23],24)} "
+              f"{r['page']:3} {'✓' if r['img'] else '·':3} {'✓' if r['aud'] else '·':3}")
+print("-" * 96)
+print(f"notes: {len(REVIEW)}  cards: {len(REVIEW)*2}   |   image: {sum(r['img'] for r in REVIEW)}"
+      f"   |   audio: {n_aud}" + ("  (run generate_audio.py to fill)" if n_aud == 0 else ""))
 
 pkg = genanki.Package(deck); pkg.media_files = media_files
 pkg.write_to_file(OUT)

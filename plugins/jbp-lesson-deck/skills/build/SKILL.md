@@ -7,16 +7,17 @@ description: >-
   lesson", "rebuild lesson X". The user MUST supply the textbook EPUB (nothing about its
   location is hard-coded). Extracts vocabulary, Word Power sets, Key Sentences, and grammar
   example sentences; crops textbook illustrations onto cards; writes kana, romaji, and usage
-  hints; then presents an AUDIT TABLE for review. Audio is a separate, not-yet-built phase
-  (ElevenLabs TTS) — this skill produces silent cards with an empty Audio field.
+  hints; then presents an AUDIT TABLE for review. A SECOND phase generates per-card audio with
+  ElevenLabs TTS (kana → MP3) once the content is approved and a voice is chosen.
 ---
 
-# Build a JBP Anki lesson deck (content extraction + audit)
+# Build a JBP Anki lesson deck (content + audio)
 
-Produce a `.apkg` for one lesson that the user imports and reviews. Work one lesson at a time.
-Every card carries kana, romaji, English, an optional usage hint, and a cropped textbook image
-where the book has one. **Audio is intentionally out of scope for now** — the Audio field is left
-empty and will be filled by a later ElevenLabs TTS phase (see the end of this doc).
+Produce a `.apkg` for one lesson that the user imports and reviews. Work one lesson at a time, in
+two phases: **(1) content** — extract text + images, build a silent deck, present the audit table
+for review; **(2) audio** — after the user approves the content and picks a voice, generate a
+clip per card with ElevenLabs TTS and repackage. Every card carries kana, romaji, English, an
+optional usage hint, a cropped textbook image where the book has one, and (after phase 2) audio.
 
 > ## 🔴 Two non-negotiable rules (do not violate)
 > 1. **READ EVERY SINGLE PAGE / EVERY IMAGE of the lesson.** Never infer content from section
@@ -121,10 +122,11 @@ lets Anki merge cleanly). Note GUIDs default (hashed from fields), so re-imports
 ### 7. 🔴 Audit table (mandatory hand-off)
 Every run MUST finish by printing an audit table so the user can review the deck against the textbook
 BEFORE trusting it. One row per note, grouped (Vocab / Numbers / Key Sentences / Grammar), columns:
-**English · Kana · Romaji · Page · Image?** — where **Page** is the textbook page (map via the EPUB
-`epub:type="pagebreak" title="N"` byte offsets; see `page_of()` in `build_deck.py`) so the user can
-cross-reference, and Image? is a ✓/· flag. Follow with totals. (An Audio? column will join once the
-TTS phase exists.) Then hand to the user to review and import.
+**English · Kana · Romaji · Page · Image? · Audio?** — where **Page** is the textbook page (map via
+the EPUB `epub:type="pagebreak" title="N"` byte offsets; see `page_of()` in `build_deck.py`) so the
+user can cross-reference, and Image?/Audio? are ✓/· flags (Audio? is all · until the TTS phase runs).
+Follow with totals. Then hand to the user to review the content and, once approved, run the audio
+phase (below) and re-import.
 
 ### 8. Save learnings
 Append any new romaji fixes to `$JBP_DECK_HOME/romaji-overrides.json` and any new book quirks to
@@ -132,8 +134,8 @@ Append any new romaji fixes to `$JBP_DECK_HOME/romaji-overrides.json` and any ne
 
 ## Card model (Anki)
 Fields: **Kana** (always; katakana for loanwords), **Romaji**, **English**, **Hint** (usage note
-when the book gives one), **Image** (only where the book has one), **Audio** (empty for now — TTS
-phase), **Kanji** (empty — this is the Kana edition). Two templates per note:
+when the book gives one), **Image** (only where the book has one), **Audio** (filled by the TTS
+phase; empty until then), **Kanji** (empty — this is the Kana edition). Two templates per note:
 - **Recognition (JP→EN):** front = Image + Kana + Audio → back adds Romaji + English + Hint.
 - **Production (EN→JP):** front = English (+ Hint) → back adds Kana + Romaji + Image + Audio.
 
@@ -145,13 +147,33 @@ the package `media` map; deck name is `Japanese for Busy People 1::Lesson <N> �
 - `extract_lesson.py` — parse a lesson's vocab / Word Power / Key Sentences from its chapter xhtml.
 - `crop_objects.py` — crop a clean per-object image from an exercise drawing (white out the drill's
   name-label + number marker, then crop to the object). Grid-overlay helper to read coordinates.
-- `build_deck.py` — the content-only genanki build template: model, two templates, CSS, romaji
-  overrides loading, EPUB page lookup, and the audit table. Adapt the per-lesson data + title.
+- `build_deck.py` — the genanki build template: model, two templates, CSS, romaji overrides loading,
+  EPUB page lookup, the card manifest, audio attachment, and the audit table. Adapt per-lesson data.
+- `tts_common.py` — shared `slug(kana)` (stable mp3 filename) and `speak_text(kana)` (kana → spoken
+  text) so `build_deck.py` and `generate_audio.py` agree on filenames.
+- `generate_audio.py` — the audio phase: reads the manifest, calls ElevenLabs TTS per kana, writes
+  cached MP3s into a voice-specific dir. Config via env (`ELEVENLABS_API_KEY`, `JBP_TTS_VOICE`).
 
-## Audio — FUTURE PHASE (not implemented in this skill)
-Audio will be generated separately with **ElevenLabs TTS** and merged into the Audio field: send each
-card's kana to the API (`eleven_multilingual_v2`; free-tier works with default voices such as Sarah/
-Laura/George/Brian/Lily/Alice — legacy "library" voices like Rachel/Aria are blocked on free tier),
-save the returned MP3, and attach it. The API key MUST come from the `ELEVENLABS_API_KEY` environment
-variable — never write it to any file in the repo or to `$JBP_DECK_HOME`. This phase is deliberately
-deferred; today's decks ship silent.
+## Audio phase (ElevenLabs TTS) — run AFTER content is approved
+Two scripts, sharing `tts_common.py` so the deck and the audio agree on filenames:
+1. **`scripts/generate_audio.py`** reads the card manifest that `build_deck.py` writes
+   (`$JBP_DECK_HOME/work/cards.json`) and produces one MP3 per unique kana into a **voice-specific**
+   audio dir (`$JBP_DECK_HOME/audio/<voice_id>/`), named by a stable hash of the kana. It's cached
+   and idempotent — a kana whose MP3 already exists is skipped, so re-runs cost no quota.
+2. **`scripts/build_deck.py`** then attaches each card's MP3 if it exists in that dir (and marks the
+   Audio? column ✓). Just re-run it with the same `JBP_TTS_VOICE`.
+
+Config (secrets via env ONLY — never write a key to any file):
+- `ELEVENLABS_API_KEY` — the API key. Env var only.
+- `JBP_TTS_VOICE` — the ElevenLabs `voice_id`. Ask the user which voice; the audio dir is keyed on it
+  so switching voices regenerates cleanly rather than reusing another voice's clips.
+- `JBP_TTS_MODEL` — default `eleven_multilingual_v2` (good Japanese).
+
+Notes learned: a paid/top-up plan can use any voice; free tier is limited to default voices
+(Sarah/Laura/George/Brian/Lily/Alice work; legacy "library" voices like Rachel/Aria return 402 on
+free tier). The python.org build has no CA certs, so the script uses `certifi` for TLS. `speak_text()`
+strips the placeholder `〜`, turns a dual reading `ゼロ／れい` into a spoken pause (`ゼロ、れい`) so both
+readings are voiced, and keeps `。、` as natural pauses. Whole run for a lesson is ~300 characters.
+
+Text-preview flow: dual readings, affix entries (`お〜`), and long sentences are worth a listen —
+spot-check a few clips and tell the user which if any sound off.

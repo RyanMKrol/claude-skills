@@ -41,7 +41,14 @@ Always finish by printing the audit table (English · Kana · Romaji · Page · 
 cross-reference the textbook before trusting the deck. Page comes from the EPUB `pagebreak title="N"`
 markers.
 
-## Audio (future)
-Not built yet. Will be ElevenLabs TTS from kana → MP3 (`eleven_multilingual_v2`; free-tier voices
-Sarah/Laura/George/Brian/Lily/Alice work — legacy "library" voices like Rachel/Aria are 402-blocked
-on free tier). Key via `ELEVENLABS_API_KEY` env var only — never commit it.
+## Audio phase (ElevenLabs TTS) — implemented
+Run AFTER the content is approved. `generate_audio.py` reads the manifest `build_deck.py` writes,
+calls ElevenLabs (`eleven_multilingual_v2`) per kana, and caches one MP3 per kana in a voice-specific
+dir; re-run `build_deck.py` (same `JBP_TTS_VOICE`) to attach them. Config via env only:
+`ELEVENLABS_API_KEY`, `JBP_TTS_VOICE`. Never write the key to a file.
+- A paid/top-up plan can use ANY voice; free tier only default voices (Sarah/Laura/George/Brian/
+  Lily/Alice work; legacy library voices Rachel/Aria return 402 on free tier).
+- python.org python has no CA certs → the script uses `certifi` for TLS.
+- `speak_text()` strips `〜`, turns `ゼロ／れい` into `ゼロ、れい` (both readings voiced), keeps `。、`.
+- A whole lesson is ~300 characters of quota. Cache is per-voice, so switching voices regenerates.
+- Spot-check dual-reading, affix (`お〜`), and long-sentence clips by ear.

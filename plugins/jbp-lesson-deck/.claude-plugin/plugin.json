@@ -1,7 +1,7 @@
 {
   "name": "jbp-lesson-deck",
-  "version": "1.0.0",
-  "description": "Build a rich Anki deck for one lesson of a \"Japanese for Busy People\" textbook from a USER-PROVIDED EPUB. Extracts vocabulary, Word Power sets, Key Sentences, and grammar example sentences into a two-template (recognition + production) Anki deck with kana, romaji, usage hints, and cropped textbook illustrations. Reads every page (never infers content from headings), and ends by presenting an audit table (English / Kana / Romaji / textbook page / image?) for review. Per-user romaji fixes and cross-run learnings persist in a git-ignored state home outside the plugin cache. Audio (ElevenLabs TTS) is a planned separate phase, not yet implemented.",
+  "version": "1.1.0",
+  "description": "Build a rich Anki deck for one lesson of a \"Japanese for Busy People\" textbook from a USER-PROVIDED EPUB. Extracts vocabulary, Word Power sets, Key Sentences, and grammar example sentences into a two-template (recognition + production) Anki deck with kana, romaji, usage hints, and cropped textbook illustrations. Reads every page (never infers content from headings), and presents an audit table (English / Kana / Romaji / textbook page / image? / audio?) for review. A second phase generates per-card audio with ElevenLabs TTS (kana to MP3, cached per voice) once the content is approved and a voice is chosen; API keys come from the ELEVENLABS_API_KEY env var only. Per-user romaji fixes and cross-run learnings persist in a git-ignored state home outside the plugin cache.",
   "author": {
     "name": "Ryan Krol",
     "email": "ryankrol.m@gmail.com"
