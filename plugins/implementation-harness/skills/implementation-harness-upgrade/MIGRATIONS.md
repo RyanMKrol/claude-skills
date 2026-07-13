@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.74.0 → 1.74.1 — loop: usage-limit detection no longer false-positives on limit wording the agent merely READ
+
+`rl_detect` grepped the unambiguous `RL_HARD_RE` limit wording against the RAW stream (`$raw`)
+unconditionally — but `$raw` carries the CONTENTS of files the agent read (`type:"user"` tool_result
+events). A task whose scope legitimately reads rate-limit-handling code (whose own source contains the
+literal `usage limit reached` / `session limit reached`) would trip `RL_HARD_RE` on a **genuinely
+successful build**, returning a soft rate-limit (10). That writes no ledger row and cold-resets the good
+build, so the loop **re-reads the same file and re-trips forever** — a permanent, invisible stall on any
+affected task. Fix: a new `rl_cli_said` helper projects `$raw` to CLI-origin lines only (drops
+`type:"user"` events, keeps non-JSON stderr where a real notice can arrive) before the hard-wording grep;
+the `$out` grep drops `$raw` (it was the whole leak). `$out` (text_delta-only) and the broad `RL_RE`
+(already `$out`-only) are unchanged.
+
+- mechanism: `scripts/loop.sh` + `scripts/loop.in-place.sh` — `rl_detect` rewrite + new `rl_cli_said`
+  helper (kept in parity across both variants); `scripts/loop-ratelimit.test.sh` — adds cases 4a (hard
+  wording in a RAW tool_result + success result → NOLIMIT) and 4b (genuine hard limit on a non-JSON stderr
+  line → still detected).
+- config: none
+- new files: none
+- renamed/removed: none
+- manual attention: none — pure mechanism content-diff; the upgrade reconciles it automatically.
+- breaking: none — a genuine limit is still detected on every CLI-origin channel (stderr / result / system
+  / assistant); only tool_result content the agent read is excluded.
+
+---
+
 ## 1.73.0 → 1.74.0 — loop: the full build/audit prompt goes to a per-phase worklog file, not the terminal
 
 The `PRINT_PROMPT` banner echoed the ENTIRE prompt (huge) to the console on every build and audit,

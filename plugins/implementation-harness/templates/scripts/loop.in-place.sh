@@ -726,12 +726,21 @@ rl_reset_wait() {
 # (Europe/London)") is NOT a text_delta — the CLI prints it on stderr / as a result event — so it never
 # lands in $out. Grepping $out alone silently misses the limit and the loop tight-loops on the generic
 # 30s crash backoff instead of sleeping until reset. The notice IS in $raw (the .jsonl, via 2>&1|tee).
-# RL_HARD_RE (the unambiguous "hit your session limit" wording) is trusted in the raw too; RL_RE (the
-# broad net) stays $out-only, so limit-ish words inside tool_result file contents on a crashed build
-# can't be misread as a limit.
+# RL_HARD_RE (the unambiguous "hit your session limit" wording) is trusted in the raw too — but ONLY over
+# CLI-origin lines: rl_cli_said strips type:"user" (tool_result) events first, because $raw carries the
+# CONTENTS of files the agent READ, and a repo whose own code contains the literal "usage limit reached"
+# (e.g. its rate-limit detector) would otherwise trip RL_HARD_RE on a genuinely SUCCESSFUL build — a soft
+# return 10 with no ledger row that cold-resets the good build and re-trips forever. Non-JSON stderr lines
+# are KEPT (a real CLI notice can arrive that way). RL_RE (the broad net) stays $out-only for the same
+# tool_result reason.
+rl_cli_said() {  # <raw> → stdout: raw lines minus type:"user"/tool_result events (keeps non-JSON stderr)
+  jq -Rr '. as $l | (fromjson? // null) as $o
+          | if ($o|type=="object") and ($o.type=="user") then empty else $l end' "$1" 2>/dev/null
+}
 rl_detect() {
   local out="$1" raw="$2" rc="$3"
-  grep -qiE "$RL_HARD_RE" "$out" "$raw" 2>/dev/null && return 0
+  rl_cli_said "$raw" | grep -qiE "$RL_HARD_RE" && return 0   # hard wording, CLI-origin only (not read files)
+  grep -qiE "$RL_HARD_RE" "$out" 2>/dev/null && return 0     # $out is text_delta-only, already safe
   [ "$rc" -ne 0 ] && grep -qiE "$RL_RE" "$out" 2>/dev/null && return 0
   return 1
 }

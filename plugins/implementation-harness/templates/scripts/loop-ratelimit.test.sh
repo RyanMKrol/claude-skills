@@ -54,6 +54,20 @@ for V in loop.sh loop.in-place.sh; do
   : > "$O"; printf '{"type":"user","message":"tool_result: HTTP 429 quota exceeded in the fixture"}\n' > "$R"
   assert "[$V] broad limit-word in RAW only → NOLIMIT (no false positive)" test "$(rl detect "$O" "$R" 1)" = NOLIMIT
 
+  # 4a. RL_HARD_RE tool_result guard: the agent READ a file whose own rate-limit detector contains the
+  #     literal "usage limit reached" (a type:"user" event) and the build SUCCEEDED (rc 0, result:success)
+  #     — must NOT be misread as a limit. This is the false-positive that soft-stalled the loop forever.
+  : > "$O"
+  { printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","content":"const RE = /claude usage limit reached|rate.?limit|429/;"}]}}'
+    printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"api_error_status":null}'; } > "$R"
+  assert "[$V] RL_HARD_RE wording in RAW tool_result + success → NOLIMIT (no false positive)" \
+    test "$(rl detect "$O" "$R" 0)" = NOLIMIT
+
+  # 4b. …but a GENUINE hard limit as a non-JSON stderr line (kept by rl_cli_said) is still detected.
+  : > "$O"; printf 'Claude AI usage limit reached. resets 1am (Europe/London)\n' > "$R"
+  assert "[$V] genuine hard limit on a non-JSON stderr line → detected" \
+    test "$(rl detect "$O" "$R" 1)" = LIMIT
+
   # 5. Reset time is parsed from the raw sibling → a positive, bounded wait (not the exp-backoff fallback).
   : > "$O"; printf '%s\n' "$NOTICE" > "$O.jsonl"
   w="$(rl wait "$O")"
