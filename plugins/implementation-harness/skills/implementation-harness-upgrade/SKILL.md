@@ -75,6 +75,13 @@ what lets stage 3/4 auto-upgrade it without asking.
   # postflight also has two variants (the worktree board reads origin/main + the tNNN build branch; the
   # in-place board reads the LOCAL checkout + a dirty-tree check). Both install as scripts/postflight.sh.
   POSTFLIGHT_SRC="$TPL/scripts/postflight.sh"; [ "$VARIANT" = in-place ] && POSTFLIGHT_SRC="$TPL/scripts/postflight.in-place.sh"
+  # Checksum-ledger KEYS for the two variant files. `gen-checksums` records each variant under its OWN
+  # template-relative path, so an IN-PLACE install's `scripts/loop.sh` is recorded under
+  # `scripts/loop.in-place.sh` (never `scripts/loop.sh`). The stale-file fast-path below MUST hash the
+  # installed loop.sh/postflight.sh against THESE keys — else an in-place install's stale-but-unedited
+  # loop.sh/postflight.sh never matches the ledger and gets re-adjudicated on every upgrade.
+  LOOP_KEY="scripts/loop.sh"; POSTFLIGHT_KEY="scripts/postflight.sh"
+  [ "$VARIANT" = in-place ] && { LOOP_KEY="scripts/loop.in-place.sh"; POSTFLIGHT_KEY="scripts/postflight.in-place.sh"; }
   ```
 
 - **Read the installed version:** `CUR_VERSION="$(cat "$H/.harness-version" 2>/dev/null || echo '')"`.
@@ -107,7 +114,8 @@ that's usually a better fix than reconciling the same inline edits on every futu
   showing path-derivation diffs; say so).
 - **Checksum fast-path FIRST, even with no reliable version marker.** Before running the expensive
   hunk-by-hunk three-way classification below on a differing file, hash it (`sha256_of`) and check
-  `$CHECKSUMS` (same lookup as stage 3) against its canonical path. A match means the file is provably
+  `$CHECKSUMS` (same lookup as stage 3 — including the variant-key remap for `loop.sh`/`postflight.sh`:
+  use `$LOOP_KEY`/`$POSTFLIGHT_KEY`, detected in §1's variant block) against its canonical key. A match means the file is provably
   a genuine past shipped version with zero local edits — route it straight to **clean / auto-upgrade**
   (stage 4's bucket) and skip the hunk classification entirely for that file, even though this install
   has no `.harness-version` to anchor a ledger-entry range. Only files with NO checksum match still
@@ -279,9 +287,14 @@ For each file, classify:
   `custom/sensitive-paths.txt` (that's their content).
 - **differs from the CURRENT reference** → before treating this as a judgment call, check whether it's
   merely STALE (never locally edited): hash the installed file and look it up against ITS OWN canonical
-  path across every line of `$CHECKSUMS`:
+  ledger key across every line of `$CHECKSUMS`. For MOST files the key is just the target's `.harness/`-
+  relative path (e.g. `scripts/mark-done.sh`). **For the two variant files it is the VARIANT's key** —
+  `scripts/loop.sh` → `$LOOP_KEY`, `scripts/postflight.sh` → `$POSTFLIGHT_KEY` (from the variant block
+  above), so an in-place install hashes its `loop.sh` against the `scripts/loop.in-place.sh` ledger
+  entries, NOT `scripts/loop.sh`:
   ```bash
   h="$(sha256_of "$target")"
+  # canonical_path = the target's own .harness/-relative path, EXCEPT: loop.sh→$LOOP_KEY, postflight.sh→$POSTFLIGHT_KEY
   match_version="$(jq -r --arg p "$canonical_path" --arg h "$h" 'select(.files[$p]==$h)|.version' "$CHECKSUMS" | tail -1)"
   ```
   - **Hash matches a past version** (`$match_version` non-empty) → classify as **clean / auto-upgrade**,
