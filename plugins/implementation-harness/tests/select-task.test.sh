@@ -8,6 +8,8 @@
 #   • skips: unmet dependsOn, gate:"needs-human", status:"failed" (owner-overturned, terminal),
 #     status:"blocked" (loop-exhausted);
 #   • FORCE_TASK safety guard: a bogus forced id is REFUSED, never built (DESIGN.md §9/§12);
+#   • FORCE_TASK on a done/failed/gated/blocked id is REFUSED too — the forced path applies the same
+#     terminal-status skips as the normal path (B03), so a forced-done task is never cold-rebuilt;
 #   • a valid forced id is honored; a drained backlog reports nothing eligible.
 # Spins throwaway repos (mktemp -d); worktree-variant decisions are read from origin/main (a bare
 # remote), in-place from the local checkout — each fixture matches its variant's contract.
@@ -91,6 +93,33 @@ run_variant_suite() {  # run_variant_suite <label> <loop-src-path>
   out="$(dryrun "$d" T006)"
   assert "[$label] FORCE_TASK with a real pending id is honored" \
     bash -c "printf '%s' \"\$1\" | grep -q 'would build: T006'" _ "$out"
+
+  # B03: FORCE_TASK must not bypass the SAME terminal-status skips the normal path applies — else a
+  # forced-done task gets cold-rebuilt (idle → repeated idle blocks a task that already succeeded),
+  # and forcing a gated/failed/blocked id builds something the loop is never supposed to touch itself.
+  out="$(dryrun "$d" T001)"   # T001: status=done
+  assert "[$label] FORCE_TASK on a DONE task is refused (terminal, never rebuilt)" \
+    bash -c "printf '%s' \"\$1\" | grep -qF \"FORCE_TASK 'T001' is already status=done\"" _ "$out"
+  assert "[$label] FORCE_TASK on a DONE task → nothing built" \
+    bash -c "! printf '%s' \"\$1\" | grep -q 'would build'" _ "$out"
+
+  out="$(dryrun "$d" T003)"   # T003: gate=needs-human
+  assert "[$label] FORCE_TASK on a gated (needs-human) task is refused" \
+    bash -c "printf '%s' \"\$1\" | grep -qF \"FORCE_TASK 'T003' is gate:needs-human\"" _ "$out"
+  assert "[$label] FORCE_TASK on a gated task → nothing built" \
+    bash -c "! printf '%s' \"\$1\" | grep -q 'would build'" _ "$out"
+
+  out="$(dryrun "$d" T004)"   # T004: status=failed (owner-overturned)
+  assert "[$label] FORCE_TASK on a failed (owner-overturned) task is refused" \
+    bash -c "printf '%s' \"\$1\" | grep -qF \"FORCE_TASK 'T004' is status=failed\"" _ "$out"
+  assert "[$label] FORCE_TASK on a failed task → nothing built" \
+    bash -c "! printf '%s' \"\$1\" | grep -q 'would build'" _ "$out"
+
+  out="$(dryrun "$d" T005)"   # T005: status=blocked (loop-exhausted)
+  assert "[$label] FORCE_TASK on a blocked (loop-exhausted) task is refused" \
+    bash -c "printf '%s' \"\$1\" | grep -qF \"FORCE_TASK 'T005' is status=blocked\"" _ "$out"
+  assert "[$label] FORCE_TASK on a blocked task → nothing built" \
+    bash -c "! printf '%s' \"\$1\" | grep -q 'would build'" _ "$out"
 
   d="$(setup_repo "$src" "$DRAINED_JSON")"
   out="$(dryrun "$d")"

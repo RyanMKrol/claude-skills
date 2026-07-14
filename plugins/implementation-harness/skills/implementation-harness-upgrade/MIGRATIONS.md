@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.83.1 → 1.83.2 — FORCE_TASK respects terminal-status skips and is effectively one-shot (B03)
+
+Bug fix (P1). `loop.sh TNNN`'s forced path in `select_task` only checked that the id EXISTS in
+TASKS.json — it skipped the normal path's `status=="done"` / `status=="failed"` / `gate=="needs-human"`
+/ `status=="blocked"` checks entirely. Forcing an already-done task cold-rebuilt it; the builder found
+nothing to do (idle), and two consecutive idles BLOCK the task — a forced run could end by flipping its
+own already-successful task to "blocked". Forcing a gated/failed/blocked id built something the loop is
+explicitly designed to never touch on its own. Fix: the forced path now applies the same 4 terminal
+checks as the normal path, each with a distinct refusal naming the status. This also makes FORCE_TASK
+effectively one-shot with NO extra bookkeeping: every terminal outcome (integrate success, or any
+`block_task` path) commits+pushes the new status to origin/main before returning, so the SAME forced-
+path check refuses to re-select the task on the next iteration — the main loop's existing "nothing
+eligible" exit fires naturally right after. That exit's log line now also distinguishes "the forced task
+reached its outcome" from an actually-drained backlog.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `select_task`'s forced branch (both
+  variants, logic mirrored not byte-identical — the two variants' forced-echo shape already differs)
+  gains the 4 terminal-status refusal checks; the main loop's `[ -z "$sel" ]` exit gains a
+  `FORCE_TASK`-aware log branch (the pre-existing generic "no eligible task — backlog complete…" line
+  is unchanged/still present for the non-forced case).
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — both are mechanism (content-diffed on upgrade).
+- breaking: none. A `FORCE_TASK`/`loop.sh TNNN` invocation on an already-done/failed/gated/blocked task
+  now refuses instead of rebuilding it — this is the fix, not a regression; forcing a genuinely pending
+  task is unaffected.
+
 ## 1.83.0 → 1.83.1 — signal traps now `exit` — Ctrl-C/kill no longer leaves the loop running after releasing its lock (B02)
 
 Bug fix (P0). All 6 lock-holding scripts installed `trap 'release_lock' EXIT INT TERM` — a trap

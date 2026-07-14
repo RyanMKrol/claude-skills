@@ -480,6 +480,24 @@ select_task() {
     if ! tj -e --arg id "$FORCE_TASK" '.tasks[]|select(.id==$id)' >/dev/null 2>&1; then
       log "FORCE_TASK '$FORCE_TASK' is not a real task id in TASKS.json — refusing to build it."; return 1
     fi
+    # A forced id still must not bypass the SAME terminal-status skips the normal path applies below
+    # (B03) — otherwise a forced-done task gets cold-rebuilt (the builder finds nothing to do → idle →
+    # repeated idle flips a genuinely-finished task to blocked), and forcing a gated/failed/blocked id
+    # builds something the loop is never supposed to touch on its own. Once this refuses, the caller's
+    # empty-select exit is naturally one-shot: FORCE_TASK is never cleared, but the task's status on
+    # origin/main won't change again either, so a re-run of this same check keeps refusing it.
+    if task_done "$FORCE_TASK"; then
+      log "FORCE_TASK '$FORCE_TASK' is already status=done — refusing to rebuild a terminal task."; return 1
+    fi
+    if task_failed "$FORCE_TASK"; then
+      log "FORCE_TASK '$FORCE_TASK' is status=failed (owner-overturned) — refusing to rebuild a terminal task."; return 1
+    fi
+    if task_gated "$FORCE_TASK"; then
+      log "FORCE_TASK '$FORCE_TASK' is gate:needs-human — the loop never selects it, even when forced."; return 1
+    fi
+    if task_blocked "$FORCE_TASK"; then
+      log "FORCE_TASK '$FORCE_TASK' is status=blocked (loop-exhausted) — refusing to rebuild a terminal task."; return 1
+    fi
     echo "$FORCE_TASK $(task_branch "$FORCE_TASK") fresh"; return 0
   fi
   for t in $(all_tasks); do
@@ -1496,7 +1514,15 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
   reconcile_overlays
   sel="$(select_task || true)"
   if [ -z "$sel" ]; then
-    log "no eligible task — backlog complete or everything left is gate/human-blocked."
+    if [ -n "$FORCE_TASK" ]; then
+      # FORCE_TASK is one-shot BY CONSTRUCTION (B03): it's never cleared, but once the forced task
+      # reaches a terminal outcome (integrated → done, or blocked), select_task's forced-path check
+      # refuses to re-select it on the next iteration — so this exit fires right after, distinct from
+      # an actually-drained backlog.
+      log "forced task $FORCE_TASK is not eligible to build (see the refusal above) or already reached its outcome for this run — exiting; run supervise.sh (or loop.sh with no argument) to work the rest of the backlog."
+    else
+      log "no eligible task — backlog complete or everything left is gate/human-blocked."
+    fi
     heartbeat_clear; run_hook drained drained; board; sync_primary_checkout; exit 0
   fi
   read -r task branch mode <<<"$sel"
