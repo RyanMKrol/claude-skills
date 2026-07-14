@@ -588,6 +588,18 @@ function renderPage() {
   .caret{color:var(--muted);font-size:10px;min-width:10px}
   .tid{font-weight:700;min-width:46px}
   .title{flex:1;min-width:220px}
+  .rowctrls{display:inline-flex;align-items:baseline;gap:8px}   /* one grid cell for checkbox+caret (see .row.cols) */
+
+  /* ---- Aligned columns for the reviewed / status / model badges (Pending-Review, Done, Closed-failed).
+     A fixed-track grid so every row's three badges line up vertically no matter the model-name length or
+     whether it escalated — the flex layout let a longer model tag shove the whole badge group sideways,
+     misaligning rows. Fixed columns are right-anchored by the flexible title (minmax 1fr), so their left
+     edges are identical on every row. Other buckets keep the plain flex .row (single trailing pill). ---- */
+  .taskrow .row.cols{display:grid;grid-template-columns:auto 46px minmax(220px,1fr) 100px 152px 300px;align-items:baseline;column-gap:8px;flex-wrap:nowrap;}
+  .row.cols .title{min-width:0}                       /* let the 1fr track own the width, not the item */
+  .row.cols .col{min-width:0}
+  .row.cols .col .pill{margin-left:0}                 /* grid column-gap handles spacing, not the pill margin */
+  .row.cols .col-model .model-tag{white-space:normal;overflow-wrap:anywhere}  /* a long escalation wraps inside its cell instead of overflowing */
 
   .expand{padding:12px 16px 14px;margin:0 0 8px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-size:13px;}
   .expand pre{white-space:pre-wrap;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:8px;max-height:300px;overflow:auto;font-size:12px;}
@@ -1085,33 +1097,47 @@ function pillsFor(task, bucketName) {
     pills += task.status === 'blocked'
       ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
       : '<span class="pill blocked">⚠ failed — awaiting review</span>';
-  } else if (bucketName === 'done' || bucketName === 'donePendingReview' || bucketName === 'closedFailed') {
-    pills += task.reviewed ? '<span class="pill reviewed">👁 reviewed</span>' : '<span class="pill">not reviewed</span>';
-    pills += task.failed ? '<span class="pill failed">✗ failed</span>'
-           : (task.status === 'blocked' ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>' : '<span class="pill done">✓ done</span>');
-    if (task.completedWith) {
-      const cw = task.completedWith;
-      if (cw.human) {
-        pills += '<span class="pill" title="No ledgers/outcomes.jsonl row for this task — it was marked done via the human-done overlay (a needs-human gate, or a task completed by hand), not built by the loop.">🧑 implemented manually</span>';
-      } else {
-        const prog = cw.progression;   // computed server-side in loadState (modelProgression is server-only)
-        if (prog && prog.escalated) {
-          // Started cheaper and climbed the ladder — show start → end so the escalation is visible at a
-          // glance (each step up = a failed attempt at the cheaper tier before it succeeded higher).
-          const shown = '<span class="mstart">' + esc(prog.start) + '</span> → ' + esc(prog.end);
-          pills += '<span class="pill model-tag" title="Escalated: started on ' + esc(prog.start)
-                 + ', completed on ' + esc(prog.end) + ' — each step up the tier ladder is a failed attempt '
-                 + 'at the cheaper tier. From ledgers/outcomes.jsonl.">' + shown + '</span>';
-        } else {
-          const label = esc((prog && prog.end) || cw.model || '?');
-          pills += '<span class="pill model-tag" title="Built on ' + label + ' — the first tier tried, no '
-                 + 'escalation needed. From ledgers/outcomes.jsonl.">' + label + '</span>';
-        }
-      }
-    }
   }
   pills += failPill(task, bucketName);
   return pills;
+}
+
+// doneColsFor(task) — the reviewed / status / model badges for a done-type bucket (Pending Review, Done,
+// Closed-failed), emitted as three fixed COLUMNS (see .row.cols CSS) so they line up vertically across
+// rows regardless of model-name length or escalation. Each cell holds exactly one pill (or is empty).
+function doneColsFor(task) {
+  const review = task.reviewed
+    ? '<span class="pill reviewed">👁 reviewed</span>'
+    : '<span class="pill">not reviewed</span>';
+  const status = task.failed
+    ? '<span class="pill failed">✗ failed</span>'
+    : (task.status === 'blocked'
+        ? '<span class="pill blocked">⚠ blocked (loop gave up)</span>'
+        : '<span class="pill done">✓ done</span>');
+  let model = '';
+  if (task.completedWith) {
+    const cw = task.completedWith;
+    if (cw.human) {
+      model = '<span class="pill" title="No ledgers/outcomes.jsonl row for this task — it was marked done via the human-done overlay (a needs-human gate, or a task completed by hand), not built by the loop.">🧑 implemented manually</span>';
+    } else {
+      const prog = cw.progression;   // computed server-side in loadState (modelProgression is server-only)
+      if (prog && prog.escalated) {
+        // Started cheaper and climbed the ladder — show start → end so the escalation is visible at a
+        // glance (each step up = a failed attempt at the cheaper tier before it succeeded higher).
+        const shown = '<span class="mstart">' + esc(prog.start) + '</span> → ' + esc(prog.end);
+        model = '<span class="pill model-tag" title="Escalated: started on ' + esc(prog.start)
+              + ', completed on ' + esc(prog.end) + ' — each step up the tier ladder is a failed attempt '
+              + 'at the cheaper tier. From ledgers/outcomes.jsonl.">' + shown + '</span>';
+      } else {
+        const label = esc((prog && prog.end) || cw.model || '?');
+        model = '<span class="pill model-tag" title="Built on ' + label + ' — the first tier tried, no '
+              + 'escalation needed. From ledgers/outcomes.jsonl.">' + label + '</span>';
+      }
+    }
+  }
+  return '<span class="col col-review">' + review + '</span>'
+       + '<span class="col col-status">' + status + '</span>'
+       + '<span class="col col-model">' + model + '</span>';
 }
 
 function renderTask(task, bucketName) {
@@ -1147,12 +1173,16 @@ function renderTask(task, bucketName) {
     ? \`<input type="checkbox" \${checked} data-id="\${task.id}" data-bucket="\${bucketName}" onclick="event.stopPropagation(); rangeSelect(event, this)" onchange="toggleSelect(this)">\`
     : '';
   const hidden = '';
+  // Done-type buckets use the fixed-column badge grid (.row.cols + doneColsFor); everything else keeps
+  // the plain flex row with its single trailing pill (pillsFor). Checkbox+caret share ONE grid cell.
+  const cols = bucketName === 'done' || bucketName === 'donePendingReview' || bucketName === 'closedFailed';
+  const trailing = cols ? doneColsFor(task) : pillsFor(task, bucketName);
   return \`<div class="taskrow" id="task-\${task.id}"\${hidden}>
-    <div class="row" onclick="toggleOpen('\${task.id}')">
-      \${checkbox}<span class="caret">\${open ? '▾' : '▸'}</span>
+    <div class="row\${cols ? ' cols' : ''}" onclick="toggleOpen('\${task.id}')">
+      <span class="rowctrls">\${checkbox}<span class="caret">\${open ? '▾' : '▸'}</span></span>
       <span class="tid mono">\${esc(task.id)}</span>
       <span class="title">\${esc(task.title || '')}</span>
-      \${pillsFor(task, bucketName)}
+      \${trailing}
     </div>
     \${detail}
   </div>\`;

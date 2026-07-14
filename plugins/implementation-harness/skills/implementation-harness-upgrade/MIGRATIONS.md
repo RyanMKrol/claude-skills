@@ -42,6 +42,23 @@ Entry format:
 
 ---
 
+## 1.82.0 → 1.82.1 — dashboard: align the reviewed/status/model badges into fixed columns
+
+Readability fix. In the Pending-Review / Done / Closed-failed sections the three trailing badges
+(👁 reviewed · ✓/✗ status · model tag) were a wrapping flex group, so a longer or escalated model tag
+(`claude-haiku-4-5 → claude-sonnet-5/medium`) shoved the whole group sideways and the columns didn't
+line up row-to-row. Those rows now render as a fixed-track CSS grid
+(`auto 46px minmax(220px,1fr) 100px 152px 300px`) — the flexible title absorbs the slack, so reviewed /
+status / model start at the same x on every row; a long escalation wraps inside its own model cell.
+
+- mechanism: `dashboard/server.js` — new `.row.cols` grid + `.col`/`.rowctrls` CSS; `renderTask` wraps
+  checkbox+caret in one `.rowctrls` cell and routes done-type buckets to a new `doneColsFor(task)` that
+  emits three `<span class="col …">` cells (the done-type branch moved out of `pillsFor`, which now only
+  handles the single-pill buckets). Other buckets keep the plain flex `.row`.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — `dashboard/server.js` is mechanism (content-diffed on upgrade).
+- breaking: none (pure presentation; no data or behavior change).
+
 ## 1.81.2 → 1.82.0 — scope-creep blocks after ONE attempt (no ladder-burn) + stronger scope-authoring guidance
 
 Behavior change + authoring-guidance change. Two parts:
