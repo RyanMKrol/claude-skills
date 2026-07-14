@@ -16,9 +16,11 @@ the code wins — fix one to match the other and note it.
 > cheap model is also the weakest judge of its own work, never let its self-judgement advance a task or
 > feed the learning: gate "done" on objective, model-agnostic checks (file-scope, a required test, the
 > local DoD, CI) and — sampled — an **independent stronger auditor** that reads the spec + diff and must
-> say PASS. An audit/structural failure is just a normal failed attempt → it escalates, so a cheap
-> model's false successes become honest "this cell needs a stronger tier" signal instead of poisoning
-> the calibration. Every attempt runs **cold** so each outcome measures one tier's standalone ability.
+> say PASS. An audit or (most) structural failure is just a normal failed attempt → it escalates, so a
+> cheap model's false successes become honest "this cell needs a stronger tier" signal instead of
+> poisoning the calibration. (The one carve-out is **scope-creep** — a file touched outside the task's
+> declared `scope`: that's a wrong scope *declaration*, not a too-weak model, so it blocks after one
+> attempt rather than climbing the ladder — escalating couldn't fix it and would fake a "hard cell.") Every attempt runs **cold** so each outcome measures one tier's standalone ability.
 
 ---
 
@@ -87,7 +89,10 @@ walks **up** this single ladder. There is **no per-task escalation ladder** any 
   if the cell lacks data, fall back to the **cold-start floor**.
 - **Escalation:** `MAX_ATTEMPTS` (2) soft failures on a rung → climb to the next rung; past the top
   rung → `failed:blocked` (surfaced for a human). The policy sets the *start* rung; escalation climbs
-  from there.
+  from there. **Exception — scope-creep blocks immediately** (one attempt, no ladder climb): a diff
+  touching a file outside the task's declared `scope` means the *scope is wrong*, which a stronger
+  model can't fix, so the loop records `failed:blocked` for a human to correct the scope (or split the
+  task) instead of burning the whole attempt budget and poisoning the cell's calibration.
 
 ### 2.4 Key decisions & trade-offs
 - **Bias cheap.** Cold-start is the **cheapest** tier (`sonnet/low`, set in `harness.env`), not a
@@ -385,7 +390,10 @@ and where they live:
   `--argjson risk` (forces mandatory audit, clamps the starting rung ≥ 1), never a third join
   dimension. (`policy.jq`, `loop*.sh`)
 - **Audit is blocking, fails = a normal failed attempt** — `structural_checks`/`audit_gate` returning
-  non-zero routes into the *existing* `bump`/escalation path, not a parallel one. (`loop*.sh` done) path)
+  non-zero routes into the *existing* `bump`/escalation path, not a parallel one — **except
+  scope-creep**, which the done-path special-cases to `block_task` after one attempt (a wrong scope
+  isn't a difficulty signal; escalating can't fix it). All other `STRUCT_FAIL_KIND`s still `bump`.
+  (`loop*.sh` done) path, both variants — keep in parity.)
 - **Auditor tier = `max(opus-medium, builder)`** — `audit_gate` compares via `tier_strength` (a
   total strength order over any `(model, effort)` pair) and raises the auditor only when the
   builder is strictly stronger.
@@ -397,7 +405,7 @@ and where they live:
   reading prior state.
 - **Scope is enforced** — `structural_checks` rejects any diff file outside `scope` ∪ {worklog,
   tests, lockfiles, `SCOPE_EXEMPT_GLOBS`} in BOTH variants (strict since v1.6.0); the build prompt
-  injects the scope list.
+  injects the scope list. A rejection blocks the task after one attempt (no escalation, since v1.82.0).
 - **The two safety guards exist** — `FORCE_TASK` validation in `select_task`; dirty-tree refusal at
   loop start (in-place).
 - **The loop is the sole writer of status + ledger + main** — the builder/auditor never push-to-

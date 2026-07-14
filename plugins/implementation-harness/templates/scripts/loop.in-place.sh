@@ -1433,8 +1433,18 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # a failure never reaches the remote (designs/audit-verification.md §3). Either fail = a failed
       # attempt: discard the commit + soft-retry (cold), escalating per the existing ladder.
       if ! structural_checks "$task"; then
+        record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"
+        if [ "${STRUCT_FAIL_KIND:-}" = scope-creep ]; then
+          # See loop.sh: a scope-creep failure is a wrong/too-narrow `scope`, not a too-weak model, so
+          # escalating up the ladder can't fix it (it just wastes the attempt budget + poisons the cell
+          # calibration). Block after ONE attempt for a human to correct the scope. block_task discards
+          # the local commit itself (reset --hard origin/main), so no cold_reset here.
+          log "structural: $task touched files OUTSIDE its declared scope (${STRUCT_FAIL_DETAIL:-}) — blocking after one attempt (a wrong scope isn't fixed by a retry or a stronger model)."
+          block_task "$task" "scope-creep: diff touched files outside declared scope (${STRUCT_FAIL_DETAIL:-}) — the task's scope is likely too narrow or wrong; fix the scope (or split the task), then re-open"
+          board; continue
+        fi
         log "structural checks failed for $task — discarding commit + soft retry."
-        cold_reset; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
+        cold_reset; bump "$task"; board; continue
       fi
       heartbeat auditing
       if ! audit_gate "$task"; then

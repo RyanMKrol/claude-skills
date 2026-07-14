@@ -1527,7 +1527,18 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       # fails it is a failed attempt that never pushed anything — no wasted CI run, no branch on origin.
       # (This is the fix for LOCAL_DOD running post-CI; the LOOP — not the builder — now pushes, per P5.)
       if ! structural_checks "$task"; then
-        log "structural checks failed for $task — discarding (never pushed) + cold retry."; cleanup_task "$branch"; record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"; bump "$task"; board; continue
+        record_failure "$task" "${STRUCT_FAIL_KIND:-structural}" "${STRUCT_FAIL_DETAIL:-}"
+        if [ "${STRUCT_FAIL_KIND:-}" = scope-creep ]; then
+          # Scope-creep is NOT a difficulty signal — it means the task's declared `scope` is wrong/too
+          # narrow, which a retry or a stronger model can't fix (it would just burn the whole attempt
+          # budget on a doomed task AND poison the (layer×workType) calibration with a fake "hard cell").
+          # So block after ONE attempt for a human to correct the scope (or split the task). block_task
+          # tears the branch/worktree down itself, so no cleanup_task here.
+          log "structural: $task touched files OUTSIDE its declared scope (${STRUCT_FAIL_DETAIL:-}) — blocking after one attempt (a wrong scope isn't fixed by a retry or a stronger model)."
+          block_task "$task" "scope-creep: diff touched files outside declared scope (${STRUCT_FAIL_DETAIL:-}) — the task's scope is likely too narrow or wrong; fix the scope (or split the task), then re-open"
+          board; continue
+        fi
+        log "structural checks failed for $task — discarding (never pushed) + cold retry."; cleanup_task "$branch"; bump "$task"; board; continue
       fi
       # Local gate passed → the LOOP pushes the branch (sole pusher, P5) so CI can run and integrate can ff it.
       # A PLAIN push (not throttled_push): PUSH_COOLDOWN_SECONDS throttles *main integration* pushes, not the

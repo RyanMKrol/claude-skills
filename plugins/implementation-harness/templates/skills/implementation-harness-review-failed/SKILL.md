@@ -173,8 +173,12 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 > closest `layer`/`workType`/`risk` and never invent a value. Rules specific to a review-derived task:
 > - **`specDo` must incorporate the actual lesson**, not restate the original. If the cause was
 >   scope-too-narrow, the new `scope` must genuinely cover what `## Done when` needs — verify that
->   yourself by reading the requirements against the scope, don't assume. If the cause was ambiguity,
->   resolve it explicitly in the text. If it was genuine difficulty, consider a smaller, further-atomised task.
+>   yourself by reading the requirements against the scope, don't assume. When you widen, **prefer a
+>   directory-level prefix** (`src/foo/**`) over adding files one at a time: it's more robust to the
+>   next unforeseen file and still gates real straying. (The loop now blocks on the *first* out-of-scope
+>   edit — one attempt, no escalation — so an under-wide re-scope just re-fails the same way; get it
+>   genuinely right this time.) If the cause was ambiguity, resolve it explicitly in the text. If it was
+>   genuine difficulty, consider a smaller, further-atomised task.
 > - **Visual verification (facets-driven, same rule as convert-ideas):** a `frontend`-layer (non
 >   docs/config/logging) or `style`/`component` follow-up is auto-covered — leave `visualVerify` unset.
 >   For a `bugfix`/`feature`/`migration` follow-up on a non-frontend layer, set `"visualVerify": true` if

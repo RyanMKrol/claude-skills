@@ -175,16 +175,20 @@ this idea/cluster used in its scratch filenames):
 >    `needs-human` units omit `facets` entirely. `tempId`s only need to be unique within YOUR file;
 >    `dependsOn` may reference your own `tempId`s or a real existing `TNNN` id if this idea builds on
 >    an existing task.
-> 6a. **Self-check scope coverage before you finalize.** For every unit you're about to write, re-read
->    your OWN `specDo` (and `specOverview`) text and list every file it instructs
->    creating/editing/touching. Confirm each one appears in that SAME unit's `scope` array — an exact
->    path, or a directory entry that covers it (`src/foo/**` covers `src/foo/bar.js`). If a file
->    `specDo` promises to touch isn't in `scope`, fix your draft NOW, before writing the file: add the
->    missing path to `scope`, or narrow `specDo` so it no longer promises an out-of-scope edit. This is
->    the same gap `.harness/scripts/check-task-scope.sh` catches after the fact — catching it here means
->    the loop's real structural scope gate never has to reject the build mid-attempt. This is a
->    mechanical/self-contained check, not a "what should be built" ambiguity — fix it silently, no
->    question needed.
+> 6a. **`scope` is a high-stakes field — self-check it before you finalize.** It's a hard structural
+>    gate, and the loop now **blocks a task on its very first out-of-scope edit** (no retry, no model
+>    escalation), so a too-narrow scope silently wastes the whole task. **Prefer a directory-level
+>    entry** (`src/foo/**`) over an exhaustive file list wherever the work is contained in a directory —
+>    it's more robust to files you didn't foresee and still gates the real risk (straying into an
+>    unrelated subsystem). Then do the coverage self-check: for every unit, re-read your OWN `specDo`
+>    (and `specOverview`) text and list every file it instructs creating/editing/touching. Confirm each
+>    one appears in that SAME unit's `scope` array — an exact path, or a directory entry that covers it
+>    (`src/foo/**` covers `src/foo/bar.js`). If a file `specDo` promises to touch isn't in `scope`, fix
+>    your draft NOW, before writing the file: add the missing path to `scope`, or narrow `specDo` so it
+>    no longer promises an out-of-scope edit. This is the same gap `.harness/scripts/check-task-scope.sh`
+>    catches after the fact — catching it here means the loop's real structural scope gate never has to
+>    block the build. This is a mechanical/self-contained check, not a "what should be built" ambiguity
+>    — fix it silently, no question needed.
 >
 >    Your final message should just confirm what you wrote — the coordinator
 >    reads the file, not your response text.

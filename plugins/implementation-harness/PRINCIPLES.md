@@ -22,9 +22,12 @@ calibration.
 
 **P1 — Cheap-first, escalate on evidence.** Every task starts at the cheapest tier history supports
 (cold-start floor when there's no history) and climbs one global ladder only on failure. Difficulty
-is owned by the policy + ledger, never configured per task. *Drift smells:* a per-task
-`model`/`effort` field; hardcoding a strong model "to be safe"; skipping rungs without ledger
-evidence.
+is owned by the policy + ledger, never configured per task. **Escalation is for difficulty failures
+only:** a failure that a stronger model can't fix — notably **scope-creep** (a wrong `scope`
+declaration) — exits to `failed:blocked` after one attempt instead of climbing, since escalating
+would waste the budget and fake a "hard cell." *Drift smells:* a per-task `model`/`effort` field;
+hardcoding a strong model "to be safe"; skipping rungs without ledger evidence; escalating a
+non-difficulty failure (scope-creep) up the ladder.
 
 **P2 — The builder's self-judgement never advances a task.** Only objective signals may mark work
 done: structural checks (diff non-empty, scope, expectsTest), the local DoD / CI, and the sampled

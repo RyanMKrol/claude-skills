@@ -72,11 +72,19 @@ Use `AskUserQuestion`. Establish:
    - what is independently testable;
    - anything that should be a separate task because it touches a different scope.
 3. **Per task**, settle:
-   - **scope** — the files this task should touch (keeps diffs tight for the CI gate). Each entry must
-     be an **exact path**, a **directory prefix** (`dir/`, `dir/**`, `dir/*` — everything under it), or a
-     **single-level extension glob** (`dir/*.tsx` — any `.tsx` directly in `dir`). Do NOT author a mid-path
-     recursive glob like `dir/**/*.ts` or brace expansion — those match nothing and fail every attempt as
-     scope-creep (use a directory prefix or explicit paths instead).
+   - **scope — get this right; it is one of the highest-leverage decisions in the whole authoring
+     pass, not a throwaway field.** It's the files this task is *allowed* to touch, enforced as a hard
+     structural gate: the first out-of-scope edit now **blocks the task on the first attempt** (no
+     retry, no escalation — a wrong scope is a human fix, not something a stronger model recovers).
+     **Too narrow silently dooms the task; too wide defeats the guard** that lets cheap models run
+     unsupervised. So reason it through against exactly what `## Done when` requires, and **bias to a
+     directory-level scope** — a directory prefix (`src/feature/**`) that honestly covers where the
+     work lives beats pre-guessing every individual file (which you usually can't get right), while
+     still catching the real failure mode: a build straying into an unrelated subsystem. Each entry
+     must be an **exact path**, a **directory prefix** (`dir/`, `dir/**`, `dir/*` — everything under
+     it), or a **single-level extension glob** (`dir/*.tsx` — any `.tsx` directly in `dir`). Do NOT
+     author a mid-path recursive glob like `dir/**/*.ts` or brace expansion — those match nothing and
+     fail every attempt as scope-creep (use a directory prefix or explicit paths instead).
    - **design** — does it need a fuller `.harness/docs/designs/TNNN-slug.md` plan doc? Optional; only when
      warranted (those are authored separately, interactively, at `--effort max`). Else `null`.
    - **verify** — does it need an empirical check (e.g. `["run-app"]`, `["live-api"]`)? If the
@@ -226,7 +234,9 @@ more objective and runnable the bar, the harder it is for a cheap builder to fal
     that adds UI). If yes, set **`"visualVerify": true`**.
   - clearly non-visual work → leave it unset. `"visualVerify": false` hard-suppresses even an
     auto-covered task. (All of this is a no-op if the project set no `VISUAL_VERIFY_HOOK`.)
-- Keep **`scope` accurate** — it's now a structural gate (the diff must touch those files).
+- Keep **`scope` accurate and directory-level where you can** — it's a hard structural gate; the first
+  out-of-scope edit blocks the task on its first attempt (no retry/escalation). See §3's scope bullet and
+  HARNESS.md §8.1.
 
 ## 4. Append, don't clobber — via jq
 

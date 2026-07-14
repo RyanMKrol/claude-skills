@@ -42,6 +42,38 @@ Entry format:
 
 ---
 
+## 1.81.2 → 1.82.0 — scope-creep blocks after ONE attempt (no ladder-burn) + stronger scope-authoring guidance
+
+Behavior change + authoring-guidance change. Two parts:
+
+1. **Loop (both variants):** a `structural_checks` **scope-creep** failure — a diff touching a file outside
+   the task's declared `scope` — now routes to `block_task` after ONE attempt instead of through
+   `bump`/escalation. Rationale: scope-creep means the *scope declaration* is wrong, not that the model was
+   too weak, so escalating up the ladder can't fix it — it only burned the whole per-task attempt budget on
+   a doomed task AND poisoned the `(layer×workType)` calibration with a fake "hard cell." All OTHER
+   structural failure kinds (empty-diff, test-missing, workflow-lint, local-dod) still `bump`/escalate
+   unchanged. The done-path now calls `record_failure` once before branching so both paths record it.
+
+2. **Authoring guidance:** the `scope` field's docs were strengthened from a throwaway "keep it accurate"
+   into a first-class statement — scope is a binding contract, a wrong scope now blocks on the first
+   attempt, and authors should **bias to directory-level scope** (`src/feature/**`) over exhaustive file
+   lists. Applied to `docs/HARNESS.md` §8.1, the `add-to-backlog` / `convert-ideas` / `review-failed`
+   skills.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — scope-creep special-case in the structural-fail
+  done-path (kept in parity); `docs/HARNESS.md` — §8.1 `scope` row rewritten (importance + directory-level
+  bias + one-attempt-block consequence).
+- operational skills: `skills/implementation-harness-add-to-backlog/SKILL.md` (§3 scope bullet + summary
+  reminder), `skills/implementation-harness-convert-ideas/SKILL.md` (§6a), `skills/implementation-harness-review-failed/SKILL.md`
+  (scope-too-narrow lesson bullet) — all gained the directory-level bias + raised-stakes note.
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none — all touched files are mechanism/operational-skill (content-diffed on upgrade).
+- breaking: none. A backlog with correct scopes sees no change; a task whose scope was too narrow now
+  `failed:blocked`s on attempt 1 (surfaced for `review-failed`) instead of after exhausting the ladder —
+  strictly cheaper, same terminal state.
+
 ## 1.81.1 → 1.81.2 — dashboard: fix the blank task list (client called a server-only function) + a real render regression test
 
 Bug (shipped in 1.76.0): the dashboard renders the task list in the BROWSER (the inline app `<script>` in
