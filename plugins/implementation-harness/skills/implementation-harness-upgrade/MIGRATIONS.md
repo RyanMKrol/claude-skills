@@ -42,6 +42,30 @@ Entry format:
 
 ---
 
+## 1.82.2 → 1.83.0 — audit verdict is a `VERDICT: PASS|FAIL` sentinel, not a grep over the whole transcript (B01)
+
+Bug fix (P0, DESIGN.md §3–4 / PRINCIPLES.md P2). The blocking audit's verdict used to be parsed as
+`grep -oiE '\b(PASS|FAIL)\b' "$out" | head -1` over the auditor's ENTIRE reassembled transcript —
+case-insensitive, first match anywhere. An auditor narrating "I'll run the tests to see if they pass"
+before concluding FAIL would false-match PASS on the prose word, silently defeating the audit. Fix: the
+auditor's prompt now requires an exact `VERDICT: PASS` / `VERDICT: FAIL` sentinel as the FINAL non-empty
+line of its response; the new shared `audit_verdict_extract` reads only that line (case-sensitive,
+trailing whitespace tolerated) via `--audit-parse-selftest <file>`. A missing/malformed sentinel is
+treated as a FAIL with a distinct `record_failure` kind (`audit-unparseable`, vs. `audit-fail` for a
+genuine sentinel FAIL) and a loud log line, so a systematic prompt problem is visible in the log and
+`failures.jsonl` rather than silently reading as a pass.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `audit_prompt` now demands the
+  `VERDICT: PASS|FAIL` sentinel contract; new shared `audit_verdict_extract` function + its
+  `--audit-parse-selftest <file>` dispatch flag (mirrors `--rl-selftest`); `audit_gate` parses via the
+  new function and sets `cur_audit_kind` (`audit-fail` vs `audit-unparseable`) which the call site now
+  passes to `record_failure` instead of the hardcoded `"audit-fail"`.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — both are mechanism (content-diffed on upgrade).
+- breaking: none — an auditor that already ended with a bare `PASS`/`FAIL` word will now read as
+  unparseable (FAIL) until it adopts the new sentinel; the prompt ships the new contract in the same
+  change, so this only bites a hand-rolled/forked audit prompt.
+
 ## 1.82.1 → 1.82.2 — builder prompt: nudge test-first (write test → watch it fail → build to green) for expectsTest tasks
 
 Prompt-guidance change, scoped to `expectsTest` tasks only. The `expectsTest` block already REQUIRED a

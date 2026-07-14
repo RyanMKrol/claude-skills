@@ -31,6 +31,7 @@
 #         .harness/scripts/loop.sh --scope-exempt-selftest [globs path]  # verify SCOPE_EXEMPT_GLOBS matching, then exit
 #         .harness/scripts/loop.sh --scope-selftest [entry file]  # verify scope-entry matching (extension globs), then exit
 #         .harness/scripts/loop.sh --rl-selftest detect|wait …    # verify usage-limit detection + reset parsing, then exit
+#         .harness/scripts/loop.sh --audit-parse-selftest <file>  # verify audit VERDICT sentinel extraction, then exit
 # Config: .harness/config/harness.env (sourced if present) and/or the environment.
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
@@ -101,7 +102,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervis
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                   # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -1166,9 +1167,15 @@ You are an INDEPENDENT AUDITOR. You did NOT write this code and you carry NO pri
 agent implemented task $id; your ONLY job is to judge whether the implementation genuinely satisfies
 the task's "## Done when" criteria below.
 
-Respond with EXACTLY one word on the FIRST LINE: PASS or FAIL. Then, on following lines, give concise
-reasons. PASS only if the diff meets EVERY "## Done when" item for real. FAIL if any item is unmet,
-faked, stubbed, or only superficially addressed. Be strict — do not give the benefit of the doubt.
+Give your reasoning in as much prose as you need. Then, as the ABSOLUTE LAST LINE of your entire
+response — nothing after it, nothing else on that line — output exactly one of:
+VERDICT: PASS
+VERDICT: FAIL
+
+That final sentinel line is the ONLY thing the harness parses; your prose above it is for a human
+log only, so don't rely on the word "pass" or "fail" appearing anywhere else to convey your verdict.
+PASS only if the diff meets EVERY "## Done when" item for real. FAIL if any item is unmet, faked,
+stubbed, or only superficially addressed. Be strict — do not give the benefit of the doubt.
 
 --- TASK $id SPEC ---
 $spec
@@ -1179,6 +1186,22 @@ EOF
   visual_verify_block "$id" audit
   _custom_preamble audit
 }
+
+# audit_verdict_extract <file> — reads the auditor's FINAL non-empty line and extracts a sentinel
+# verdict (`VERDICT: PASS` / `VERDICT: FAIL`, case-sensitive, trailing whitespace tolerated). Echoes
+# PASS, FAIL, or nothing if the sentinel is absent/malformed — NEVER greps the whole transcript, since
+# auditor prose narrating "I'll check if tests pass" would otherwise false-match (B01).
+audit_verdict_extract() {
+  awk 'NF{last=$0} END{print last}' "$1" 2>/dev/null | sed 's/[[:space:]]*$//' \
+    | grep -oE '^VERDICT: (PASS|FAIL)$' | grep -oE 'PASS|FAIL' || true
+}
+# --audit-parse-selftest <transcript-file> → PASS|FAIL|NONE. Exercises audit_verdict_extract off-line
+# against fixture transcripts (prose-pass-then-FAIL, prose-fail-then-PASS, sentinel-only, no-sentinel,
+# trailing-whitespace) — see tests/audit-parse.test.sh.
+if [ "${1:-}" = "--audit-parse-selftest" ]; then
+  v="$(audit_verdict_extract "${2:-/dev/null}")"; [ -n "$v" ] && echo "$v" || echo NONE
+  exit 0
+fi
 
 # audit_gate <id> — per-cell SAMPLED blocking audit (§4.3/4.6). Sets cur_verification. Spawns a fresh,
 # independent auditor at max(opus-medium, builder tier) ONLY if sampled. 0 = pass (or not sampled),
@@ -1237,9 +1260,16 @@ audit_gate() {
     break
   done
   cp "$WORKLOG/.claude-out.audit" "$out" 2>/dev/null || true
-  verdict="$(grep -oiE '\b(PASS|FAIL)\b' "$out" 2>/dev/null | head -1 | tr '[:lower:]' '[:upper:]')"
+  verdict="$(audit_verdict_extract "$out")"
   if [ "$verdict" = "PASS" ]; then cur_verification="audited"; log "audit: PASS for $id (reasons → $out)"; return 0; fi
-  log "audit: FAIL for $id (verdict='${verdict:-none}', reasons → $out)"; return 1
+  if [ -z "$verdict" ]; then
+    cur_audit_kind="audit-unparseable"
+    log "audit: UNPARSEABLE verdict for $id — no 'VERDICT: PASS' / 'VERDICT: FAIL' sentinel on the final line (reasons → $out) — treating as FAIL"
+  else
+    cur_audit_kind="audit-fail"
+    log "audit: FAIL for $id (verdict='$verdict', reasons → $out)"
+  fi
+  return 1
 }
 
 # --- Dry run ----------------------------------------------------------------
@@ -1279,7 +1309,7 @@ if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
   exit 3
 fi
 
-cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; hb_started=""
+cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; cur_audit_kind="audit-fail"; hb_started=""
 idle_task=""; idle_count=0   # consecutive-idle guard: a task reporting idle repeatedly (its status won't persist) is BLOCKED, never spun on
 
 # ─── Resume an interrupted mid-climb from a leftover heartbeat ──────────────────────────────────
@@ -1456,7 +1486,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       heartbeat auditing
       if ! audit_gate "$task"; then
         log "AUDIT FAILED for $task — discarding the commit (never pushed) + soft retry."
-        cold_reset; record_failure "$task" "audit-fail"; bump "$task"; board; continue
+        cold_reset; record_failure "$task" "${cur_audit_kind:-audit-fail}"; bump "$task"; board; continue
       fi
       # SINGLE-COMMIT INVARIANT — collapse the agent's commit(s) into exactly ONE before pushing, so a
       # red-CI revert stays a single `git revert HEAD` ("every task is one commit"). The prompt asks the
