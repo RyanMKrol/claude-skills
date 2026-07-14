@@ -35,7 +35,12 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 3; }
 
 if [ "${1:-}" = "--undo" ]; then
   id="${2:-}"; [ -n "$id" ] || { echo "usage: mark-failed.sh --undo TNNN" >&2; exit 2; }
-  acquire_lock; trap 'release_lock' EXIT INT TERM
+  acquire_lock
+  # See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
+  # then keep running.
+  trap 'release_lock' EXIT
+  trap 'release_lock; trap - EXIT; exit 130' INT
+  trap 'release_lock; trap - EXIT; exit 143' TERM
   [ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
   jq --arg id "$id" 'del(.[$id])' "$OVERLAY" >"$OVERLAY.tmp" && mv "$OVERLAY.tmp" "$OVERLAY"
   git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
@@ -53,7 +58,11 @@ jq -e --arg id "$id" '.tasks[]|select(.id==$id)|(.status=="done" or .status=="bl
   || { echo "ABORT: $id is not currently status:\"done\" or status:\"blocked\" — no changes made." >&2; exit 1; }
 
 acquire_lock
-trap 'release_lock' EXIT INT TERM
+# See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
+# then keep running.
+trap 'release_lock' EXIT
+trap 'release_lock; trap - EXIT; exit 130' INT
+trap 'release_lock; trap - EXIT; exit 143' TERM
 
 [ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

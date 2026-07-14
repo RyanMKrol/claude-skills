@@ -42,6 +42,25 @@ Entry format:
 
 ---
 
+## 1.83.0 → 1.83.1 — signal traps now `exit` — Ctrl-C/kill no longer leaves the loop running after releasing its lock (B02)
+
+Bug fix (P0). All 6 lock-holding scripts installed `trap 'release_lock' EXIT INT TERM` — a trap
+handler that doesn't call `exit` merely returns control to wherever the script was interrupted, it
+does NOT stop the script. Verified: after `kill -TERM`/Ctrl-C the loop released its concurrency lock
+but kept running, so a second `loop.sh` (or a `mark-*.sh`) could start concurrently against the same
+repo — the single-flight guard (PRINCIPLES.md P7) was void after one signal. Fix: split into three
+traps per script — `trap 'release_lock' EXIT`, and INT/TERM traps that release, clear the EXIT trap
+(`trap - EXIT`, preventing a double release), and `exit 130`/`exit 143` respectively.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh`, `scripts/mark-done.sh`,
+  `scripts/mark-failed.sh` (two trap sites — `--undo` branch + main path), `scripts/mark-reviewed.sh`,
+  `scripts/consolidate-ideas.sh` — same 3-line trap replacement at every site (7 total).
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — all mechanism (content-diffed on upgrade).
+- breaking: none. In the loop, exiting 130/143 makes `supervise.sh` see a non-zero, non-3/5 exit code
+  → its normal short error backoff — acceptable, since a human who Ctrl-C'd the loop has almost
+  certainly stopped `supervise.sh` too (which has its own INT trap that exits 0 cleanly).
+
 ## 1.82.2 → 1.83.0 — audit verdict is a `VERDICT: PASS|FAIL` sentinel, not a grep over the whole transcript (B01)
 
 Bug fix (P0, DESIGN.md §3–4 / PRINCIPLES.md P2). The blocking audit's verdict used to be parsed as

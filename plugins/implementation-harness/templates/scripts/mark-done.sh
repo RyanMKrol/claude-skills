@@ -44,7 +44,11 @@ for id in "$@"; do
 done
 
 acquire_lock
-trap 'release_lock' EXIT INT TERM
+# See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
+# then keep running.
+trap 'release_lock' EXIT
+trap 'release_lock; trap - EXIT; exit 130' INT
+trap 'release_lock; trap - EXIT; exit 143' TERM
 
 [ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
 tmp="$OVERLAY.tmp"

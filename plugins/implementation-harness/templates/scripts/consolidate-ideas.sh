@@ -29,7 +29,11 @@ if [ ! -d "$PENDING_DIR" ] || [ -z "$(ls -A "$PENDING_DIR" 2>/dev/null)" ]; then
 fi
 
 acquire_lock
-trap 'release_lock' EXIT INT TERM
+# See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
+# then keep running.
+trap 'release_lock' EXIT
+trap 'release_lock; trap - EXIT; exit 130' INT
+trap 'release_lock; trap - EXIT; exit 143' TERM
 
 # Snapshot which files we're about to consume BEFORE running the .mjs, so we only delete what we
 # actually processed (a new idea agent could theoretically drop a file mid-run).

@@ -1392,7 +1392,12 @@ fi
 
 # --- Main loop --------------------------------------------------------------
 acquire_lock
-trap 'release_lock' EXIT INT TERM
+# A trap that doesn't `exit` just returns control to wherever the script was interrupted — the loop
+# would keep running after releasing the lock (verified: `kill -TERM` left it alive). Explicit
+# `trap - EXIT` before the exit stops the EXIT trap from firing a second time (B02).
+trap 'release_lock' EXIT
+trap 'release_lock; trap - EXIT; exit 130' INT
+trap 'release_lock; trap - EXIT; exit 143' TERM
 
 cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0; cur_verification="ci-only"; cur_audit_kind="audit-fail"; hb_started=""
 idle_task=""; idle_count=0   # consecutive-idle guard: a task reporting idle repeatedly (its status won't persist) is BLOCKED, never spun on
