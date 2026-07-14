@@ -42,6 +42,21 @@ Entry format:
 
 ---
 
+## 1.82.1 → 1.82.2 — builder prompt: nudge test-first (write test → watch it fail → build to green) for expectsTest tasks
+
+Prompt-guidance change, scoped to `expectsTest` tasks only. The `expectsTest` block already REQUIRED a
+test file asserting the `## Done when` items; it now also nudges the builder to write that test FROM
+`## Done when` and run it BEFORE implementing — confirming it fails first for the right reason (guards the
+"token test that asserts nothing" failure mode) — then build to green, re-running freely (no per-attempt
+limit on test runs). Deliberately NOT a blanket TDD mandate: the general build path stays outcome-oriented
+so config/docs/style tasks aren't burdened.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — four extra `printf` lines in the `expectsTest`
+  block of `prompt()` (kept identical across both variants) + an updated rationale comment.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — both are mechanism (content-diffed on upgrade).
+- breaking: none (builder guidance only; no gate, schema, or control-flow change).
+
 ## 1.82.0 → 1.82.1 — dashboard: align the reviewed/status/model badges into fixed columns
 
 Readability fix. In the Pending-Review / Done / Closed-failed sections the three trailing badges

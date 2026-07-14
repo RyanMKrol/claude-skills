@@ -871,7 +871,10 @@ EOF
   # already AUTO-FAILS a diff that changes no test file (STRUCT_FAIL_KIND=test-missing), but nothing else
   # told the builder — so it would fail blind, and (since the SCOPE block frames tests as merely
   # "allowed") a cost-minimizing builder is if anything nudged to skip them. State it as mandatory and
-  # tie it back to scope so there's no ambiguity that tests belong in this task.
+  # tie it back to scope so there's no ambiguity that tests belong in this task. We also nudge TEST-FIRST
+  # here (write the test, watch it fail, then build to green) — ONLY for expectsTest tasks, where it
+  # directly guards the "wrote a token test that asserts nothing" failure mode; the general build path is
+  # left outcome-oriented (no blanket TDD mandate for config/docs/style work).
   if tj -e --arg id "$tid" '.tasks[]|select(.id==$id)|.expectsTest==true' >/dev/null 2>&1; then
     printf '\n--- TESTS — REQUIRED for this task (it is marked expectsTest) ---\n'
     printf 'You MUST add or change at least one TEST file that exercises the behaviour in "## Do" and pins the\n'
@@ -880,6 +883,10 @@ EOF
     printf 'AUTO-FAILS this task (structural gate: test-missing); a green run against the EXISTING tests only\n'
     printf 'is NOT sufficient. Write the test to what "## Done when" says it must assert, and keep it hermetic\n'
     printf '(a scratch/throwaway resource — never the real prod DB, live services, or real data).\n'
+    printf 'PREFER TEST-FIRST: write that test FROM "## Done when" and run it BEFORE you implement — confirm it\n'
+    printf 'FAILS first for the right reason (a test that is already green before you have written any code\n'
+    printf 'asserts nothing), then build until it passes. Re-run the suite as many times as you need while you\n'
+    printf 'iterate — there is NO per-attempt limit on how often you run the tests.\n'
   fi
   _custom_preamble build
   visual_verify_block "$tid"
