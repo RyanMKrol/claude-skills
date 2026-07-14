@@ -42,6 +42,33 @@ Entry format:
 
 ---
 
+## 1.81.1 → 1.81.2 — dashboard: fix the blank task list (client called a server-only function) + a real render regression test
+
+Bug (shipped in 1.76.0): the dashboard renders the task list in the BROWSER (the inline app `<script>` in
+`renderPage()`). The 1.76.0 start→end model badge made `pillsFor` (client-side) call `modelProgression`,
+which is defined only in `lib.js` (server-side, `require`d) — so every task list threw a `ReferenceError`
+and came up BLANK, while the server-rendered shell + summary cards still showed. `lib.test.js` tested
+`modelProgression` server-side and passed; nothing executed the client render, so the break shipped and
+reached any install that upgraded to ≥1.76.0.
+
+Fix: `loadState` now computes the progression SERVER-side (`task.completedWith.progression =
+modelProgression(...)`, where the function actually lives) and the client badge reads that attached field
+instead of calling the function. New `tests/dashboard-render.test.js` (plugin-CI) extracts the resolved
+client script, runs it in a minimal `vm` browser stub, and renders every bucket — it FAILS on the
+reintroduced bug (verified) — plus a static guard that no server-only `lib.js` export is called in the
+client script. CI now auto-discovers every `*.test.js` (was: `lib.test.js` hardcoded).
+
+- mechanism: `dashboard/server.js` — `loadState` attaches `completedWith.progression`; the client badge
+  reads `cw.progression` (no client-side `modelProgression` call); `renderPage` exported (for the test).
+- config: none
+- new files: none shipped to consumers (`tests/dashboard-render.test.js` is plugin-CI only, under `tests/`).
+- renamed/removed: none
+- manual attention: none — `dashboard/server.js` is mechanism; the upgrade content-diffs and refreshes it,
+  which is exactly how an install that upgraded into the broken window gets the working dashboard back.
+- breaking: none — presentational fix; the badge feature is unchanged, just computed in the right place.
+
+---
+
 ## 1.80.0 → 1.81.0 — test-file detection recognizes CamelCase conventions (Xcode UITests/) + is project-extensible via custom/
 
 Bug (real incident, basket T019): the `expectsTest: true` gate and the test-file scope-creep exemption both

@@ -43,7 +43,7 @@ jobs:
           done < <(find plugins -name '*.sh' -print0)
           exit "$fail"
 
-      - name: node --check every JS file + run the dashboard tests
+      - name: node --check every JS file + run every *.test.js
         run: |
           set -euo pipefail
           fail=0
@@ -51,7 +51,11 @@ jobs:
             node --check "$f" || { echo "PARSE ERROR: $f"; fail=1; }
           done < <(find plugins -name '*.js' -print0)
           [ "$fail" = 0 ]
-          node plugins/implementation-harness/templates/dashboard/lib.test.js
+          # auto-discover node tests (lib.test.js, dashboard-render.test.js, …) — mirrors the *.test.sh finder
+          while IFS= read -r -d '' t; do
+            echo "== $t =="; node "$t" || fail=1
+          done < <(find plugins -name '*.test.js' -print0)
+          [ "$fail" = 0 ]
 
       - name: run harness shell test suites (*.test.sh)
         timeout-minutes: 10

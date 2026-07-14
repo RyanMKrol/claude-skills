@@ -149,6 +149,9 @@ function loadState() {
       if (oc && (oc.finalModel || oc.finalEffort)) {
         task.completedWith = { model: oc.finalModel || null, effort: oc.finalEffort || null,
                                startModel: oc.startModel || null, startEffort: oc.startEffort || null };
+        // Derive the start→end progression HERE (server-side) — `modelProgression` lives in lib.js and is
+        // NOT available in the browser; the client badge renderer reads this attached field, never the fn.
+        task.completedWith.progression = modelProgression(task.completedWith);
       } else {
         const hd = overlays.humanDone[task.id];
         if (hd && hd.done === true) task.completedWith = { human: true };
@@ -1091,7 +1094,7 @@ function pillsFor(task, bucketName) {
       if (cw.human) {
         pills += '<span class="pill" title="No ledgers/outcomes.jsonl row for this task — it was marked done via the human-done overlay (a needs-human gate, or a task completed by hand), not built by the loop.">🧑 implemented manually</span>';
       } else {
-        const prog = modelProgression(cw);
+        const prog = cw.progression;   // computed server-side in loadState (modelProgression is server-only)
         if (prog && prog.escalated) {
           // Started cheaper and climbed the ladder — show start → end so the escalation is visible at a
           // glance (each step up = a failed attempt at the cheaper tier before it succeeded higher).
@@ -1428,4 +1431,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { server, loadState, isLoopback };
+module.exports = { server, loadState, isLoopback, renderPage };
