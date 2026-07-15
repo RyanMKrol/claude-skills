@@ -22,11 +22,16 @@ before() {
   [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
 }
 
-# ---- Both variants: run_claude blocks the agent push via the shared pre-push hook ----
+# ---- run_claude blocks the agent push via the shared pre-push hook — as of C01 stage 2, run_claude
+# lives ONCE in loop-lib.sh (sourced by both variants) rather than duplicated per variant. ----
+LIB="$SCRIPT_DIR/loop-lib.sh"
+assert "[loop-lib.sh] run_claude marks the agent subprocess HARNESS_AGENT=1"  has 'HARNESS_AGENT=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$ROOT/.harness/scripts"' "$LIB"
+assert "[loop-lib.sh] run_claude keeps the pre-push hook executable"          has 'chmod +x "$ROOT/.harness/scripts/pre-push"' "$LIB"
+
+# ---- Both variants: the DoD prompt text (part of prompt(), which still genuinely diverges per
+# isolation model — not moved) ----
 for V in loop.sh loop.in-place.sh; do
   f="$SCRIPT_DIR/$V"
-  assert "[$V] run_claude marks the agent subprocess HARNESS_AGENT=1"        has 'HARNESS_AGENT=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$ROOT/.harness/scripts"' "$f"
-  assert "[$V] run_claude keeps the pre-push hook executable"                has 'chmod +x "$ROOT/.harness/scripts/pre-push"' "$f"
   assert "[$V] DoD prompt hardened: run slow checks to completion (poll)"    has 'POLL to completion' "$f"
   assert "[$V] DoD prompt: an unobserved/incomplete check is failed:soft"    has 'OBSERVE is NOT a pass' "$f"
 done

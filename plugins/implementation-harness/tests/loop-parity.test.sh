@@ -29,14 +29,18 @@ assert "in-place variant exists with its marker" grep -q '^# harness-loop-varian
 # C01: shared logic is being extracted, in stages, into loop-lib.sh (sourced by both variants) instead
 # of hand-mirrored here. Stage 1 (RL family) moved _hms, rl_banner, rl_detect, rl_selftest, plus
 # rl_reset_wait/rl_cli_said/rl_build_wait (never pinned below — rl_reset_wait genuinely diverged in
-# comments pre-extraction, and rl_cli_said/rl_build_wait are new/never had a local copy to pin). A
-# moved function must exist ONLY in the lib — never re-inlined locally by either variant (the
-# no-reinline guard below) — and both variants must actually source the lib.
+# comments pre-extraction, and rl_cli_said/rl_build_wait are new/never had a local copy to pin). Stage
+# 2 moved run_claude (genuinely diverged pre-extraction — the WORK_DIR/PROMPT_DIR seam absorbs it) and
+# two new prompt()-block helpers, scope_gate_block/expects_test_block (expects_test_block WAS
+# byte-identical pre-extraction; scope_gate_block only covers the portion of the old SCOPE block that
+# was — each caller still prints its own final "PLUS…" line, which legitimately differs). A moved
+# function must exist ONLY in the lib — never re-inlined locally by either variant (the no-reinline
+# guard below) — and both variants must actually source the lib.
 LIB="$SCRIPT_DIR/../templates/scripts/loop-lib.sh"
 assert "loop-lib.sh exists" [ -f "$LIB" ]
 assert "worktree variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$WT"
 assert "in-place variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$IP"
-MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait"
+MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait run_claude scope_gate_block expects_test_block"
 for fn in $MOVED_TO_LIB; do
   assert "$fn defined in loop-lib.sh" grep -qE "^$fn\(\) \{" "$LIB"
   assert "$fn NOT re-inlined in loop.sh" bash -c "! grep -qE '^$fn\(\) \{' '$WT'"

@@ -5,12 +5,15 @@
 # hand-mirroring is exactly where recent regressions lived (usage-limit detection 1.69.0, idle handling
 # 1.65.0, the B08 CI-recheck parity gap) — same drift class scope-lib.sh/repo-lock.sh were extracted to
 # fix. Being extracted in STAGES (see proposals/C01, or git history once the proposal file is gone):
-# stage 1 = the rate-limit (RL_*) family, covered so far.
+# stage 1 = the rate-limit (RL_*) family; stage 2 = Claude invocation (run_claude), covered so far.
 #
 # NO top-level execution beyond the RL_* knob defaults below (plain `"${VAR:-default}"` — safe to
 # source at any point AFTER the caller has sourced its own harness.env, so an env override still wins).
-# Every function here reads only its own args + these knobs — no dependency on which variant sourced it.
-# Targets bash 3.2.
+# Every function here reads only its own args, these knobs, or the SEAM variables documented at each
+# use site (WORK_DIR, PROMPT_DIR — set by the caller BEFORE this is sourced would be nice, but since a
+# function body is just text until CALLED, it's enough that the caller sets them before the main loop
+# actually invokes run_claude; see loop.sh/loop.in-place.sh's own comments at their assignment). Targets
+# bash 3.2.
 
 # --- Rate-limit knobs (env override > harness.env > these defaults; see rl_reset_wait/rl_detect) -----
 # Usage/session-limit handling: poll + resume the SAME task rather than exit (5.x / R rung retries), so
@@ -188,4 +191,125 @@ rl_build_wait() {
   heartbeat rate-limited
   sleep "$rlwait"
   printf '%s %s' "$(( rl_waited + rlwait ))" "$rl_sleep"
+}
+
+# run_claude <model> <effort> <prompt> <phase: build|audit> → 0 ok | 10 rate/usage-limited | other = failure
+#
+# Invokes claude in --output-format stream-json mode (--verbose is MANDATORY for stream-json in
+# --print mode — the CLI refuses to start without it) so output arrives incrementally instead of one
+# buffered dump at process exit (plain -p mode never streams to a pipe — confirmed empirically: a
+# 500-word response sat at a flat byte count for the entire generation, then landed in a single write
+# right as the process exited). The raw event stream goes to `.claude-out.<phase>.jsonl` (what the
+# dashboard tails live, per phase); `.claude-out.<phase>` itself is reconstructed via jq into PLAIN
+# TEXT and keeps its role from before phase-separation — every existing consumer (RL_HARD_RE/RL_RE,
+# rl_reset_wait's reset-time parsing, the audit's PASS/FAIL grep, the worklog .audit.md copy) just
+# needed its path updated to the phase-specific file, not its logic. `raw`/`out` are always under the
+# PRIMARY checkout's worklog (`$HARNESS_DIR/worklog` — identical in both variants; B04) so a
+# transcript survives a worktree teardown seconds later.
+#
+# `<phase>` is load-bearing, not cosmetic: build and audit used to share ONE fixed filename, so the
+# very first byte of the audit's output truncated (via `tee`) the builder's still-fresh output before
+# a human ever saw it. Per-phase files mean both stay readable independently until their own NEXT run.
+#
+# The jq extraction MUST be `-R … | fromjson? | …`, not the naive `select(...)` on parsed JSON input:
+# `2>&1` means an occasional non-JSON stderr line can land mid-stream, and plain `jq 'select(...)'`
+# treats one parse error as fatal — SILENTLY DROPPING every text_delta after that point for the rest
+# of the invocation (confirmed empirically). `-R` (read each line as a raw string) + `fromjson?` (the
+# `?` turns a parse failure into `empty` for just that line) skips a bad line and keeps going.
+#
+# SEAM (C01): reads $WORK_DIR (where the claude subprocess cd's to — the isolated worktree for
+# loop.sh, the primary checkout for loop.in-place.sh) and $PROMPT_DIR (where the FULL per-phase
+# prompt file is written — same split: lost on worktree teardown for loop.sh, durable for
+# loop.in-place.sh) — both assigned by the caller before this is ever CALLED (see their own comments
+# at the assignment site). Also reads $HARNESS_DIR, $CLAUDE_BIN, $FLAGS, $ROOT, $cur_task,
+# $cur_rung, $cur_attempts, $PRINT_PROMPT — all identically named/computed in both variants.
+run_claude() {
+  local model="$1" effort="$2" pr="$3" phase="$4"
+  local raw="$HARNESS_DIR/worklog/.claude-out.${phase}.jsonl"   # raw stream events — dashboard's live tail
+  local out="$HARNESS_DIR/worklog/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
+  local rc
+  local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
+  # The FULL prompt handed to Claude (build or audit) goes to a PER-PHASE FILE under worklog/, NOT the
+  # console: the prompts are huge and used to bury the cycle boundaries in the terminal, making it hard to
+  # see where each iteration starts/ends. The console now gets only a concise boundary banner (which
+  # task/phase/tier is starting + where to read the prompt). The prompt file is gitignored scratch (like
+  # .claude-out.*), viewable any time. Neither write ever touches claude's stdin/stdout pipeline below.
+  local _ph _meta _bar='================================================================================'
+  _ph="$(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')"
+  # Build banners show the escalation position (rung/attempt — WHY this tier); the audit runs at the fixed
+  # AUDITOR tier, not a ladder rung, so rung/attempt is meaningless there and omitted.
+  _meta="($model${effort:+ / $effort})"
+  [ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"
+  local _pfile="$PROMPT_DIR/.claude-prompt.${phase}"
+  { printf '%s\n=====  %s PROMPT  —  task %s  %s\n%s\n%s\n' \
+      "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar" "$pr"; } > "$_pfile" 2>/dev/null || true
+  # CONCISE cycle-boundary banner → console (PRINT_PROMPT=0 silences it). No prompt body; points at the file.
+  if [ "${PRINT_PROMPT:-1}" = 1 ]; then
+    { printf '\n%s\n=====  %s  —  task %s  %s\n=====  full prompt → %s\n%s\n\n' \
+        "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_pfile" "$_bar"; } >&2
+  fi
+  set +e
+  # `${arr[@]+"${arr[@]}"}` (guard, NOT a bare "${arr[@]}") — on bash < 4.4 (macOS ships 3.2) expanding a
+  # declared-but-EMPTY array under `set -u` throws `unbound variable` and crashes run_claude BEFORE claude
+  # runs. That's exactly the effort-less cold-start floor (Haiku), so a fresh install crash-loops on task 1.
+  # PUSH BLOCK (both variants) — the builder/auditor must NOT push (worktree: its tNNN branch; in-place:
+  # main directly) — the LOOP is the sole pusher (P5), so the deterministic local gate (structural_checks /
+  # LOCAL_DOD) runs BEFORE anything reaches origin/CI. We scope git's pre-push hook to THIS agent
+  # subprocess via GIT_CONFIG_* env — NOT a persistent `core.hooksPath`, which would disable the repo's own
+  # husky/pre-commit hooks for the loop and humans too. HARNESS_AGENT=1 is what .harness/scripts/pre-push
+  # checks; the loop's own pushes and human pushes never carry it, so they're never blocked. The hooks dir
+  # is the PRIMARY checkout's `.harness/scripts` (for loop.sh, the worktree shares $ROOT's .git;
+  # core.hooksPath is an absolute path, not a worktree-relative ref, so it resolves correctly). chmod keeps
+  # the hook executable even if an install/copy dropped the bit (git silently ignores a non-executable hook
+  # = no enforcement).
+  chmod +x "$ROOT/.harness/scripts/pre-push" 2>/dev/null || true
+  ( cd "$WORK_DIR" \
+      && HARNESS_AGENT=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$ROOT/.harness/scripts" \
+         "$CLAUDE_BIN" -p "$pr" --model "$model" ${eff[@]+"${eff[@]}"} \
+      --output-format stream-json --include-partial-messages --verbose ${FLAGS[@]+"${FLAGS[@]}"} ) 2>&1 \
+    | tee "$raw" \
+    | jq -Rrj 'fromjson? | select(.type=="stream_event" and .event.delta.type? == "text_delta") | .event.delta.text' \
+    > "$out"
+  rc=${PIPESTATUS[0]}
+  set -e
+  # Limit detection (see rl_detect): scans the RAW stream too — the notice isn't a text_delta, so it
+  # never lands in the reassembled $out. return 10 → the caller runs the reset-aware backoff; the loop
+  # never exits on a usage limit.
+  if rl_detect "$out" "$raw" "$rc"; then return 10; fi
+  return "$rc"
+}
+
+# --- Shared prompt() blocks (C01 stage 2) -----------------------------------------------------------
+# scope_gate_block <tid> — the SCOPE — HARD GATE section of the build prompt: lists exactly which
+# files the builder may touch (reads $tid's `scope` via the caller's own `tj`). Each caller prints its
+# OWN final "PLUS you may always…" line immediately after calling this — that line legitimately
+# differs per variant (each references what its OWN prompt already said elsewhere about who owns
+# TASKS.json), so it deliberately stays OUT of this shared block rather than forcing a false
+# unification of two sentences that mean different things in context.
+scope_gate_block() {
+  local tid="$1" sc
+  sc="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.scope[]?' 2>/dev/null)"
+  printf '\n--- SCOPE — HARD GATE (a script checks your diff against this; staying inside it is mandatory) ---\n'
+  printf 'You may change ONLY these files:\n'
+  if [ -n "$sc" ]; then printf '%s\n' "$sc" | sed 's/^/  - /'; else printf '  (none declared — keep the diff minimal)\n'; fi
+}
+
+# expects_test_block <tid> — the "TESTS — REQUIRED" section of the build prompt, printed only when
+# the task is marked expectsTest. Byte-identical across both variants before this extraction (verified
+# via loop-parity.test.sh's manifest) — no seam needed.
+expects_test_block() {
+  local tid="$1"
+  if tj -e --arg id "$tid" '.tasks[]|select(.id==$id)|.expectsTest==true' >/dev/null 2>&1; then
+    printf '\n--- TESTS — REQUIRED for this task (it is marked expectsTest) ---\n'
+    printf 'You MUST add or change at least one TEST file that exercises the behaviour in "## Do" and pins the\n'
+    printf '"## Done when" acceptance items. Test files are ALWAYS in scope (see SCOPE above) — so this is a\n'
+    printf 'REQUIREMENT of this task, not a scope exception you can skip. A diff that changes NO test file\n'
+    printf 'AUTO-FAILS this task (structural gate: test-missing); a green run against the EXISTING tests only\n'
+    printf 'is NOT sufficient. Write the test to what "## Done when" says it must assert, and keep it hermetic\n'
+    printf '(a scratch/throwaway resource — never the real prod DB, live services, or real data).\n'
+    printf 'PREFER TEST-FIRST: write that test FROM "## Done when" and run it BEFORE you implement — confirm it\n'
+    printf 'FAILS first for the right reason (a test that is already green before you have written any code\n'
+    printf 'asserts nothing), then build until it passes. Re-run the suite as many times as you need while you\n'
+    printf 'iterate — there is NO per-attempt limit on how often you run the tests.\n'
+  fi
 }

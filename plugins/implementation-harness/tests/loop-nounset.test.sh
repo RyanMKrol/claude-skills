@@ -25,14 +25,16 @@ assert()   { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo 
 has()      { grep -qF -- "$1" "$2"; }        # fixed-string present
 lacks()    { ! grep -qF -- "$1" "$2"; }      # fixed-string absent
 
-for V in loop.sh loop.in-place.sh; do
-  f="$SCRIPT_DIR/$V"
-  # run_claude()'s optional-flag arrays MUST expand with the set -u guard, never bare, on the command line.
-  assert "[$V] eff expanded with set -u guard"    has   '--model "$model" ${eff[@]+"${eff[@]}"}'   "$f"
-  assert "[$V] no BARE eff expansion remains"      lacks '--model "$model" "${eff[@]}"'             "$f"
-  assert "[$V] FLAGS expanded with set -u guard"   has   '--verbose ${FLAGS[@]+"${FLAGS[@]}"}'      "$f"
-  assert "[$V] no BARE FLAGS expansion remains"    lacks '--verbose "${FLAGS[@]}"'                  "$f"
-done
+# run_claude()'s optional-flag arrays MUST expand with the set -u guard, never bare, on the command
+# line. As of C01 stage 2, run_claude lives ONCE in loop-lib.sh (sourced by both variants) rather than
+# duplicated per variant, so the guard only needs checking there.
+LIB="$SCRIPT_DIR/loop-lib.sh"
+assert "[loop-lib.sh] eff expanded with set -u guard"    has   '--model "$model" ${eff[@]+"${eff[@]}"}'   "$LIB"
+assert "[loop-lib.sh] no BARE eff expansion remains"      lacks '--model "$model" "${eff[@]}"'             "$LIB"
+assert "[loop-lib.sh] FLAGS expanded with set -u guard"   has   '--verbose ${FLAGS[@]+"${FLAGS[@]}"}'      "$LIB"
+assert "[loop-lib.sh] no BARE FLAGS expansion remains"    lacks '--verbose "${FLAGS[@]}"'                  "$LIB"
+assert "run_claude lives in loop-lib.sh, not re-inlined in either variant" \
+  bash -c "grep -qE '^run_claude\(\) \{' '$LIB' && ! grep -qE '^run_claude\(\) \{' '$SCRIPT_DIR/loop.sh' && ! grep -qE '^run_claude\(\) \{' '$SCRIPT_DIR/loop.in-place.sh'"
 
 # Sanity anchor: the guard idiom really is nounset-safe for an EMPTY array on THIS bash (passes on any
 # version; documents the mechanism the asserts above protect).

@@ -42,6 +42,39 @@ Entry format:
 
 ---
 
+## 1.88.0 → 1.89.0 — extract shared loop logic into `loop-lib.sh`, stage 2: Claude invocation (C01)
+
+Consolidation (P1), staged (stage 2 of 4 — see `proposals/C01-*.md` or the plugin's git history once
+it's gone). `run_claude` (the actual `claude -p …` invocation: stream-json parsing, the per-phase
+prompt-file write, the console banner, the push-block wiring, rate-limit-return-10) genuinely
+diverged between the two variants by exactly two things — where the agent subprocess `cd`s to, and
+where the full-prompt file is written — so it now lives ONCE in `loop-lib.sh`, reading a small
+`WORK_DIR`/`PROMPT_DIR` seam each variant assigns near its own `LOOP_WT`/`WORKLOG` definition (no
+other behavior change; `.claude-out.*` stays under `$HARNESS_DIR/worklog`, already identical in both).
+Also extracted two new `prompt()` helpers: `expects_test_block` (was already byte-identical) and
+`scope_gate_block` (covers the portion of the old SCOPE block that was identical — each variant still
+prints its OWN final "PLUS you may always…" sentence right after calling it, since that line
+legitimately differs per variant and isn't safe to force into one shared string). The much larger
+isolation-model preamble in each `prompt()` (worktree-vs-in-place instructions, DoD text, commit/push
+rules) stays UN-extracted — it genuinely diverges throughout, not hand-mirrored duplication.
+
+Five tests (`print-prompt-banner`, `loop-pushblock`, `loop-nounset`) that used to grep `run_claude`'s
+source directly out of `loop.sh`/`loop.in-place.sh` now check `loop-lib.sh` instead, plus a
+not-re-inlined-in-either-variant guard; `loop-parity.test.sh`'s lib-presence list grows the three new
+functions.
+
+- mechanism: `scripts/loop-lib.sh` — gains `run_claude`, `scope_gate_block`, `expects_test_block`.
+  `scripts/loop.sh`, `scripts/loop.in-place.sh` — `run_claude` deleted locally; each now assigns
+  `WORK_DIR`/`PROMPT_DIR` near its `LOOP_WT`/`WORKLOG` definition; `prompt()` calls the two new shared
+  helpers instead of inlining their text (each still prints its own final SCOPE "PLUS…" line locally).
+  `tests/print-prompt-banner.test.sh`, `tests/loop-pushblock.test.sh`, `tests/loop-nounset.test.sh`,
+  `tests/loop-parity.test.sh` — retargeted at `loop-lib.sh` for the moved code.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — all touched files are mechanism (content-diffed on upgrade).
+- breaking: none.
+
+---
+
 ## 1.87.0 → 1.88.0 — extract shared loop logic into `loop-lib.sh`, stage 1: the rate-limit family (C01)
 
 Consolidation (P1), staged (this is stage 1 of 4 — see `proposals/C01-*.md` for the rest, or the

@@ -19,18 +19,23 @@ assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "F
 has()    { grep -qF -- "$1" "$2"; }
 lacks()  { ! grep -qF -- "$1" "$2"; }
 
-# ---- Static: both variants carry the fixed shape ----
-for V in loop.sh loop.in-place.sh; do
-  f="$SCRIPT_DIR/$V"
-  assert "[$V] meta built from model + optional effort"        has '_meta="($model${effort:+ / $effort})"'                                              "$f"
-  assert "[$V] rung·attempt appended ONLY on the build phase"  has '[ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"' "$f"
-  assert "[$V] full prompt written to a per-phase file"        has '.claude-prompt.${phase}'                                                            "$f"
-  assert "[$V] prompt written to the file (redirect present)"  has '} > "$_pfile"'                                                                       "$f"
-  assert "[$V] console banner points at the prompt file"       has 'full prompt → %s'                                                                    "$f"
-  assert "[$V] old full-prompt-in-console END banner is gone"  lacks 'END %s PROMPT'                                                                     "$f"
-done
-assert "[in-place] prompt file in the primary worklog dir"     has 'local _pfile="$WORKLOG/.claude-prompt.${phase}"'                    "$SCRIPT_DIR/loop.in-place.sh"
-assert "[worktree] prompt file in the worktree's worklog dir"  has 'local _pfile="$LOOP_WT/.harness/worklog/.claude-prompt.${phase}"'   "$SCRIPT_DIR/loop.sh"
+# ---- Static: run_claude carries the fixed shape. As of C01 stage 2, run_claude lives ONCE in
+# loop-lib.sh (sourced by both variants) rather than duplicated per variant — so the shape lives
+# there now; each variant only supplies the WORK_DIR/PROMPT_DIR seam (checked separately below).
+LIB="$SCRIPT_DIR/loop-lib.sh"
+assert "run_claude lives in loop-lib.sh, not re-inlined in either variant" \
+  bash -c "grep -qE '^run_claude\(\) \{' '$LIB' && ! grep -qE '^run_claude\(\) \{' '$SCRIPT_DIR/loop.sh' && ! grep -qE '^run_claude\(\) \{' '$SCRIPT_DIR/loop.in-place.sh'"
+assert "[loop-lib.sh] meta built from model + optional effort"        has '_meta="($model${effort:+ / $effort})"'                                              "$LIB"
+assert "[loop-lib.sh] rung·attempt appended ONLY on the build phase"  has '[ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"' "$LIB"
+assert "[loop-lib.sh] full prompt written to a per-phase file"        has '.claude-prompt.${phase}'                                                            "$LIB"
+assert "[loop-lib.sh] prompt written to the file (redirect present)"  has '} > "$_pfile"'                                                                       "$LIB"
+assert "[loop-lib.sh] console banner points at the prompt file"       has 'full prompt → %s'                                                                    "$LIB"
+assert "[loop-lib.sh] old full-prompt-in-console END banner is gone"  lacks 'END %s PROMPT'                                                                     "$LIB"
+assert "[loop-lib.sh] prompt file path is seam-driven (PROMPT_DIR)"   has 'local _pfile="$PROMPT_DIR/.claude-prompt.${phase}"'                                  "$LIB"
+
+# ---- Seam: each variant points PROMPT_DIR at its own isolation model ----
+assert "[in-place] PROMPT_DIR is the primary worklog dir"     has 'PROMPT_DIR="$WORKLOG"'                          "$SCRIPT_DIR/loop.in-place.sh"
+assert "[worktree] PROMPT_DIR is the worktree's worklog dir"  has 'PROMPT_DIR="$LOOP_WT/.harness/worklog"'         "$SCRIPT_DIR/loop.sh"
 
 # ---- Behavioral anchor: faithful copies of the two writes (mirror run_claude) ----
 render_console() {   # <model> <effort> <phase> <cur_task> <cur_rung> <cur_attempts>
