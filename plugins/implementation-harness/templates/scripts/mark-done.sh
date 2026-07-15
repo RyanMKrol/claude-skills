@@ -16,16 +16,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
-GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
-case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
-MAIN_BRANCH="${MAIN_BRANCH:-main}"
-
 REPO_LOCK_WAIT=1   # an owner action should wait for the loop's lock, not silently no-op
-. "$SCRIPT_DIR/repo-lock.sh"
+. "$SCRIPT_DIR/overlay-edit.sh"   # sets ROOT/GIT_COMMON/MAIN_BRANCH/BACKLOG; provides overlay_edit
 
-BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
-OVERLAY="$HARNESS_DIR/tracking/human-done.json"
+OVERLAY_REL="tracking/human-done.json"
 
 UNDO=0
 if [ "${1:-}" = "--undo" ]; then UNDO=1; shift; fi
@@ -43,34 +37,24 @@ for id in "$@"; do
   fi
 done
 
-acquire_lock
-# See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
-# then keep running.
-trap 'release_lock' EXIT
-trap 'release_lock; trap - EXIT; exit 130' INT
-trap 'release_lock; trap - EXIT; exit 143' TERM
+# mutate fn for overlay_edit — closes over IDS/UNDO (plain globals; bash functions see script-level
+# vars). Captured into an array BEFORE the call since "$@" inside the mutate fn would be ITS OWN args.
+IDS=("$@")
+_mark_done_mutate() {
+  local tmp="$1" id ts; ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  for id in "${IDS[@]}"; do
+    if [ "$UNDO" = 1 ]; then
+      jq --arg id "$id" 'del(.[$id])' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
+    else
+      jq --arg id "$id" --arg ts "$ts" '.[$id] = {done: true, at: $ts}' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
+    fi
+  done
+}
+if [ "$UNDO" = 1 ]; then msg="mark-done: undo ${IDS[*]} [skip ci]"; else msg="mark-done: ${IDS[*]} [skip ci]"; fi
 
-[ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
-tmp="$OVERLAY.tmp"
-cp "$OVERLAY" "$tmp"
-ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-for id in "$@"; do
-  if [ "$UNDO" = 1 ]; then
-    jq --arg id "$id" 'del(.[$id])' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
-  else
-    jq --arg id "$id" --arg ts "$ts" '.[$id] = {done: true, at: $ts}' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
-  fi
-done
-jq empty "$tmp" || { echo "ABORT: overlay write produced invalid JSON — no changes made." >&2; rm -f "$tmp"; exit 1; }
-mv "$tmp" "$OVERLAY"
-
-git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
-# Distinguish "no change" from "commit errored": check the staged diff FIRST, then commit hard-failing
-# on error. --no-gpg-sign avoids a signing prompt/failure (commit.gpgsign=true) silently aborting the
-# commit — the old `commit … 2>/dev/null || echo "nothing to commit"; exit 0` reported success and
-# never committed if signing failed (silent loss of the owner's verdict).
-if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (overlay already in that state)"; exit 0; fi
-if [ "$UNDO" = 1 ]; then msg="mark-done: undo $* [skip ci]"; else msg="mark-done: $* [skip ci]"; fi
-git -C "$ROOT" commit -q --no-gpg-sign -m "$msg" || { echo "ERROR: commit failed — the overlay is written but not committed." >&2; exit 1; }
-push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
-[ -n "${NO_PUSH:-}" ] || echo "done: $* → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"
+rc=0; overlay_edit "$OVERLAY_REL" _mark_done_mutate "$msg" || rc=$?
+case "$rc" in
+  0) [ -n "${NO_PUSH:-}" ] || echo "done: ${IDS[*]} → $HARNESS_DIR/$OVERLAY_REL (committed + pushed; the loop applies it on its next iteration)" ;;
+  2) echo "no change to commit (overlay already in that state)" ;;
+  *) exit "$rc" ;;
+esac

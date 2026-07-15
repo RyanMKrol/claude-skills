@@ -75,8 +75,11 @@ assert "[probe] NEW idiom: TERM stops immediately (rc 143)" [ "$rc" = 143 ]
 assert "[probe] NEW idiom: TERM — never reaches the line after the signal" [ ! -f "$TMP/fixed-term.out" ]
 assert "[probe] NEW idiom: TERM — lock released exactly once" [ ! -d "$TMP/fixed-term.lock" ]
 
-# --- 2. STATIC check: all 6 real scripts carry the fixed idiom verbatim, none carry the old one --
-for f in loop.sh loop.in-place.sh mark-done.sh mark-failed.sh mark-reviewed.sh consolidate-ideas.sh; do
+# --- 2. STATIC check: scripts that install the trap directly carry the fixed idiom verbatim, none
+# carry the old one. As of C03, mark-done.sh/mark-failed.sh/mark-reviewed.sh no longer install the
+# trap themselves — they go through the shared overlay-edit.sh, which installs it ONCE for all three
+# (checked separately below).
+for f in loop.sh loop.in-place.sh consolidate-ideas.sh; do
   p="$SCRIPT_DIR/$f"
   assert "[$f] no leftover single-line 'trap ... EXIT INT TERM' idiom" \
     bash -c '! grep -q "trap .release_lock. EXIT INT TERM" "$1"' _ "$p"
@@ -87,8 +90,25 @@ for f in loop.sh loop.in-place.sh mark-done.sh mark-failed.sh mark-reviewed.sh c
   assert "[$f] carries the fixed TERM trap (release + clear EXIT + exit 143)" \
     bash -c "grep -qF \"trap 'release_lock; trap - EXIT; exit 143' TERM\" \"\$1\"" _ "$p"
 done
-# mark-failed.sh carries the idiom TWICE (--undo branch + main path)
-assert "[mark-failed.sh] fixed idiom present at BOTH trap sites" \
-  bash -c '[ "$(grep -c "trap .release_lock. EXIT\$" "$1")" = 2 ]' _ "$SCRIPT_DIR/mark-failed.sh"
+
+# overlay-edit.sh (C03's structural home for B02, shared by the 3 mark-*.sh callers) installs the
+# fixed idiom exactly once, and none of the 3 callers re-install it themselves.
+oe="$SCRIPT_DIR/overlay-edit.sh"
+assert "[overlay-edit.sh] carries the fixed EXIT-only trap" \
+  bash -c "grep -q \"trap 'release_lock' EXIT\\\$\" \"\$1\"" _ "$oe"
+assert "[overlay-edit.sh] carries the fixed INT trap (release + clear EXIT + exit 130)" \
+  bash -c "grep -qF \"trap 'release_lock; trap - EXIT; exit 130' INT\" \"\$1\"" _ "$oe"
+assert "[overlay-edit.sh] carries the fixed TERM trap (release + clear EXIT + exit 143)" \
+  bash -c "grep -qF \"trap 'release_lock; trap - EXIT; exit 143' TERM\" \"\$1\"" _ "$oe"
+for f in mark-done.sh mark-failed.sh mark-reviewed.sh; do
+  p="$SCRIPT_DIR/$f"
+  assert "[$f] no longer installs its own trap (goes through overlay-edit.sh instead)" \
+    bash -c '! grep -q "^trap " "$1"' _ "$p"
+  assert "[$f] sources overlay-edit.sh" bash -c 'grep -qF "overlay-edit.sh" "$1"' _ "$p"
+done
+# mark-failed.sh calls overlay_edit TWICE (--undo branch + main path) — the structural replacement
+# for the old "trap present twice" check now that the trap itself lives in overlay-edit.sh.
+assert "[mark-failed.sh] calls overlay_edit at BOTH call sites" \
+  bash -c '[ "$(grep -c "overlay_edit \"\$OVERLAY_REL\"" "$1")" = 2 ]' _ "$SCRIPT_DIR/mark-failed.sh"
 
 [ "$FAIL" = 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }

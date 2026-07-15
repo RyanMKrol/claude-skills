@@ -15,7 +15,7 @@ setup_repo() {   # echoes the repo path
   git init -q "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
-  cp "$SCRIPT_DIR/repo-lock.sh" "$d/.harness/scripts/"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/overlay-edit.sh" "$d/.harness/scripts/"
   cp "$MARK_DONE" "$SCRIPT_DIR/mark-reviewed.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
   cat >"$d/.harness/tracking/TASKS.json" <<'JSON'
@@ -99,6 +99,29 @@ assert "bulk mark-reviewed makes exactly one commit" [ "$((after - before))" = 1
 assert "T004 recorded reviewed" bash -c "jq -e '.T004.reviewed==true' '$d/.harness/tracking/reviews.json' >/dev/null"
 ( cd "$d" && .harness/scripts/mark-reviewed.sh --undo T004 >/dev/null )
 assert "mark-reviewed --undo removes the key entirely" bash -c "! jq -e '.T004' '$d/.harness/tracking/reviews.json' >/dev/null 2>&1"
+rm -rf "$d"
+
+# Test 7 (B05/C03 wiring — the lib's own matrix lives in overlay-edit.test.sh; these two just confirm
+# mark-done.sh/mark-reviewed.sh are actually WIRED to it end-to-end through the real CLI).
+d="$(setup_repo)"
+( cd "$d" && git checkout -q -b feature-x )
+before="$(cd "$d" && git rev-list --count HEAD)"
+if ( cd "$d" && .harness/scripts/mark-done.sh T001 >/dev/null 2>&1 ); then
+  echo "FAIL - mark-done.sh should refuse off-main"; FAIL=1
+else
+  echo "ok - mark-done.sh refuses to publish from a non-main branch (B05)"
+fi
+assert "no commit made when off-main" [ "$before" = "$(cd "$d" && git rev-list --count HEAD)" ]
+rm -rf "$d"
+
+d="$(setup_repo)"
+echo "unrelated WIP" >"$d/unrelated.txt"
+( cd "$d" && git add unrelated.txt )
+( cd "$d" && .harness/scripts/mark-reviewed.sh T004 >/dev/null )
+assert "mark-reviewed.sh's commit touches ONLY its overlay file (B05 pathspec isolation)" \
+  bash -c "cd '$d' && [ \"\$(git show --name-only --format= HEAD)\" = '.harness/tracking/reviews.json' ]"
+assert "the unrelated staged file is untouched (still staged, not committed)" \
+  bash -c "cd '$d' && git diff --cached --name-only | grep -qF unrelated.txt"
 rm -rf "$d"
 
 if [ "$FAIL" = 0 ]; then echo "mark-done-bulk.test.sh: ALL PASS"; else echo "mark-done-bulk.test.sh: FAILURES"; exit 1; fi

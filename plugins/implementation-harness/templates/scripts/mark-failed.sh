@@ -21,33 +21,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
-GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
-case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
-MAIN_BRANCH="${MAIN_BRANCH:-main}"
-
 REPO_LOCK_WAIT=1
-. "$SCRIPT_DIR/repo-lock.sh"
+. "$SCRIPT_DIR/overlay-edit.sh"   # sets ROOT/GIT_COMMON/MAIN_BRANCH/BACKLOG; provides overlay_edit
 
-BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
-OVERLAY="$HARNESS_DIR/tracking/manual-fail.json"
+OVERLAY_REL="tracking/manual-fail.json"
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 3; }
 
 if [ "${1:-}" = "--undo" ]; then
   id="${2:-}"; [ -n "$id" ] || { echo "usage: mark-failed.sh --undo TNNN" >&2; exit 2; }
-  acquire_lock
-  # See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
-  # then keep running.
-  trap 'release_lock' EXIT
-  trap 'release_lock; trap - EXIT; exit 130' INT
-  trap 'release_lock; trap - EXIT; exit 143' TERM
-  [ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
-  jq --arg id "$id" 'del(.[$id])' "$OVERLAY" >"$OVERLAY.tmp" && mv "$OVERLAY.tmp" "$OVERLAY"
-  git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
-  if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (nothing to undo)"; exit 0; fi
-  git -C "$ROOT" commit -q --no-gpg-sign -m "mark-failed: undo $id [skip ci]" || { echo "ERROR: commit failed" >&2; exit 1; }
-  push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
-  [ -n "${NO_PUSH:-}" ] || echo "undone: $id"; exit 0
+  _mark_failed_undo_mutate() { jq --arg id "$id" 'del(.[$id])' "$1" >"$1.2" && mv "$1.2" "$1"; }
+  rc=0; overlay_edit "$OVERLAY_REL" _mark_failed_undo_mutate "mark-failed: undo $id [skip ci]" || rc=$?
+  case "$rc" in
+    0) [ -n "${NO_PUSH:-}" ] || echo "undone: $id" ;;
+    2) echo "no change to commit (nothing to undo)" ;;
+    *) exit "$rc" ;;
+  esac
+  exit 0
 fi
 
 # Reason = ALL trailing args, so an unquoted multi-word reason works (mark-failed.sh T1 padlock never
@@ -57,20 +46,13 @@ id="${1:-}"; shift 2>/dev/null || true; reason="$*"
 jq -e --arg id "$id" '.tasks[]|select(.id==$id)|(.status=="done" or .status=="blocked")' "$BACKLOG" >/dev/null 2>&1 \
   || { echo "ABORT: $id is not currently status:\"done\" or status:\"blocked\" — no changes made." >&2; exit 1; }
 
-acquire_lock
-# See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
-# then keep running.
-trap 'release_lock' EXIT
-trap 'release_lock; trap - EXIT; exit 130' INT
-trap 'release_lock; trap - EXIT; exit 143' TERM
-
-[ -f "$OVERLAY" ] || echo '{}' >"$OVERLAY"
-ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-jq --arg id "$id" --arg reason "$reason" --arg ts "$ts" '.[$id] = {failed: true, reason: $reason, at: $ts}' "$OVERLAY" >"$OVERLAY.tmp" \
-  && jq empty "$OVERLAY.tmp" && mv "$OVERLAY.tmp" "$OVERLAY" || { rm -f "$OVERLAY.tmp"; echo "ABORT: overlay write failed" >&2; exit 1; }
-
-git -C "$ROOT" add "$OVERLAY" 2>/dev/null || true
-if git -C "$ROOT" diff --cached --quiet -- "$OVERLAY" 2>/dev/null; then echo "no change to commit (overlay already in that state)"; exit 0; fi
-git -C "$ROOT" commit -q --no-gpg-sign -m "mark-failed: $id — $reason [skip ci]" || { echo "ERROR: commit failed — the overlay is written but not committed." >&2; exit 1; }
-push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }
-[ -n "${NO_PUSH:-}" ] || echo "failed: $id ($reason) → $OVERLAY (committed + pushed; the loop applies it on its next iteration)"
+_mark_failed_mutate() {
+  local tmp="$1" ts; ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq --arg id "$id" --arg reason "$reason" --arg ts "$ts" '.[$id] = {failed: true, reason: $reason, at: $ts}' "$tmp" >"$tmp.2" && mv "$tmp.2" "$tmp"
+}
+rc=0; overlay_edit "$OVERLAY_REL" _mark_failed_mutate "mark-failed: $id — $reason [skip ci]" || rc=$?
+case "$rc" in
+  0) [ -n "${NO_PUSH:-}" ] || echo "failed: $id ($reason) → $HARNESS_DIR/$OVERLAY_REL (committed + pushed; the loop applies it on its next iteration)" ;;
+  2) echo "no change to commit (overlay already in that state)" ;;
+  *) exit "$rc" ;;
+esac

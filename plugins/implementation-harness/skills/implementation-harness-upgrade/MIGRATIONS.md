@@ -42,6 +42,40 @@ Entry format:
 
 ---
 
+## 1.83.2 → 1.84.0 — shared overlay-edit.sh: branch guard + pathspec-scoped commits for mark-done/mark-failed/mark-reviewed (B05 + C03, part 1/2)
+
+Bug fix + consolidation. `mark-done.sh`/`mark-failed.sh`/`mark-reviewed.sh` shared a ~70% hand-
+maintained skeleton (path derivation, lock, overlay init, jq edit, no-op check, commit, push,
+`--undo`) with two real bugs baked into it: (1) no branch check — `push_with_retry` rebases +
+pushes WHATEVER branch the checkout happens to be on onto `origin/main`, so running any of these
+scripts (or clicking the equivalent dashboard button) while the owner's primary checkout is mid-
+feature-work publishes that WIP straight to main; (2) `git commit` with no pathspec sweeps up any
+unrelated staged file, not just the overlay these scripts actually edit. Fix: new shared
+`scripts/overlay-edit.sh` (`overlay_edit <overlay-relpath> <mutate-fn> <commit-msg>`) is now the
+SOLE place these three scripts touch git — it derives ROOT/GIT_COMMON/MAIN_BRANCH, acquires the
+lock, refuses off-`main`, applies the caller's mutate function via temp+validate (aborting loudly,
+not silently no-opping, if the mutate fn itself fails), no-ops on nothing-changed, commits with an
+EXPLICIT PATHSPEC on just the overlay file, `push_with_retry`s, and releases — folding B02's trap
+fix in here too (it now lives ONCE in the lib instead of three times). `consolidate-ideas.sh` and
+`rewire-dependents.sh` are NOT part of this — they touch multiple paths / TASKS.json directly rather
+than a single overlay, so they get the same branch-guard/pathspec treatment as a separate change
+(part 2/2, forthcoming) instead of being force-fit into `overlay_edit`.
+
+- mechanism: `scripts/overlay-edit.sh` — **NEW FILE**, sourced by the three mark-*.sh scripts (a
+  missing copy aborts them — same "REQUIRED sourced lib" class as `scope-lib.sh`). `scripts/mark-
+  done.sh`, `scripts/mark-failed.sh` (two call sites — `--undo` branch + main path), `scripts/mark-
+  reviewed.sh` — each shrinks to its own arg-parsing/status-guard jq + one (or two) `overlay_edit`
+  call(s); no longer derive ROOT/GIT_COMMON themselves, no longer install their own signal traps
+  (now centralized in the lib).
+- config: none. new files: `scripts/overlay-edit.sh` (see above — REQUIRED, copy alongside `repo-
+  lock.sh`/`scope-lib.sh`). renamed/removed: none.
+- manual attention: none — all mechanism (content-diffed on upgrade; the new file is auto-detected
+  as "missing in target" by the reconcile stage).
+- breaking: none on the happy path (`mark-done-bulk.test.sh` unmodified and green). A caller running
+  any of the three scripts from a non-`main` branch, or with an unrelated file staged, now behaves
+  differently than before — that's the fix, not a regression (previously it would have silently
+  published the wrong branch / swept up the unrelated file).
+
 ## 1.83.1 → 1.83.2 — FORCE_TASK respects terminal-status skips and is effectively one-shot (B03)
 
 Bug fix (P1). `loop.sh TNNN`'s forced path in `select_task` only checked that the id EXISTS in
