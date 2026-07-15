@@ -33,19 +33,37 @@ assert "in-place variant exists with its marker" grep -q '^# harness-loop-varian
 # 2 moved run_claude (genuinely diverged pre-extraction — the WORK_DIR/PROMPT_DIR seam absorbs it) and
 # two new prompt()-block helpers, scope_gate_block/expects_test_block (expects_test_block WAS
 # byte-identical pre-extraction; scope_gate_block only covers the portion of the old SCOPE block that
-# was — each caller still prints its own final "PLUS…" line, which legitimately differs). A moved
-# function must exist ONLY in the lib — never re-inlined locally by either variant (the no-reinline
-# guard below) — and both variants must actually source the lib.
+# was — each caller still prints its own final "PLUS…" line, which legitimately differs). Stage 3
+# moved structural_checks and wait_ci_green (each genuinely diverged pre-extraction — the WORK_DIR/
+# PROMPT_DIR/MAIN_BRANCH seam absorbs structural_checks; wait_ci_green's branch-vs-HEAD divergence
+# became one optional-arg signature) and audit_prompt (WAS byte-identical once its diff-range label
+# reads $MAIN_BRANCH). Stage 3 deliberately did NOT move audit_gate or pick_base — both genuinely
+# diverge throughout via the tj/blob DATA-ACCESS pattern (loop.sh reads via `blob` off a git ref;
+# loop.in-place.sh reads local files directly — `blob()` doesn't even exist there), which is a real
+# isolation-model difference, not hand-mirror drift; see the MIGRATIONS.md 1.89.0→1.90.0 entry. A
+# moved function must exist ONLY in the lib — never re-inlined locally by either variant (the
+# no-reinline guard below) — and both variants must actually source the lib.
 LIB="$SCRIPT_DIR/../templates/scripts/loop-lib.sh"
 assert "loop-lib.sh exists" [ -f "$LIB" ]
 assert "worktree variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$WT"
 assert "in-place variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$IP"
-MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait run_claude scope_gate_block expects_test_block"
+MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait run_claude scope_gate_block expects_test_block structural_checks wait_ci_green audit_prompt"
 for fn in $MOVED_TO_LIB; do
   assert "$fn defined in loop-lib.sh" grep -qE "^$fn\(\) \{" "$LIB"
   assert "$fn NOT re-inlined in loop.sh" bash -c "! grep -qE '^$fn\(\) \{' '$WT'"
   assert "$fn NOT re-inlined in loop.in-place.sh" bash -c "! grep -qE '^$fn\(\) \{' '$IP'"
 done
+
+# The outcome_row/record_outcome jq FILTER (not a bash function — worktree calls it from a separate
+# outcome_row() helper, in-place inlines it into record_outcome() directly; two real call-site shapes,
+# not hand-mirror drift) is de-duplicated as a shared outcome-row.jq file instead (see policy.jq's
+# precedent). Both variants must reference it via -f, and the literal jq body must be gone from both.
+OUTCOME_ROW_JQ="$SCRIPT_DIR/../templates/scripts/outcome-row.jq"
+assert "outcome-row.jq exists" [ -f "$OUTCOME_ROW_JQ" ]
+assert "worktree references outcome-row.jq" grep -qF 'OUTCOME_ROW_JQ' "$WT"
+assert "in-place references outcome-row.jq" grep -qF 'OUTCOME_ROW_JQ' "$IP"
+assert "worktree no longer inlines the ledger-row jq body" bash -c "! grep -qF 'succeededRung:(if \$blocked' '$WT'"
+assert "in-place no longer inlines the ledger-row jq body" bash -c "! grep -qF 'succeededRung:(if \$blocked' '$IP'"
 
 # Verified byte-identical at the time this manifest was authored (v1.70.x); shrinks as extraction
 # (C01) moves a function into loop-lib.sh instead — see the lib-presence block above. Alphabetical.

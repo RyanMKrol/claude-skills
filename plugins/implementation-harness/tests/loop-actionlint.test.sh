@@ -26,18 +26,23 @@ assert "[ensure-actionlint] pins ACTIONLINT_VERSION"    has 'ACTIONLINT_VERSION:
 assert "[ensure-actionlint] verifies sha256 checksums"  has '_checksums.txt'         "$al"
 assert "[ensure-actionlint] installs into .harness/.bin" has '.harness/.bin'         "$al"
 
-# ---- Both loop variants: Part 1 (structural), Part 2 (wait_ci_green), Part 3 (idle) ----
+# ---- Part 1 (structural) + Part 2's wait_ci_green half: as of C01 stage 3, structural_checks and
+# wait_ci_green live ONCE in loop-lib.sh (sourced by both variants) rather than duplicated per variant.
+LIB="$SCRIPT_DIR/loop-lib.sh"
+assert "[loop-lib.sh] structural gate fires on .github/workflows diffs"   hasE '\^\\.github/workflows/.\+\\.\(yml\|yaml\)' "$LIB"
+assert "[loop-lib.sh] runs ensure-actionlint.sh (best-effort fetch)"      has 'ensure-actionlint.sh' "$LIB"
+assert "[loop-lib.sh] a bad workflow is STRUCT_FAIL_KIND=workflow-lint"   has 'STRUCT_FAIL_KIND="workflow-lint"' "$LIB"
+assert "[loop-lib.sh] fetch failure WARNs + SKIPs (does not block)"      has 'actionlint unavailable' "$LIB"
+assert "[loop-lib.sh] honors the LINT_WORKFLOW_FILES knob"               has 'LINT_WORKFLOW_FILES:-1' "$LIB"
+assert "[loop-lib.sh] wait_ci_green treats an unresolved workflow name as RED" has 'CI_NAME_UNRESOLVED' "$LIB"
+
+# ---- Both loop variants: Part 2's ci_find_run half (still local — unchanged) + Part 3 (idle) ----
 for V in loop.sh loop.in-place.sh; do
   f="$SCRIPT_DIR/$V"
-  # Part 1 — actionlint in structural_checks, scoped to workflow-file diffs, warn+skip when unavailable.
-  assert "[$V] structural gate fires on .github/workflows diffs"   hasE '\^\\.github/workflows/.\+\\.\(yml\|yaml\)' "$f"
-  assert "[$V] runs ensure-actionlint.sh (best-effort fetch)"      has 'ensure-actionlint.sh' "$f"
-  assert "[$V] a bad workflow is STRUCT_FAIL_KIND=workflow-lint"   has 'STRUCT_FAIL_KIND="workflow-lint"' "$f"
-  assert "[$V] fetch failure WARNs + SKIPs (does not block)"       has 'actionlint unavailable' "$f"
-  assert "[$V] honors the LINT_WORKFLOW_FILES knob"                has 'LINT_WORKFLOW_FILES:-1' "$f"
-  # Part 2 — wait_ci_green run-matching path-fallback + red-on-unresolved-name.
+  # Part 2 — ci_find_run's run-matching path-fallback + red-on-unresolved-name (still local per variant,
+  # pinned byte-identical by loop-parity.test.sh — only wait_ci_green itself moved to the lib).
   assert "[$V] CI-run finder falls back to the workflow file PATH" has 'startswith(' "$f"
-  assert "[$V] an unresolved workflow name is treated as RED"      has 'CI_NAME_UNRESOLVED' "$f"
+  assert "[$V] an unresolved workflow name is set by ci_find_run"  has 'CI_NAME_UNRESOLVED' "$f"
   # Part 3 — idle-reconcile re-checks real CI before marking done.
   assert "[$V] idle path re-checks CI via ci_status_now"           has 'ci_status_now' "$f"
   assert "[$V] idle-but-CI-red blocks instead of marking done"     has 'idle-but-ci-red' "$f"

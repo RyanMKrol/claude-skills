@@ -42,6 +42,55 @@ Entry format:
 
 ---
 
+## 1.89.0 → 1.90.0 — extract shared loop logic into `loop-lib.sh`, stage 3: the gates (C01)
+
+Consolidation (P1), staged (stage 3 of 4 — see `proposals/C01-*.md` or the plugin's git history once
+it's gone). Moved into `loop-lib.sh`:
+- `structural_checks` — genuinely diverged pre-extraction (git dir, a couple of log paths); absorbed
+  via the WORK_DIR/PROMPT_DIR seam (extended from stage 2) plus a NEW `MAIN_BRANCH` seam var (`loop.sh`
+  sets it FIXED at `"main"` — not user-configurable, matching its existing hardcoded-everywhere
+  assumption; `loop.in-place.sh` reuses its own already-configurable `MAIN_BRANCH` knob as-is).
+- `wait_ci_green` — used to be two near-identical copies differing by branch-vs-HEAD sha resolution;
+  now ONE function taking an OPTIONAL `[branch]` arg (`loop.sh` always passes its tNNN branch;
+  `loop.in-place.sh` never does, so it gates the current HEAD) — this also closes B10's bug class
+  (a caller forgetting which shape to pass) structurally, not just as a one-off fix.
+- `audit_prompt` — WAS already byte-identical once its diff-range label reads `$MAIN_BRANCH` instead
+  of a hardcoded `"main"`.
+- The `outcome_row`/`record_outcome` ledger-row jq FILTER — de-duplicated into a new shared
+  `scripts/outcome-row.jq` file (both variants now read it via `-f`, mirroring `policy.jq`'s existing
+  precedent) instead of two verbatim-duplicated inline `-c '...'` programs. The two call sites (a
+  separate `outcome_row()` helper in `loop.sh` vs. inlined directly in `loop.in-place.sh`'s
+  `record_outcome()`) stay as-is — worktree genuinely calls it from TWO places (`record_outcome` AND
+  `block_task`), in-place from one, so unifying the bash wrapper itself isn't a like-for-like move.
+
+**Deliberately NOT moved: `audit_gate` and `pick_base`.** Both genuinely diverge throughout via the
+tj/blob DATA-ACCESS pattern — `loop.sh` reads `manual-fail.json`/`outcomes.jsonl`/`facets.json` via
+`blob()` (a git-ref read); `loop.in-place.sh` reads the same data via direct local-file `cat`/`jq`,
+and doesn't even have a `blob()` function to call. This is a real isolation-model difference (the
+proposal's own "tj/blob data-access pair" seam concept), not hand-mirror drift — forcing it into one
+function under this stage's time budget would trade a modest dedup win for real risk to two
+security/quality-critical gates. Left in place, with a comment at each explaining why, matching
+`loop-parity.test.sh`'s own established convention for legitimate divergence.
+
+- mechanism: `scripts/loop-lib.sh` — gains `structural_checks`, `wait_ci_green`, `audit_prompt`. NEW
+  `scripts/outcome-row.jq` — the shared ledger-row filter. `scripts/loop.sh`, `scripts/loop.in-place.sh`
+  — the three moved functions deleted locally; `loop.sh` gains a fixed `MAIN_BRANCH="main"` + an
+  `OUTCOME_ROW_JQ` path var; `loop.in-place.sh` gains the same `OUTCOME_ROW_JQ` var (reuses its
+  existing `MAIN_BRANCH` knob); both `outcome_row()`/`record_outcome()` read the filter via `-f`
+  instead of inlining it. `skills/implementation-harness-create/SKILL.md` — its explicit script-copy
+  list gains `outcome-row.jq` alongside `policy.jq` (a missing copy would fail SILENTLY into an empty
+  ledger row rather than aborting, since `jq -f <missing-file>` errors are backgrounded — this is
+  REQUIRED, same class as `scope-lib.sh`). `tests/loop-parity.test.sh`, `tests/loop-actionlint.test.sh`,
+  `tests/loop-extend.test.sh` — retargeted at `loop-lib.sh`/`outcome-row.jq` for the moved code.
+- config: none.
+- new files: `scripts/outcome-row.jq` — REQUIRED, read via `-f` by `loop.sh`'s `outcome_row()` and
+  `loop.in-place.sh`'s `record_outcome()`. Must land in the SAME upgrade that refreshes those two files.
+- manual attention: none — all touched/added files are mechanism (content-diffed on upgrade; the new
+  file is a clean add-candidate via the checksum fast-path once this version is in the ledger).
+- breaking: none.
+
+---
+
 ## 1.88.0 → 1.89.0 — extract shared loop logic into `loop-lib.sh`, stage 2: Claude invocation (C01)
 
 Consolidation (P1), staged (stage 2 of 4 — see `proposals/C01-*.md` or the plugin's git history once

@@ -154,11 +154,15 @@ assert "preamble audit: content appended"        has 'USE-CACHED-FIXTURES' "$oa"
 rm -rf "$d"
 
 # ============ Structural wiring assertions on the shipped loops ============
+# _custom_preamble audit's ONLY call site is inside audit_prompt(), which lives in loop-lib.sh as of
+# C01 stage 3 (not duplicated per variant) — checked once there instead of per-variant.
+LIB="$SCRIPT_DIR/loop-lib.sh"
+assert "[loop-lib.sh] wires: _custom_preamble audit" grep -qF "_custom_preamble audit" "$LIB"
 for V in loop.sh loop.in-place.sh; do
   L="$SCRIPT_DIR/$V"
   # NOTE: idle no longer fires `drained` — an idle verdict is per-task (reconciled + continue), not a
   # drained backlog. The only `drained` fire point is the real select_task-empty exit (`drained drained`).
-  for ev in "run_hook drained drained" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build" "_custom_preamble build" "_custom_preamble audit"; do
+  for ev in "run_hook drained drained" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build" "_custom_preamble build"; do
     assert "[$V] wires: $ev" grep -qF "$ev" "$L"
   done
   # a lifecycle hook must NEVER fire on the prereq/config error exit path (exit 3)

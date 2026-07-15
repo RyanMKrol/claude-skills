@@ -72,9 +72,12 @@ case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac   # make 
 
 BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
 WORKLOG="$HARNESS_DIR/worklog"
-# C01 seam for loop-lib.sh's run_claude: WORK_DIR is where the claude subprocess cd's to (the
-# primary checkout here — no worktree); PROMPT_DIR is where the full per-phase prompt file is
-# written (also the primary checkout — nothing to tear down, unlike the worktree variant).
+# C01 seam for loop-lib.sh's run_claude/structural_checks: WORK_DIR is where the claude subprocess
+# cd's to and where structural_checks' git-diff/actionlint/LOCAL_DOD run (the primary checkout here —
+# no worktree); PROMPT_DIR is where the full per-phase prompt file AND the actionlint/local-dod logs
+# are written (also the primary checkout — nothing to tear down, unlike the worktree variant).
+# MAIN_BRANCH (below, near CI_WORKFLOW) is this variant's existing user-configurable knob, reused
+# as-is by structural_checks — no new seam needed for it.
 WORK_DIR="$ROOT"
 PROMPT_DIR="$WORKLOG"
 OUTCOMES="$HARNESS_DIR/ledgers/outcomes.jsonl"      # append-only escalation ledger — the SOLE input to difficulty calibration (forward-only)
@@ -268,14 +271,7 @@ record_outcome() {
       --argjson rung "$cur_rung" --argjson atr "$cur_attempts" --argjson total "$total" \
       --arg sm "$sm" --arg se "$se" --arg fm "$fm" --arg fe "$fe" --arg ts "$ts" \
       --arg verif "${cur_verification:-ci-only}" \
-      -c '.tasks[]|select(.id==$id)|{
-        id:$id, ts:$ts, facets:(.facets // null), scopeSize:(.scope|length),
-        startModel:$sm, startEffort:(if $se=="" then null else $se end),
-        finalModel:$fm, finalEffort:(if $fe=="" then null else $fe end),
-        succeededRung:(if $blocked then null else $rung end), topRung:$rung,
-        attemptsAtRung:$atr, totalSoftFails:$total, blocked:$blocked, reason:$reason,
-        verification:$verif
-      }')"
+      -c -f "$OUTCOME_ROW_JQ")"
   if [ -n "$line" ]; then printf '%s\n' "$line" >>"$OUTCOMES"; else log "WARN: couldn't record outcome for $id"; fi
 }
 
@@ -513,6 +509,7 @@ POLICY_EXPLORE_PM="$(jq -r '.policy.exploreProbabilityPM // 0' "$FACETS" 2>/dev/
 # that rung's last touch before it's offered again (batch-boundary judgment — see policy.jq header).
 POLICY_EXPLORE_COOLDOWN_N="$(jq -r '.policy.exploreCooldownN // 20' "$FACETS" 2>/dev/null || echo 20)"
 POLICY_JQ="$SCRIPT_DIR/policy.jq"                # .harness/scripts/policy.jq, alongside this loop
+OUTCOME_ROW_JQ="$SCRIPT_DIR/outcome-row.jq"      # the shared ledger-row filter (C01) — see record_outcome()
 # Verification-aware calibration knobs (the blocking audit gate — designs/audit-verification.md §4.6).
 AUDIT_START_N="$(jq -r '.policy.auditStartN // 3' "$FACETS" 2>/dev/null || echo 3)"
 AUDIT_FLOOR_N="$(jq -r '.policy.auditFloorN // 8' "$FACETS" 2>/dev/null || echo 8)"
@@ -673,34 +670,8 @@ ci_status_now() {
   ci_conclusion "$id"
 }
 
-wait_ci_green() {   # 0=green 1=red 2=indeterminate
-  local sha runid="" waited=0
-  command -v gh >/dev/null 2>&1 || { log "gh not installed — cannot gate CI"; return 2; }
-  sha="$(git -C "$ROOT" rev-parse HEAD)"
-  log "waiting for CI ($CI_WORKFLOW) on ${sha}…"
-  while [ "$waited" -lt "$CI_TIMEOUT" ]; do
-    runid="$(ci_find_run "" "$sha")"
-    [ -n "$runid" ] && break
-    sleep "$WAIT_SECONDS"; waited=$((waited + WAIT_SECONDS))
-  done
-  [ -n "$runid" ] || { log "no '$CI_WORKFLOW' run appeared for $sha within ${CI_TIMEOUT}s"; return 2; }
-  # A run GitHub reported by FILE PATH (name unresolved) is the signature of a malformed workflow file —
-  # treat as RED immediately (never wait it out or merge over it) with a loud, actionable warning.
-  if [ "${CI_NAME_UNRESOLVED:-0}" = 1 ]; then
-    log "⚠ CI RED (run $runid): GitHub could NOT resolve the workflow's name (reported it by file path) for $sha — the .github/workflows file is almost certainly MALFORMED. Run: gh run view $runid --log-failed"
-    return 1
-  fi
-  # `gh run watch --exit-status`'s bare exit CONFLATES a genuine CI failure with a watch hiccup and a run
-  # CANCELLED by a newer push (concurrency cancel-in-progress). Watch to settle, then classify via ci_conclusion.
-  gh run watch "$runid" --exit-status >/dev/null 2>&1 || true
-  local latest; latest="$(ci_find_run "" "$sha")"; [ -n "$latest" ] && runid="$latest"
-  ci_conclusion "$runid"; local st=$?
-  case "$st" in
-    0) log "CI GREEN (run $runid)"; return 0 ;;
-    1) log "CI RED (run $runid) — gh run view $runid --log-failed"; return 1 ;;
-    *) log "CI INDETERMINATE (run $runid) — NOT treating as red (likely concurrency-cancelled/skipped, not a real failure)"; return 2 ;;
-  esac
-}
+# wait_ci_green lives in loop-lib.sh, sourced above (loop.in-place.sh always calls it with NO
+# argument, so it gates the current HEAD directly).
 
 # --- Claude invocation with rate-limit detection ----------------------------
 # RL_RE/RL_HARD_RE/RL_BUFFER + rl_reset_wait/rl_cli_said/rl_detect/run_claude live in loop-lib.sh,
@@ -875,95 +846,8 @@ CASES
 # rl_selftest lives in loop-lib.sh, sourced above.
 [ "${1:-}" = "--rl-selftest" ] && { rl_selftest "${2:-}" "${3:-}" "${4:-}" "${5:-}"; exit $?; }
 
-# structural_checks <id> — cheap, model-agnostic gate on the build commit, BEFORE the audit. Any
-# fail = a failed attempt. 0 = pass, 1 = fail.
-structural_checks() {
-  local id="$1" changed want_test scope creep f s inscope
-  STRUCT_FAIL_KIND=""; STRUCT_FAIL_DETAIL=""   # set on each fail path so the ledger records WHICH check failed
-  changed="$(git -C "$ROOT" diff --name-only "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
-  if [ -z "$changed" ]; then STRUCT_FAIL_KIND="empty-diff"; log "structural: $id produced an EMPTY diff — fail"; return 1; fi
-  # Scope-creep gate: every changed file must be WITHIN the task's declared `scope` (exact path or
-  # under a scope directory) — except the always-allowed worklog + test files (and any
-  # SCOPE_EXEMPT_GLOBS). The strong planner's `scope` is a binding contract; any other file the
-  # cheap builder touched is a failed attempt.
-  scope="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.scope[]?' 2>/dev/null)"
-  creep=""
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    case "$f" in .harness/worklog/*) continue ;; esac
-    # Lockfiles are always allowed regardless of scope: a task scoped to package.json (etc.) but not
-    # its lockfile would otherwise trip scope-creep the moment `npm install` (etc.) rewrites it as a
-    # side effect of the manifest change — a real incident this exemption exists to prevent.
-    case "$f" in */package-lock.json|package-lock.json|*/yarn.lock|yarn.lock|*/pnpm-lock.yaml|pnpm-lock.yaml) continue ;; esac
-    if is_test_path "$f"; then continue; fi
-    if in_scope_exempt "$f"; then continue; fi
-    inscope=0
-    while IFS= read -r s; do
-      [ -z "$s" ] && continue
-      # Exact path, directory prefix (trailing /, /**, /*), or single-level extension glob (`dir/*.ext`)
-      # — via the shared scope_match (same rule as in_scope_exempt + check-task-scope.sh).
-      if scope_match "$f" "$s"; then inscope=1; break; fi
-    done <<SCOPE
-$scope
-SCOPE
-    [ "$inscope" = 1 ] || creep="$creep $f"
-  done <<CHANGED
-$changed
-CHANGED
-  if [ -n "$creep" ]; then STRUCT_FAIL_KIND="scope-creep"; STRUCT_FAIL_DETAIL="${creep# }"; log "structural: $id changed files OUTSIDE scope (scope creep):$creep — fail"; return 1; fi
-  # D01: [skip ci] is a PLANNER-granted permission (ciSkipOk on the task), never something the
-  # builder's own commit message can self-authorize (PRINCIPLES.md P2 — a gate satisfiable by text
-  # the builder itself writes is exactly the listed drift smell). Checked here (BEFORE the push/CI
-  # wait) since GitHub itself never creates a run for a [skip ci] commit — there'd be nothing for
-  # wait_ci_green to find on an unauthorized one, so this must fire at commit-inspection time.
-  if git -C "$ROOT" log -1 --format=%s HEAD 2>/dev/null | grep -qF '[skip ci]'; then
-    if [ "$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.ciSkipOk // false')" != "true" ]; then
-      STRUCT_FAIL_KIND="unauthorized-skip-ci"
-      log "structural: $id's commit contains [skip ci] but the task has no ciSkipOk:true — fail"
-      return 1
-    fi
-  fi
-  want_test="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.expectsTest // false')"
-  if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | any_test_path; then
-    STRUCT_FAIL_KIND="test-missing"; log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
-  fi
-  # GitHub Actions workflow validation (see ensure-actionlint.sh) — a change to .github/workflows/*.yml
-  # can be perfectly valid YAML yet REJECTED by GitHub's own schema (e.g. a flow-sequence where a scalar
-  # is required), which kills the whole run at parse time — something LOCAL_DOD (the project's own
-  # typecheck/test/build) can't catch. actionlint validates the schema LOCALLY, before the push. Fires
-  # ONLY when the diff touches a workflow file (the common task pays nothing). Best-effort: if the linter
-  # can't be fetched (offline / rate-limited) WARN + SKIP rather than block — the scaffolded
-  # lint-workflows.yml CI job is the authoritative catch. LINT_WORKFLOW_FILES=0 disables it.
-  if [ "${LINT_WORKFLOW_FILES:-1}" != 0 ]; then
-    local wf al allog
-    wf="$(printf '%s\n' "$changed" | grep -E '^\.github/workflows/.+\.(yml|yaml)$' | while IFS= read -r f; do [ -f "$ROOT/$f" ] && printf '%s\n' "$f"; done)"
-    if [ -n "$wf" ]; then
-      if al="$("$ROOT/.harness/scripts/ensure-actionlint.sh" "$ROOT" 2>/dev/null)" && [ -x "$al" ]; then
-        allog="$WORKLOG/.actionlint.log"
-        if ! ( cd "$ROOT" && printf '%s\n' "$wf" | xargs "$al" ) >"$allog" 2>&1; then
-          STRUCT_FAIL_KIND="workflow-lint"; STRUCT_FAIL_DETAIL="$(tail -n 20 "$allog" 2>/dev/null | tr '\n' '⏎')"
-          log "structural: $id — actionlint REJECTED a .github/workflows change (invalid GitHub Actions schema) — fail (last lines:)"; tail -n 20 "$allog" 2>/dev/null | sed 's/^/    /' >&2
-          return 1
-        fi
-        log "structural: actionlint OK on changed workflow file(s)"
-      else
-        log "structural: WARN — actionlint unavailable (couldn't fetch); SKIPPING local workflow-YAML validation for $id. The lint-workflows.yml CI job still gates it; set LINT_WORKFLOW_FILES=0 to silence."
-      fi
-    fi
-  fi
-  if [ -n "$LOCAL_DOD" ]; then
-    log "structural: running LOCAL_DOD → $LOCAL_DOD"
-    # Capture output so a LOCAL_DOD failure gives a "why" (the last lines go into the failure ledger
-    # detail + the log), instead of the silent >/dev/null that left no diagnostic trail.
-    local dodlog="$WORKLOG/.local-dod.log"
-    if ! ( cd "$ROOT" && eval "$LOCAL_DOD" ) >"$dodlog" 2>&1; then
-      STRUCT_FAIL_KIND="local-dod"; STRUCT_FAIL_DETAIL="$(tail -n 20 "$dodlog" 2>/dev/null | tr '\n' '⏎')"
-      log "structural: LOCAL_DOD failed for $id — fail (last lines:)"; tail -n 20 "$dodlog" 2>/dev/null | sed 's/^/    /' >&2
-      return 1
-    fi
-  fi
-  return 0
-}
+# structural_checks lives in loop-lib.sh, sourced above (reads the WORK_DIR/PROMPT_DIR/MAIN_BRANCH
+# seam assigned near WORKLOG above).
 
 # --struct-selftest <id> — runs the REAL structural_checks against whatever is ALREADY committed on
 # $ROOT's current branch (the caller sets up the fixture: a task in TASKS.json on origin/$MAIN_BRANCH,
@@ -978,33 +862,7 @@ if [ "${1:-}" = "--struct-selftest" ]; then
   exit 0
 fi
 
-# audit_prompt <id> <spec> <diff> — the independent auditor's prompt (strict PASS/FAIL on ## Done when).
-audit_prompt() {
-  local id="$1" spec="$2" diff="$3"
-  cat <<EOF
-You are an INDEPENDENT AUDITOR. You did NOT write this code and you carry NO prior context. Another
-agent implemented task $id; your ONLY job is to judge whether the implementation genuinely satisfies
-the task's "## Done when" criteria below.
-
-Give your reasoning in as much prose as you need. Then, as the ABSOLUTE LAST LINE of your entire
-response — nothing after it, nothing else on that line — output exactly one of:
-VERDICT: PASS
-VERDICT: FAIL
-
-That final sentinel line is the ONLY thing the harness parses; your prose above it is for a human
-log only, so don't rely on the word "pass" or "fail" appearing anywhere else to convey your verdict.
-PASS only if the diff meets EVERY "## Done when" item for real. FAIL if any item is unmet, faked,
-stubbed, or only superficially addressed. Be strict — do not give the benefit of the doubt.
-
---- TASK $id SPEC ---
-$spec
-
---- IMPLEMENTATION DIFF (origin/$MAIN_BRANCH..HEAD) ---
-$diff
-EOF
-  visual_verify_block "$id" audit
-  _custom_preamble audit
-}
+# audit_prompt lives in loop-lib.sh, sourced above.
 
 # audit_verdict_extract <file> — reads the auditor's FINAL non-empty line and extracts a sentinel
 # verdict (`VERDICT: PASS` / `VERDICT: FAIL`, case-sensitive, trailing whitespace tolerated). Echoes
