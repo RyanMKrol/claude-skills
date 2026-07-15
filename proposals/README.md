@@ -31,8 +31,8 @@ agent should be able to work from the file alone, without the original conversat
 
 ## Recommended order
 
-**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04 — done)*
-**Next (high value):** B06 → D01 → C01 (the structural fix) → T01 → F01
+**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04 — done; B06 — abandoned, see its file)*
+**Next (high value):** D01 → C01 (the structural fix) → T01 → F01
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
 
 ## Index

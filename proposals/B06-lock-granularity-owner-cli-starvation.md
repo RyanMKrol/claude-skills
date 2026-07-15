@@ -1,5 +1,32 @@
 # B06: Owner CLIs starve for the whole run — the loop holds the lock per-RUN, waiters wait forever
 
+## ⚠️ Status — ABANDONED (2026-07-15), owner's call after a real blocker surfaced mid-implementation
+
+A+C were implemented (new `acquire_run_lock`/`release_run_lock` + reentrant `loop_lock_acquire`/
+`loop_lock_release` in `repo-lock.sh`; every git-mutating function in both loop variants rewrapped
+to hold the lock only around its own git-mutating span, not the whole run; `throttled_push`'s cooldown
+sleep deliberately kept OUTSIDE the lock). Full test suite was green (including `loop-parity.test.sh`
+and a new reentrancy selftest) before Option C (mark-*.sh bypasses the lock entirely) surfaced a real
+safety gap:
+
+**The in-place variant's `cold_reset` (`git reset --hard` + `git clean -fd`) runs in the SAME working
+tree `mark-done.sh`/`mark-failed.sh`/`mark-reviewed.sh` commit into** (unlike the worktree variant,
+where the loop never touches the primary checkout directly except one already-guarded exception). If
+an owner script has staged-but-not-yet-committed its overlay edit at the exact moment `cold_reset`
+fires, the hard reset silently discards it — no error, the owner's action just vanishes. Today this
+can't happen (the lock fully serializes the two for the whole run); Option A alone keeps them safely
+serialized in brief bursts; it's specifically Option C's "skip the lock entirely" that reopens this
+window, and only for in-place installs. The proposal's own Option C framing ("keep the lock for
+consolidate/rewire which touch TASKS.json") didn't anticipate this — the real dividing line isn't
+"touches TASKS.json vs. a separate overlay file," it's "does the LOOP ever touch the primary checkout's
+own working tree" (true always for in-place, only in one guarded spot for worktree).
+
+Offered three ways to close the gap (worktree-only bypass / accept the narrow in-place race / a
+bounded-wait middle ground for in-place) — owner chose to abandon the whole proposal rather than pick
+one. All implementation work was reverted (uncommitted at abandonment time, so a clean `git checkout --`
+sufficed — nothing shipped). If picked back up later, start from this finding rather than re-deriving
+it, and resolve the in-place safety question BEFORE touching Option C.
+
 **Type**: bug · **Priority**: P1 · **Effort**: M (has a real design decision)
 **Affected files**: `templates/scripts/repo-lock.sh`, `loop.sh`, `loop.in-place.sh`, the `mark-*.sh`/`consolidate-ideas.sh` callers, `dashboard/server.js` (button UX)
 **Release**: MINOR bump · MIGRATIONS entry (mechanism, both variants) · checksums · parity
