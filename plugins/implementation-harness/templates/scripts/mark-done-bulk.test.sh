@@ -30,7 +30,7 @@ JSON
   echo '{}' >"$d/.harness/tracking/human-done.json"
   echo '{}' >"$d/.harness/tracking/reviews.json"
   ( cd "$d" && git add -A && git commit -q -m init )
-  bare="$(mktemp -d)"; git init -q --bare "$bare"
+  bare="$(mktemp -d)"; git init -q --bare -b main "$bare"
   ( cd "$d" && git remote add origin "$bare" && git push -q -u origin HEAD )
   echo "$d"
 }

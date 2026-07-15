@@ -103,7 +103,7 @@ rm -rf "$d"
 # 10. C03: push_with_retry — a moved origin/main (another owner action landed first) doesn't lose the
 # rewire edit; a single failed push attempt would have, since the OLD hand-rolled push here was one-shot.
 d="$(mktemp -d)"; bare="$(mktemp -d)"
-git init -q --bare "$bare"
+git init -q --bare -b main "$bare"
 git init -q -b main "$d"
 ( cd "$d" && git config user.email t@t.com && git config user.name t )
 mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"

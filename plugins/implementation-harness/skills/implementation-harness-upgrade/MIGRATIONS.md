@@ -42,6 +42,29 @@ Entry format:
 
 ---
 
+## 1.86.0 → 1.86.1 — CI fix: pin bare-repo `git init` to `-b main` in test fixtures (hotfix, no harness behavior change)
+
+CI-only bug, caught live: `rewire-dependents.test.sh`'s new "moved-remote" case (added in 1.84.1)
+did `git init -q --bare "$bare"` with no `-b`, then later `git clone`d from it. On a host whose git
+doesn't default `init.defaultBranch` to `main` (the CI runner; my own dev machine happened to, which
+is why this wasn't caught before pushing), the bare repo's HEAD pointed at a nonexistent
+`refs/heads/master`, so the clone left no local branch checked out — `git push origin main` then
+failed with "src refspec main does not match any". Reproduced locally by forcing
+`init.defaultBranch=master`, confirmed the fix resolves it, confirmed global git config was restored
+afterward. Same latent gap existed (harmlessly, since nothing else clones from these bare repos yet)
+in 8 other test fixtures — fixed proactively for consistency/future-proofing.
+
+- mechanism: `templates/scripts/mark-done-bulk.test.sh` — the ONE test file that ships to consumer
+  installs (`create` copies it; it's the harness's own self-test `create`'s validation gate runs).
+  Test-fixture-only change, no assertions added/removed, no consumer-visible behavior change.
+- also fixed (dev-only, `tests/` — NOT copied to consumer installs, no version-bump trigger on their
+  own): `select-task.test.sh`, `force-task-lifecycle.test.sh`, `overlay-edit.test.sh`,
+  `loop-ratelimit.test.sh`, `rewire-dependents.test.sh`, `consolidate-ideas-wrapper.test.sh`,
+  `audit-trail-persistence.test.sh`, `mark-failed.test.sh`.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none.
+- breaking: none — test-only, no mechanism script logic changed.
+
 ## 1.85.0 → 1.86.0 — worktree variant's audit trail + build/audit transcripts now survive worktree teardown (B04)
 
 Bug fix (P1), worktree variant only (the in-place variant already wrote to the primary checkout —

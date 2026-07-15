@@ -95,7 +95,7 @@ setup_audit_repo() {   # echoes "<repo-path> <bare-origin-path>" (called via $(.
   chmod +x "$d/.harness/scripts/"*.sh
   printf '{"tasks":[{"id":"T001","status":"pending","gate":null,"facets":{"layer":"backend","workType":"feature"}}]}' > "$d/.harness/tracking/TASKS.json"
   ( cd "$d" && git add -A && git commit -q -m init )
-  git init -q --bare "$bare"
+  git init -q --bare -b main "$bare"
   ( cd "$d" && git remote add origin "$bare" && git push -q -u origin main )
   echo "$d $bare"
 }

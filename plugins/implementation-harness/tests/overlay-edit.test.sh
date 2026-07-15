@@ -25,7 +25,7 @@ setup_repo() {   # echoes repo path; HARNESS_DIR = <repo>/.harness
   chmod +x "$d/.harness/scripts/"*.sh
   echo '{}' >"$d/.harness/tracking/test-overlay.json"
   ( cd "$d" && git add -A && git commit -q -m init )
-  git init -q --bare "$bare"
+  git init -q --bare -b main "$bare"
   ( cd "$d" && git remote add origin "$bare" && git push -q -u origin main )
   echo "$d"
 }

@@ -56,7 +56,7 @@ setup_repo() {  # setup_repo <loop-src-path> <backlog-json> → echoes repo path
   chmod +x "$d/.harness/scripts/"*.sh
   printf '%s\n' "$backlog" >"$d/.harness/tracking/TASKS.json"
   ( cd "$d" && git add -A && git commit -q -m init )
-  git init -q --bare "$bare"
+  git init -q --bare -b main "$bare"
   ( cd "$d" && git remote add origin "$bare" && git push -q -u origin main )
   echo "$d"
 }
