@@ -482,3 +482,339 @@ EOF
   visual_verify_block "$id" audit
   _custom_preamble audit
 }
+
+# --- C01 stage 4: the long tail (byte-identical pre-extraction; moved verbatim) ---
+
+log() { printf '[loop] %s\n' "$*" >&2; }
+
+board() { [ -x "$POSTFLIGHT" ] && "$POSTFLIGHT" >/dev/null 2>&1 || true; }
+
+# run_hook <event> [args…] — run .harness/custom/hooks/on-<event>.sh if present. Child process
+# (never sourced, cannot touch loop state), NON-FATAL, best-effort. Exports harness context. May
+# recur (e.g. every supervise cycle that drains), so a hook MUST be cheap + idempotent.
+run_hook() {
+  local event="$1"; shift
+  local hook="$HARNESS_DIR/custom/hooks/on-$event.sh"
+  [ -f "$hook" ] || return 0
+  log "lifecycle hook: on-$event ($*)"
+  HARNESS_ROOT="$ROOT" HARNESS_DIR="$HARNESS_DIR" HARNESS_MAIN_BRANCH="${MAIN_BRANCH:-main}" \
+    bash "$hook" "$@" || log "WARN: on-$event hook exited non-zero (non-fatal)"
+}
+
+heartbeat() {
+  printf '{"task":"%s","phase":"%s","rung":%s,"attempt":%s,"base":%s,"model":"%s","effort":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
+    "${cur_task:-}" "$1" "${cur_rung:-0}" "${cur_attempts:-0}" "${cur_base:-0}" "${tmodel:-}" "${teffort:-}" "${hb_started:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$HEARTBEAT" 2>/dev/null || true
+}
+
+heartbeat_clear() { rm -f "$HEARTBEAT" 2>/dev/null || true; }
+
+# gtier <idx> — echo "model effort" for the ladder tier at idx, clamped to [0, top].
+gtier() {
+  local idx="$1" last=$(( ${#TIER_TUPLES[@]} - 1 ))
+  (( idx < 0 )) && idx=0; (( idx > last )) && idx=$last
+  printf '%s' "${TIER_TUPLES[$idx]}"
+}
+
+# tier_strength <model> <effort> — a total strength order over ANY (model, effort) pair, INDEPENDENT
+# of the ladder (model dominates, then effort). Lets audit_gate compare the configured auditor tier
+# (e.g. opus/medium) against the builder tier even when the auditor tuple isn't a ladder rung — the
+# ladder-index approach would otherwise fall back to an arbitrary index and audit at the wrong tier.
+tier_strength() {
+  local m="$1" e="$2" mr er
+  case "$m" in *opus*) mr=1 ;; *) mr=0 ;; esac
+  case "$e" in low) er=0 ;; medium) er=1 ;; high) er=2 ;; xhigh) er=3 ;; max) er=4 ;; *) er=0 ;; esac
+  echo $(( mr * 10 + er ))
+}
+
+# rand_pm — uniform integer in 0..999. $RANDOM spans 0..32767, and 32768 % 1000 != 0, so a bare
+# `RANDOM % 1000` over-weights 0..767 — enough to skew the sampled audit rate slightly below the
+# configured per-mille. Rejection-sample below 32000 (32 exact cycles of 1000) before reducing.
+rand_pm() {
+  local r
+  while :; do r=$RANDOM; [ "$r" -lt 32000 ] && break; done
+  echo $(( r % 1000 ))
+}
+
+# record_failure <id> <kind> [detail] — buffer ONE per-attempt diagnostic row locally (never
+# committed directly). Diagnostics only — never read by calibration (policy.jq reads only
+# ledgers/outcomes.jsonl). Flushed into ledgers/failures.jsonl by flush_failures at the task's next
+# terminal outcome (done or blocked), so a task with 3 soft failures then a success gets 3 failure
+# rows + 1 outcome row, all in the same terminal commit.
+record_failure() {
+  local id="$1" kind="$2" detail="${3:-}" ts m e facets
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  read -r m e <<<"$(rung_at "$id" "${cur_rung:-0}")"   # the ACTUAL rung this attempt ran at, not the cold-start floor
+  facets="$(tj -c --arg id "$id" '.tasks[]|select(.id==$id)|.facets // null' 2>/dev/null || echo null)"; facets="${facets:-null}"
+  jq -nc --arg id "$id" --arg ts "$ts" --arg kind "$kind" --argjson rung "${cur_rung:-0}" \
+     --argjson attempt "${cur_attempts:-0}" --arg m "$m" --arg e "$e" --argjson facets "$facets" --arg detail "$detail" \
+     '{id:$id, ts:$ts, kind:$kind, rung:$rung, attempt:$attempt, model:$m, effort:$e, facets:$facets, detail:$detail}' \
+     >>"$FAILURES_BUF" 2>/dev/null || true
+}
+
+# flush_failures [id] [dest] — append the buffered rows into <dest> (default: $FAILURES, the primary
+# checkout's ledgers/failures.jsonl — what loop.in-place.sh always calls this with NO args to use),
+# then clear the buffer for the next task. loop.sh always passes an explicit <id> <dest> (id unused;
+# dest is a path INSIDE the detached commit worktree, which the caller stages + commits) — `mkdir -p`
+# is unconditional here (a harmless no-op on an already-existing dir) since loop.sh's dest directory
+# may not exist yet in a freshly-created worktree.
+flush_failures() {
+  local dest="${2:-$FAILURES}"
+  [ -s "$FAILURES_BUF" ] || return 0
+  mkdir -p "$(dirname "$dest")"
+  cat "$FAILURES_BUF" >>"$dest" 2>/dev/null || true
+  : >"$FAILURES_BUF"
+}
+
+# in_scope_exempt <file> — true if <file> matches one of SCOPE_EXEMPT_GLOBS (space-separated
+# repo-relative path entries, same matching rule as `scope` itself via scope_match).
+# Empty SCOPE_EXEMPT_GLOBS (the default) exempts nothing.
+in_scope_exempt() {
+  local f="$1" g
+  for g in $SCOPE_EXEMPT_GLOBS; do
+    [ -z "$g" ] && continue
+    scope_match "$f" "$g" && return 0
+  done
+  return 1
+}
+
+# --scope-exempt-selftest [globs path]: with two args, print EXEMPT/NOT-EXEMPT for that ONE
+# (SCOPE_EXEMPT_GLOBS, path) pair against in_scope_exempt. With no args, run the built-in
+# regression table (the trailing-slash / glob-suffix normalization cases that once silently
+# exempted nothing).
+scope_exempt_selftest() {
+  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
+    SCOPE_EXEMPT_GLOBS="$1"
+    if in_scope_exempt "$2"; then echo EXEMPT; else echo NOT-EXEMPT; fi
+    return 0
+  fi
+  local fail=0 globs file exp got
+  while read -r globs file exp; do
+    [ -z "$globs" ] && continue
+    SCOPE_EXEMPT_GLOBS="$globs"
+    if in_scope_exempt "$file"; then got=EXEMPT; else got=NOT-EXEMPT; fi
+    [ "$got" = "$exp" ] || { echo "scope-exempt FAIL: globs='$globs' file='$file' expected $exp got $got"; fail=1; }
+  done <<'CASES'
+scripts/ scripts/_visual-harness.mjs EXEMPT
+scripts/** scripts/_visual-harness.mjs EXEMPT
+scripts/* scripts/_visual-harness.mjs EXEMPT
+scripts scripts/_visual-harness.mjs EXEMPT
+scripts/visual-check.mjs scripts/visual-check.mjs EXEMPT
+scripts/visual-check.mjs scripts/other.mjs NOT-EXEMPT
+CASES
+  [ "$fail" = 0 ] && { echo "scope-exempt self-test OK (6 cases)"; return 0; } || return 1
+}
+
+# --scope-selftest [entry file]: with two args, print IN/OUT for that ONE (scope-entry, path) pair
+# against scope_match. With no args, run the built-in regression table — the extension-glob cases the
+# old trailing-slash-only normalization could never match, plus the exact/prefix cases that must not
+# regress. Mirrors --scope-exempt-selftest; covered across BOTH loop variants by scope-match.test.sh.
+scope_selftest() {
+  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
+    if scope_match "$2" "$1"; then echo IN; else echo OUT; fi
+    return 0
+  fi
+  local fail=0 entry file exp got
+  while read -r entry file exp; do
+    [ -z "$entry" ] && continue
+    if scope_match "$file" "$entry"; then got=IN; else got=OUT; fi
+    [ "$got" = "$exp" ] || { echo "scope-match FAIL: entry='$entry' file='$file' expected $exp got $got"; fail=1; }
+  done <<'CASES'
+components/*.tsx components/CategoryTable.tsx IN
+components/*.tsx components/sub/Foo.tsx OUT
+components/*.tsx components/CategoryTable.ts OUT
+dashboard/app/components/*.tsx dashboard/app/components/CategoryTable.tsx IN
+src/feature/** src/feature/x/y.ts IN
+src/foo/* src/foo/bar/a.ts IN
+src/auth/session.ts src/auth/session.ts IN
+src/auth/session.ts src/auth/other.ts OUT
+CASES
+  [ "$fail" = 0 ] && { echo "scope-match self-test OK (8 cases)"; return 0; } || return 1
+}
+
+throttled_push() {
+  local dir="$1"; shift
+  if [ "$PUSH_COOLDOWN_SECONDS" -gt 0 ] 2>/dev/null; then
+    local last now elapsed wait
+    last="$(cat "$PUSH_COOLDOWN_FILE" 2>/dev/null || echo 0)"
+    now=$(date +%s); elapsed=$(( now - last ))
+    if [ "$elapsed" -lt "$PUSH_COOLDOWN_SECONDS" ]; then
+      wait=$(( PUSH_COOLDOWN_SECONDS - elapsed ))
+      log "push cooldown: waiting ${wait}s (PUSH_COOLDOWN_SECONDS=$PUSH_COOLDOWN_SECONDS)"
+      sleep "$wait"
+    fi
+  fi
+  git -C "$dir" push "$@"; local rc=$?
+  [ "$rc" = 0 ] && date +%s >"$PUSH_COOLDOWN_FILE" 2>/dev/null
+  return "$rc"
+}
+
+# --guard-selftest [path]: with no arg, assert the (effective) guard regex blocks real secrets but
+# allows tracked templates. With a path arg, print BLOCK/ALLOW for that ONE path against the effective
+# guard (base + any custom/sensitive-paths.txt) — a "does the guard catch this?" probe.
+guard_selftest() {
+  if [ -n "${1:-}" ]; then
+    if printf '%s\n' "$1" | grep -nE "$SENSITIVE_RE" | grep -vE "$GUARD_ALLOW_RE" >/dev/null; then echo BLOCK; else echo ALLOW; fi
+    return 0
+  fi
+  local fail=0 p exp got
+  while read -r p exp; do
+    [ -z "$p" ] && continue
+    if printf '%s\n' "$p" | grep -nE "$SENSITIVE_RE" | grep -vE "$GUARD_ALLOW_RE" >/dev/null; then got=BLOCK; else got=ALLOW; fi
+    [ "$got" = "$exp" ] || { echo "guard FAIL: '$p' expected $exp got $got"; fail=1; }
+  done <<'CASES'
+.env BLOCK
+.env.local BLOCK
+.env.production BLOCK
+config/.env BLOCK
+.env.example ALLOW
+src/app/.env.example ALLOW
+data/out.json BLOCK
+src/jobs/x/data/raw.csv BLOCK
+chrome-profile/Default BLOCK
+config/credentials.json BLOCK
+secrets/id.pem BLOCK
+deploy/key.p12 BLOCK
+service-account.json BLOCK
+src/index.ts ALLOW
+README.md ALLOW
+TASKS.json ALLOW
+worklog/T001.md ALLOW
+CASES
+  [ "$fail" = 0 ] && { echo "guard self-test OK (16 cases)"; return 0; } || return 1
+}
+
+bump() {   # count a soft failure for $1; escalate at the cap; BLOCK + move on past the top rung (never halt)
+  local t="$1" last
+  [ "$t" = "$cur_task" ] || { cur_task="$t"; cur_attempts=0; cur_rung=0; read -r cur_base cur_explored <<<"$(pick_base "$t")"; }
+  last=$(( $(ladder_len "$t") - 1 ))
+  cur_attempts=$((cur_attempts + 1))
+  log "soft failure $cur_attempts/$MAX_ATTEMPTS on $t (rung $cur_rung/$last)"
+  if (( cur_attempts >= MAX_ATTEMPTS )); then
+    if (( cur_rung < last )); then
+      cur_rung=$((cur_rung + 1)); cur_attempts=0
+      log "escalating $t → rung $cur_rung: $(rung_at "$t" "$cur_rung")"
+    else
+      block_task "$t" "exhausted $MAX_ATTEMPTS attempts at the top model rung"
+      return 0
+    fi
+  fi
+  sleep "$WAIT_SECONDS"
+}
+
+# ci_conclusion <runid> — 0 green | 1 red | 2 indeterminate, from the run's SETTLED conclusion. Only a
+# real failure is RED; cancelled/skipped/stale/neutral is indeterminate (never revert good work over a
+# concurrency-cancel).
+ci_conclusion() {
+  local concl; concl="$(gh run view "$1" --json status,conclusion --jq '.status + "/" + (.conclusion // "")' 2>/dev/null || true)"
+  case "$concl" in
+    completed/success) return 0 ;;
+    completed/failure|completed/timed_out|completed/startup_failure|completed/action_required) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+ci_find_run() {
+  local br="$1" sha="$2" id; local -a ba=(); [ -n "$br" ] && ba=(--branch "$br")
+  CI_NAME_UNRESOLVED=0
+  id="$(gh run list ${ba[@]+"${ba[@]}"} --limit 20 --json databaseId,headSha,workflowName \
+          --jq ".[] | select(.headSha==\"$sha\" and .workflowName==\"$CI_WORKFLOW\") | .databaseId" 2>/dev/null | head -1 || true)"
+  if [ -z "$id" ]; then
+    id="$(gh run list ${ba[@]+"${ba[@]}"} --limit 20 --json databaseId,headSha,workflowName \
+            --jq ".[] | select(.headSha==\"$sha\" and (.workflowName|startswith(\".github/workflows/\"))) | .databaseId" 2>/dev/null | head -1 || true)"
+    [ -n "$id" ] && CI_NAME_UNRESOLVED=1
+  fi
+  printf '%s' "$id"
+}
+
+# ci_status_now <branch-or-empty> <sha> — POINT-IN-TIME CI status for <sha> (NO waiting): 0 green | 1 red
+# | 2 indeterminate/no-run. Used by the idle-reconcile guard so a task is never marked done while its
+# main-HEAD CI is red or was never confirmed.
+ci_status_now() {
+  command -v gh >/dev/null 2>&1 || return 2
+  local id; id="$(ci_find_run "$1" "$2")"
+  [ -n "$id" ] || return 2
+  [ "${CI_NAME_UNRESOLVED:-0}" = 1 ] && return 1
+  ci_conclusion "$id"
+}
+
+# _custom_preamble <build|audit> — append a project-supplied prompt block from the custom/ overlay if
+# present. Convention-located (like custom/hooks, custom/sensitive-paths.txt, custom/visual-verify-*.md);
+# absent → no output → byte-identical prior prompt. UNCONDITIONAL when present (a standing project rule on
+# EVERY build/audit), unlike the visual snippet which is gated on the task opting in. mode ∈ build|audit.
+_custom_preamble() {
+  local mode="$1" label
+  local f="$HARNESS_DIR/custom/${mode}-preamble.md"   # separate line: ${mode} must be assigned first
+  [ -f "$f" ] || return 0
+  label="$([ "$mode" = audit ] && echo AUDIT || echo BUILD)"
+  printf '\n--- PROJECT-SPECIFIC %s GUIDANCE (required — project rules on top of the generic instructions above) ---\n' "$label"
+  cat "$f"
+  printf '\n'
+}
+
+# visual_verify_block <id> [audit] — print an instruction block telling the reader to run
+# VISUAL_VERIFY_HOOK and actually LOOK at its output. Fires when the hook is set AND the task opts in:
+# a task-level `visualVerify:true` fires it on ANY platform (browser, native/desktop, a mobile
+# simulator, a generated image); `visualVerify:false` suppresses it; with no flag it falls back to a
+# heuristic — the task's workType is in VISUAL_VERIFY_WORKTYPES (default "component"). No-op (prints
+# nothing) otherwise, so non-visual tasks and projects pay zero cost. The optional second arg "audit"
+# frames it for the independent auditor (a PASS/FAIL decision) instead of the builder (record + declare
+# done). See docs/designs/visual-verification.md for the rationale and worked per-platform examples.
+#
+# A project can enrich the block (without forking the loop) by dropping custom/visual-verify-build.md
+# and/or custom/visual-verify-audit.md — appended below when the block fires. See _visual_verify_custom.
+_visual_verify_custom() {   # <build|audit> — append a project snippet from the custom/ overlay if present
+  local mode="$1"
+  local f="$HARNESS_DIR/custom/visual-verify-${mode}.md"   # separate line: ${mode} must be assigned first
+  [ -f "$f" ] || return 0
+  printf '\n--- PROJECT-SPECIFIC VISUAL VERIFICATION GUIDANCE ---\n'
+  cat "$f"
+  printf '\n'
+}
+
+visual_verify_block() {
+  local tid="$1" mode="${2:-build}" vv wt ly fire
+  [ -n "$VISUAL_VERIFY_HOOK" ] || return 0
+  # NB: read .visualVerify WITHOUT `// empty` — jq's `//` treats a literal `false` as empty too, which
+  # would drop an explicit opt-OUT. Absent → "null"/"" (falls through to the facets heuristic); false → "false".
+  vv="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.visualVerify')"
+  [ "$vv" = false ] && return 0
+  if [ "$vv" != true ]; then
+    # Facets heuristic (two ways to auto-fire): (a) an INHERENTLY-visual work-type (VISUAL_VERIFY_WORKTYPES,
+    # default "component style") fires on any layer; (b) else a VISUAL_VERIFY_LAYERS layer (default
+    # "frontend") fires UNLESS the work-type is clearly non-visual (VISUAL_VERIFY_SKIP_WORKTYPES, default
+    # "docs config logging"). Maybe-visual work-types (bugfix/feature/migration on a non-frontend layer)
+    # are NOT auto-fired here — the authoring skills ask/judge and set visualVerify:true when warranted.
+    wt="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
+    ly="$(tj -r --arg id "$tid" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
+    fire=0
+    case " $VISUAL_VERIFY_WORKTYPES " in *" $wt "*) fire=1 ;; esac
+    if [ "$fire" = 0 ] && [ -n "$ly" ]; then
+      case " $VISUAL_VERIFY_LAYERS " in *" $ly "*)
+        case " $VISUAL_VERIFY_SKIP_WORKTYPES " in *" $wt "*) ;; *) fire=1 ;; esac ;;
+      esac
+    fi
+    [ "$fire" = 1 ] || return 0
+  fi
+  if [ "$mode" = audit ]; then
+    printf '\n--- VISUAL EVIDENCE (this is a visual task — a text-diff review is NOT sufficient) ---\n'
+    printf 'Run `%s` and LOOK at what it produces. Judge whether the rendered output actually satisfies\n' "$VISUAL_VERIFY_HOOK"
+    printf 'every visual "## Done when" item — the intended element is present AND painted/visible, not merely\n'
+    printf 'in the DOM/tree. FAIL if a screenshot contradicts a "## Done when" claim, if the visual check exits\n'
+    printf 'non-zero, or if a visual requirement is not evidenced by what actually renders.\n'
+    _visual_verify_custom audit
+    return 0
+  fi
+  printf '\n--- VISUAL VERIFICATION (required before reporting done — see docs/designs/visual-verification.md) ---\n'
+  printf 'This task produces visual output. Passing tests/build alone is NOT sufficient.\n'
+  printf 'Run `%s` and actually LOOK at what it produces (screenshots / rendered output) to confirm the\n' "$VISUAL_VERIFY_HOOK"
+  printf 'change renders and behaves as intended. Record what you OBSERVED (not just "ran it") in the worklog.\n'
+  _visual_verify_custom build
+}
+
+# Optional post-integration hook (deploy/restart so the running product matches main).
+run_integrate_hook() {
+  [ -n "$INTEGRATE_HOOK" ] || return 0
+  log "integrate hook: $INTEGRATE_HOOK"
+  ( cd "$ROOT" && eval "$INTEGRATE_HOOK" ) || log "WARN: integrate hook failed (non-fatal)"
+}
+

@@ -42,6 +42,44 @@ Entry format:
 
 ---
 
+## 1.90.0 → 1.91.0 — extract shared loop logic into `loop-lib.sh`, stage 4: the long tail (C01, DONE)
+
+Consolidation (P1), stage 4 of 4 — **this completes C01**; `proposals/C01-*.md` is deleted in this
+commit. Moved the entire remaining long tail into `loop-lib.sh`: `_custom_preamble`,
+`_visual_verify_custom`, `board`, `bump`, `ci_conclusion`, `ci_find_run`, `ci_status_now`, `gtier`,
+`guard_selftest`, `heartbeat`, `heartbeat_clear`, `in_scope_exempt`, `log`, `rand_pm`,
+`record_failure`, `run_hook`, `run_integrate_hook`, `scope_exempt_selftest`, `scope_selftest`,
+`throttled_push`, `tier_strength`, `visual_verify_block` — all were ALREADY byte-identical
+pre-extraction (pinned by `tests/loop-parity.test.sh`'s old MANIFEST), so this is a pure location
+move, zero seam engineering, zero behavior change. Plus `flush_failures`, which genuinely diverged
+(worktree passes an explicit `<id> <dest>`; in-place calls it bare) — absorbed via one optional
+`[dest]` arg (defaulting to `$FAILURES`), the same pattern stage 3 used for `wait_ci_green`'s
+`[branch]` arg. `tests/loop-parity.test.sh`'s byte-identical MANIFEST is now EMPTY — every function
+that was hand-mirrored-but-identical has been moved into the lib; the file's `MOVED_TO_LIB`
+lib-presence + no-reinline guard is now the sole enforcement mechanism (kept as live infrastructure
+for future divergent-but-shared logic, not deleted).
+
+**End state**: `loop.sh` 1792→1096 lines, `loop.in-place.sh` 1674→1000 lines, `loop-lib.sh` (new)
+820 lines. `audit_gate` and `pick_base` remain the only NOT-extracted shared-concept functions,
+deliberately — both genuinely diverge throughout via the tj/blob data-access pattern (see the
+1.89.0→1.90.0 entry); a future proposal could tackle that with a dedicated data-access seam, but it's
+out of scope for this one.
+
+- mechanism: `scripts/loop-lib.sh` — gains the full long-tail list above. `scripts/loop.sh`,
+  `scripts/loop.in-place.sh` — all moved functions deleted locally (replaced by one-line pointer
+  comments where useful for a reader). `tests/loop-parity.test.sh` — MANIFEST emptied, MOVED_TO_LIB
+  grows to cover everything. `tests/loop-extend.test.sh` — its `run_hook`/`visual_verify_block`/
+  `_custom_preamble`/`_visual_verify_custom` behavioral-extraction probes (which `sed`-extract the
+  real function bodies to exercise them standalone) now read from `loop-lib.sh` instead of the
+  per-variant files; its structural wiring-assertion loop's `_visual_verify_custom audit/build`
+  checks moved to a `loop-lib.sh`-only block alongside `_custom_preamble audit` (from stage 3).
+- config: none. new files: none. renamed/removed: `proposals/C01-loop-lib-extraction.md` (deleted —
+  proposal complete).
+- manual attention: none — all touched files are mechanism (content-diffed on upgrade).
+- breaking: none.
+
+---
+
 ## 1.89.0 → 1.90.0 — extract shared loop logic into `loop-lib.sh`, stage 3: the gates (C01)
 
 Consolidation (P1), staged (stage 3 of 4 — see `proposals/C01-*.md` or the plugin's git history once

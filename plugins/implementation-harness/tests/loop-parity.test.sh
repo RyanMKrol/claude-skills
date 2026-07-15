@@ -40,14 +40,27 @@ assert "in-place variant exists with its marker" grep -q '^# harness-loop-varian
 # reads $MAIN_BRANCH). Stage 3 deliberately did NOT move audit_gate or pick_base — both genuinely
 # diverge throughout via the tj/blob DATA-ACCESS pattern (loop.sh reads via `blob` off a git ref;
 # loop.in-place.sh reads local files directly — `blob()` doesn't even exist there), which is a real
-# isolation-model difference, not hand-mirror drift; see the MIGRATIONS.md 1.89.0→1.90.0 entry. A
-# moved function must exist ONLY in the lib — never re-inlined locally by either variant (the
-# no-reinline guard below) — and both variants must actually source the lib.
+# isolation-model difference, not hand-mirror drift; see the MIGRATIONS.md 1.89.0→1.90.0 entry. Stage 4
+# moved the entire remaining long tail (all still byte-identical, so zero seam engineering needed):
+# _custom_preamble, _visual_verify_custom, board, bump, ci_conclusion, ci_find_run, ci_status_now,
+# gtier, guard_selftest, heartbeat, heartbeat_clear, in_scope_exempt, log, rand_pm, record_failure,
+# run_hook, run_integrate_hook, scope_exempt_selftest, scope_selftest, throttled_push, tier_strength,
+# visual_verify_block — PLUS flush_failures (genuinely diverged: worktree passes an explicit
+# <id> <dest>, in-place calls it bare — absorbed via one optional [dest] arg, same pattern as
+# wait_ci_green's [branch]). This EMPTIES the old byte-identical MANIFEST below (kept as a structure
+# for any future divergence a maintainer deliberately chooses NOT to move). A moved function must
+# exist ONLY in the lib — never re-inlined locally by either variant (the no-reinline guard below) —
+# and both variants must actually source the lib.
 LIB="$SCRIPT_DIR/../templates/scripts/loop-lib.sh"
 assert "loop-lib.sh exists" [ -f "$LIB" ]
 assert "worktree variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$WT"
 assert "in-place variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$IP"
-MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait run_claude scope_gate_block expects_test_block structural_checks wait_ci_green audit_prompt"
+MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait run_claude \
+scope_gate_block expects_test_block structural_checks wait_ci_green audit_prompt \
+_custom_preamble _visual_verify_custom board bump ci_conclusion ci_find_run ci_status_now \
+gtier guard_selftest heartbeat heartbeat_clear in_scope_exempt log rand_pm record_failure flush_failures \
+run_hook run_integrate_hook scope_exempt_selftest scope_selftest throttled_push tier_strength \
+visual_verify_block"
 for fn in $MOVED_TO_LIB; do
   assert "$fn defined in loop-lib.sh" grep -qE "^$fn\(\) \{" "$LIB"
   assert "$fn NOT re-inlined in loop.sh" bash -c "! grep -qE '^$fn\(\) \{' '$WT'"
@@ -66,11 +79,10 @@ assert "worktree no longer inlines the ledger-row jq body" bash -c "! grep -qF '
 assert "in-place no longer inlines the ledger-row jq body" bash -c "! grep -qF 'succeededRung:(if \$blocked' '$IP'"
 
 # Verified byte-identical at the time this manifest was authored (v1.70.x); shrinks as extraction
-# (C01) moves a function into loop-lib.sh instead — see the lib-presence block above. Alphabetical.
-MANIFEST="_custom_preamble _visual_verify_custom board bump ci_conclusion ci_find_run ci_status_now \
-gtier guard_selftest heartbeat in_scope_exempt log rand_pm record_failure \
-run_hook run_integrate_hook scope_exempt_selftest scope_selftest throttled_push tier_strength \
-visual_verify_block"
+# (C01) moves a function into loop-lib.sh instead — see the lib-presence block above. As of stage 4
+# this is EMPTY: every function that was byte-identical got moved. Kept as live infrastructure (not
+# deleted) for the day a maintainer adds new shared-but-not-yet-extracted logic here. Alphabetical.
+MANIFEST=""
 
 carve() { sed -n "/^$1() {/,/^}/p" "$2"; }
 

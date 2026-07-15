@@ -31,8 +31,8 @@ agent should be able to work from the file alone, without the original conversat
 
 ## Recommended order
 
-**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04, D01 — done; B06 — abandoned, see its file)*
-**Next (high value):** C01 (the structural fix) → T01 → F01
+**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04, D01, C01 — done; B06 — abandoned, see its file)*
+**Next (high value):** T01 → F01
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
 
 ## Index
@@ -50,7 +50,6 @@ agent should be able to work from the file alone, without the original conversat
 | D03 | Sunset the worklog-grep blocked fallback | design-drift | P2 | S |
 | D04 | Pass prompts/diffs via stdin, not argv | design-drift | P2 | S |
 | D05 | Generalize `tier_strength` beyond opus | design-drift | P2 | S |
-| C01 | Extract `loop-lib.sh` (the shared ~70%) | consolidation | P1 | L |
 | C02 | Dedupe the postflight pair | consolidation | P3 | M |
 | F01 | Cost/usage ledger from the stream-json | feature | P1 | M |
 | F02 | Stop-file graceful shutdown | feature | P1 | S |

@@ -57,10 +57,11 @@ for V in loop.sh loop.in-place.sh; do
   rm -rf "$d"
 done
 
-# ============ Lifecycle hook dispatcher — exercise the REAL run_hook() extracted from the shipped loop ==
+# ============ Lifecycle hook dispatcher — exercise the REAL run_hook() extracted from loop-lib.sh
+# (C01 stage 4 — run_hook lives ONLY there now, not duplicated per variant) ==
 d="$(setup_repo)"
-sed -n '/^run_hook() {/,/^}/p' "$SCRIPT_DIR/loop.sh" > "$d/run_hook.inc"
-assert "extracted run_hook() from loop.sh" test -s "$d/run_hook.inc"
+sed -n '/^run_hook() {/,/^}/p' "$SCRIPT_DIR/loop-lib.sh" > "$d/run_hook.inc"
+assert "extracted run_hook() from loop-lib.sh" test -s "$d/run_hook.inc"
 # a self-contained probe: log stub + the real run_hook + an invocation printing its return code
 { echo 'log(){ printf "[loop] %s\n" "$*" >&2; }'; cat "$d/run_hook.inc"; echo 'run_hook "$@"; echo "rc=$?"'; } > "$d/probe.sh"
 drive() { HARNESS_DIR="$d/.harness" ROOT="$d" MAIN_BRANCH="main" bash "$d/probe.sh" "$@" 2>/dev/null; }
@@ -90,16 +91,16 @@ assert "nonzero hook exit is non-fatal (rc 0)"    bash -c "case \"\$1\" in *rc=0
 rm -rf "$d"
 
 # ============ Visual-verify project snippet injection (custom/visual-verify-{build,audit}.md) ==========
-# Extract the REAL visual_verify_block + _visual_verify_custom from the shipped loop (byte-identical across
-# variants) and drive them with a tj() stub that opts the task in, so the block fires and we can check the
-# snippet is appended when present / absent when not.
+# Extract the REAL visual_verify_block + _visual_verify_custom — as of C01 stage 4 both live ONLY in
+# loop-lib.sh (not duplicated per variant) — and drive them with a tj() stub that opts the task in, so
+# the block fires and we can check the snippet is appended when present / absent when not.
 d="$(setup_repo)"; mkdir -p "$d/.harness/custom"
 {
   echo 'tj(){ echo true; }'                    # any .visualVerify read → "true" → block fires (skips heuristic)
   echo 'VISUAL_VERIFY_HOOK="echo shot"'
   printf 'HARNESS_DIR=%q\n' "$d/.harness"
-  sed -n '/^_visual_verify_custom() {/,/^}/p' "$SCRIPT_DIR/loop.sh"
-  sed -n '/^visual_verify_block() {/,/^}/p' "$SCRIPT_DIR/loop.sh"
+  sed -n '/^_visual_verify_custom() {/,/^}/p' "$SCRIPT_DIR/loop-lib.sh"
+  sed -n '/^visual_verify_block() {/,/^}/p' "$SCRIPT_DIR/loop-lib.sh"
   echo 'visual_verify_block "$@"'
 } > "$d/vv.sh"
 vv() { bash "$d/vv.sh" "$@" 2>/dev/null; }
@@ -128,10 +129,10 @@ assert "vv audit: snippet content appended"       has 'FAIL-IF-THE-CHART-IS-BLAN
 rm -rf "$d"
 
 # ============ Build/audit prompt preamble injection (custom/{build,audit}-preamble.md) ============
-# Extract the REAL _custom_preamble (byte-identical across variants) and exercise it directly — it's
-# unconditional (no task gating), so no tj stub is needed.
+# Extract the REAL _custom_preamble — as of C01 stage 4 it lives ONLY in loop-lib.sh (not duplicated
+# per variant) — and exercise it directly; it's unconditional (no task gating), so no tj stub needed.
 d="$(setup_repo)"; mkdir -p "$d/.harness/custom"
-{ printf 'HARNESS_DIR=%q\n' "$d/.harness"; sed -n '/^_custom_preamble() {/,/^}/p' "$SCRIPT_DIR/loop.sh"; echo '_custom_preamble "$@"'; } > "$d/pre.sh"
+{ printf 'HARNESS_DIR=%q\n' "$d/.harness"; sed -n '/^_custom_preamble() {/,/^}/p' "$SCRIPT_DIR/loop-lib.sh"; echo '_custom_preamble "$@"'; } > "$d/pre.sh"
 pre() { bash "$d/pre.sh" "$@" 2>/dev/null; }
 BP="$d/.harness/custom/build-preamble.md"; AP="$d/.harness/custom/audit-preamble.md"
 
@@ -154,15 +155,18 @@ assert "preamble audit: content appended"        has 'USE-CACHED-FIXTURES' "$oa"
 rm -rf "$d"
 
 # ============ Structural wiring assertions on the shipped loops ============
-# _custom_preamble audit's ONLY call site is inside audit_prompt(), which lives in loop-lib.sh as of
-# C01 stage 3 (not duplicated per variant) — checked once there instead of per-variant.
+# _custom_preamble audit's ONLY call site is inside audit_prompt(); _visual_verify_custom audit/build's
+# ONLY call sites are inside visual_verify_block() — both live in loop-lib.sh as of C01 (stage 3 for
+# audit_prompt, stage 4 for visual_verify_block), not duplicated per variant — checked once there.
 LIB="$SCRIPT_DIR/loop-lib.sh"
-assert "[loop-lib.sh] wires: _custom_preamble audit" grep -qF "_custom_preamble audit" "$LIB"
+for ev in "_custom_preamble audit" "_visual_verify_custom audit" "_visual_verify_custom build"; do
+  assert "[loop-lib.sh] wires: $ev" grep -qF "$ev" "$LIB"
+done
 for V in loop.sh loop.in-place.sh; do
   L="$SCRIPT_DIR/$V"
   # NOTE: idle no longer fires `drained` — an idle verdict is per-task (reconciled + continue), not a
   # drained backlog. The only `drained` fire point is the real select_task-empty exit (`drained drained`).
-  for ev in "run_hook drained drained" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_visual_verify_custom audit" "_visual_verify_custom build" "_custom_preamble build"; do
+  for ev in "run_hook drained drained" "run_hook exhausted max-iters" "run_hook exhausted rate-limit" "run_hook blocked" "run_hook integrated" "_custom_preamble build"; do
     assert "[$V] wires: $ev" grep -qF "$ev" "$L"
   done
   # a lifecycle hook must NEVER fire on the prereq/config error exit path (exit 3)
