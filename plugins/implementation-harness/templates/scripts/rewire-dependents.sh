@@ -22,9 +22,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(git -C "$HARNESS_DIR" rev-parse --show-toplevel)"
+GIT_COMMON="$(git -C "$ROOT" rev-parse --git-common-dir)"
+case "$GIT_COMMON" in /*) ;; *) GIT_COMMON="$ROOT/$GIT_COMMON" ;; esac
 BACKLOG="$HARNESS_DIR/tracking/TASKS.json"
 MAIN_BRANCH="${MAIN_BRANCH:-main}"
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 3; }
+
+# REPO_LOCK_WAIT=1 + a short MAX_WAIT/RETRY: "check once, fail LOUDLY if held" — neither loop.sh's
+# default (silently exit 0 on contention — wrong for an owner CLI that's supposed to DO something) nor
+# the mark-*.sh default (wait indefinitely — wrong for a tool the owner explicitly runs with the loop
+# stopped; a long wait would just mean it's about to fail anyway). See the fast pre-check below for the
+# common case's friendly message; this is only the (rare) TOCTOU-race backstop that actually HOLDS the
+# lock during the mutation (C03 — the pre-check alone was advisory-only, never exclusive).
+REPO_LOCK_WAIT=1
+REPO_LOCK_MAX_WAIT="${REPO_LOCK_MAX_WAIT:-2}"
+REPO_LOCK_RETRY="${REPO_LOCK_RETRY:-1}"
+. "$SCRIPT_DIR/repo-lock.sh"
 
 usage() {
   echo "usage: rewire-dependents.sh <stranded_id> <dead_dep> <new_dep>|--drop" >&2
@@ -36,9 +49,9 @@ id="${1:-}"; [ -n "$id" ] || usage
 [ -f "$BACKLOG" ] || { echo "rewire-dependents: no TASKS.json at $BACKLOG" >&2; exit 1; }
 
 # Refuse while the loop is running — this mutates TASKS.json, exactly what the loop reads/writes (same
-# guardrail as fix-scope-gaps). The owner runs this pre-loop, from pre-loop-checkin's report.
-GC="$(git -C "$ROOT" rev-parse --git-common-dir)"; case "$GC" in /*) ;; *) GC="$ROOT/$GC";; esac
-LOCK="$GC/$(basename "$ROOT")-loop.lock"
+# guardrail as fix-scope-gaps). The owner runs this pre-loop, from pre-loop-checkin's report. Fast,
+# read-only, immediate (no sleep) — the actual acquire_lock call below is the exclusive backstop.
+LOCK="$GIT_COMMON/$(basename "$ROOT")-loop.lock"
 if [ -d "$LOCK" ]; then
   lpid="$(cat "$LOCK/pid" 2>/dev/null || true)"
   if [ -n "$lpid" ] && kill -0 "$lpid" 2>/dev/null; then
@@ -46,14 +59,37 @@ if [ -d "$LOCK" ]; then
   fi
 fi
 
+# B05: never publish whatever branch (and whatever WIP is on it) the checkout happens to be on —
+# push_with_retry rebases + pushes THE CURRENT BRANCH onto origin/$MAIN_BRANCH.
+cur_branch="$(git -C "$ROOT" symbolic-ref --short -q HEAD || echo DETACHED)"
+if [ "$cur_branch" != "$MAIN_BRANCH" ]; then
+  echo "rewire-dependents: checkout is on '$cur_branch', not $MAIN_BRANCH — refusing to publish. Switch to $MAIN_BRANCH (or stash your work) and re-run." >&2
+  exit 1
+fi
+
 jq -e --arg id "$id" '.tasks[]|select(.id==$id)' "$BACKLOG" >/dev/null 2>&1 \
   || { echo "rewire-dependents: no task $id in TASKS.json" >&2; exit 1; }
 
+# Actually ACQUIRE the lock now (closes the advisory-only gap above) — held for the rest of the run.
+if ! acquire_lock; then
+  echo "rewire-dependents: could not acquire the repo lock (another process took it) — stop the loop first and re-run." >&2
+  exit 1
+fi
+# See B02: a trap without `exit` doesn't stop the script — Ctrl-C/kill would release the lock and
+# then keep running.
+trap 'release_lock' EXIT
+trap 'release_lock; trap - EXIT; exit 130' INT
+trap 'release_lock; trap - EXIT; exit 143' TERM
+
 commit_push() {   # <file-to-stage> <commit-msg>
   git -C "$ROOT" add "$1"
+  # B05: an explicit pathspec means ONLY $1 is committed — any unrelated file the owner happened to
+  # have staged rides along otherwise.
   if git -C "$ROOT" diff --cached --quiet -- "$1" 2>/dev/null; then echo "no change to commit (already in that state)"; exit 0; fi
-  git -C "$ROOT" commit -q --no-gpg-sign -m "$2 [skip ci]" || { echo "ERROR: commit failed" >&2; exit 1; }
-  [ -n "${NO_PUSH:-}" ] || git -C "$ROOT" push -q origin "HEAD:$MAIN_BRANCH" 2>/dev/null || echo "WARN: committed locally but push failed — push $MAIN_BRANCH manually" >&2
+  git -C "$ROOT" commit -q --no-gpg-sign -m "$2 [skip ci]" -- "$1" || { echo "ERROR: commit failed" >&2; exit 1; }
+  # push_with_retry (repo-lock.sh) fetch+rebase-retries so a moved origin/$MAIN_BRANCH doesn't lose
+  # this edit to a single failed push attempt, matching the mark-*.sh resilience. Honors NO_PUSH=1.
+  push_with_retry "$ROOT" "$MAIN_BRANCH" || echo "WARN: committed locally but push failed after retries — push $MAIN_BRANCH manually" >&2
 }
 
 case "${2:-}" in

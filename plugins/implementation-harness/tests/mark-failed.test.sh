@@ -14,7 +14,8 @@ assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "F
 setup_repo() {   # echoes the repo path; T001=done, T002=blocked, T003=pending (neither done nor blocked)
   local d bare
   d="$(mktemp -d)"; bare="$(mktemp -d)"
-  git init -q "$d"
+  git init -q -b main "$d"   # explicit -b main: mark-failed.sh now branch-guards against MAIN_BRANCH
+                              # (default "main") — don't rely on the host's init.defaultBranch (B05)
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
   cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/overlay-edit.sh" "$MARK_FAILED" "$d/.harness/scripts/"

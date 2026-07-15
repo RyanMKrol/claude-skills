@@ -35,6 +35,16 @@ trap 'release_lock' EXIT
 trap 'release_lock; trap - EXIT; exit 130' INT
 trap 'release_lock; trap - EXIT; exit 143' TERM
 
+# B05: never publish whatever branch (and whatever WIP is on it) the checkout happens to be on —
+# push_with_retry rebases + pushes THE CURRENT BRANCH onto origin/$MAIN_BRANCH. Checked BEFORE the
+# .mjs ever runs, so a refusal here leaves the pending files untouched (retryable after switching
+# back to $MAIN_BRANCH), not partially consumed.
+cur_branch="$(git -C "$ROOT" symbolic-ref --short -q HEAD || echo DETACHED)"
+if [ "$cur_branch" != "$MAIN_BRANCH" ]; then
+  echo "ERROR: checkout is on '$cur_branch', not $MAIN_BRANCH — refusing to publish. Switch to $MAIN_BRANCH (or stash your work) and re-run." >&2
+  exit 1
+fi
+
 # Snapshot which files we're about to consume BEFORE running the .mjs, so we only delete what we
 # actually processed (a new idea agent could theoretically drop a file mid-run).
 files_before="$(ls "$PENDING_DIR"/*.json 2>/dev/null || true)"
@@ -45,8 +55,11 @@ node "$SCRIPT_DIR/consolidate-ideas.mjs"
 # are preserved for a retry) rather than committing+pushing a broken TASKS.json that would break the loop.
 jq empty "$HARNESS_DIR/tracking/TASKS.json" 2>/dev/null || { echo "ABORT: consolidate produced invalid TASKS.json — not committing (pending files kept)." >&2; exit 1; }
 
+# B05: an explicit pathspec means ONLY these three consolidate-owned paths are committed — any
+# unrelated file the owner happened to have staged rides along otherwise.
 git -C "$ROOT" add "$HARNESS_DIR/tracking/TASKS.json" "$HARNESS_DIR/tracking/IDEAS.jsonl" "$HARNESS_DIR/tasks" 2>/dev/null || true
-if git -C "$ROOT" commit -q --no-gpg-sign -m "consolidate-ideas: apply pending task conversions [skip ci]" 2>/dev/null; then
+if git -C "$ROOT" commit -q --no-gpg-sign -m "consolidate-ideas: apply pending task conversions [skip ci]" \
+    -- "$HARNESS_DIR/tracking/TASKS.json" "$HARNESS_DIR/tracking/IDEAS.jsonl" "$HARNESS_DIR/tasks" 2>/dev/null; then
   # Reuse the shared push-with-retry (fetch+rebase between attempts) so a moved origin/main doesn't
   # lose the conversion to a single failed push, matching the mark-*.sh resilience.
   push_with_retry "$ROOT" "$MAIN_BRANCH" || { echo "WARN: commit made locally but push failed after retries — push $MAIN_BRANCH manually" >&2; exit 1; }

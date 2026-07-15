@@ -42,6 +42,34 @@ Entry format:
 
 ---
 
+## 1.84.0 → 1.84.1 — rewire-dependents.sh + consolidate-ideas.sh get the same branch guard + pathspec-scoped commits; rewire-dependents.sh's lock/push are now real (B05 + C03, part 2/2)
+
+Bug fix, completing part 1/2. `consolidate-ideas.sh` (multiple paths, not a single overlay) and
+`rewire-dependents.sh` (edits `TASKS.json` directly) don't fit `overlay_edit`, so they get the same
+branch-guard + pathspec-commit fix applied inline instead. `rewire-dependents.sh` additionally had
+its OWN two hand-rolled shortcuts: a lock CHECK that only ever read whether the loop's lock dir
+existed (advisory only — it never actually acquired the lock, so a concurrent write could still
+race it), and a single-attempt commit+push with no rebase-retry (unlike every other owner CLI, which
+uses `push_with_retry`). Both are now real: it calls `acquire_lock` (closing the exclusivity gap) —
+with a short wait/retry so a genuine race fails LOUDLY rather than looping.sh's default silent
+exit-0-on-contention (wrong for a CLI that's supposed to do something) — and pushes via
+`push_with_retry`, matching the mark-*.sh resilience to a moved remote. The existing fast read-only
+pre-check is kept as a friendly immediate message for the common case; `acquire_lock` is the
+exclusive backstop for the rare TOCTOU race.
+
+- mechanism: `scripts/consolidate-ideas.sh` — branch guard added before the `.mjs` ever runs (so a
+  refusal leaves `.pending-tasks/*.json` untouched, retryable); its commit is now pathspec-scoped to
+  the three paths it actually owns (`tracking/TASKS.json`, `tracking/IDEAS.jsonl`, `tasks/`).
+  `scripts/rewire-dependents.sh` — now sources `repo-lock.sh` (branch guard, real `acquire_lock` +
+  B02's exit-cleanly traps, `push_with_retry`); its `commit_push` helper's commit is now
+  pathspec-scoped to the file it stages.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — both mechanism (content-diffed on upgrade).
+- breaking: none on the happy path (both scripts' existing test suites green unmodified apart from
+  test-harness fixtures now pinning `git init -b main` explicitly, since the branch guard is real).
+  Running either script from a non-`main` branch, or with an unrelated file staged, now behaves
+  differently than before — that's the fix, not a regression.
+
 ## 1.83.2 → 1.84.0 — shared overlay-edit.sh: branch guard + pathspec-scoped commits for mark-done/mark-failed/mark-reviewed (B05 + C03, part 1/2)
 
 Bug fix + consolidation. `mark-done.sh`/`mark-failed.sh`/`mark-reviewed.sh` shared a ~70% hand-

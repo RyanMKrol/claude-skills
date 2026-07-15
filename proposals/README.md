@@ -31,8 +31,8 @@ agent should be able to work from the file alone, without the original conversat
 
 ## Recommended order
 
-**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03 — done)*
-**Next (high value):** B05+C03 → B07 → B04 → B06 → D01 → C01 (the structural fix) → T01 → F01
+**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03 — done)*
+**Next (high value):** B07 → B04 → B06 → D01 → C01 (the structural fix) → T01 → F01
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
 
 ## Index
@@ -40,7 +40,6 @@ agent should be able to work from the file alone, without the original conversat
 | ID | Title | Type | Priority | Effort |
 |----|-------|------|----------|--------|
 | B04 | Persist the worktree variant's audit trail | bug | P1 | S |
-| B05 | mark-* scripts: branch + pathspec safety | bug | P1 | S |
 | B06 | Lock granularity — owner CLIs starve for the whole run | bug | P1 | M |
 | B07 | Rate-limit false positives + uncapped audit-path RL loop | bug | P1 | M |
 | B08 | CI-indeterminate re-check parity (in-place) | bug | P2 | S |
@@ -56,7 +55,6 @@ agent should be able to work from the file alone, without the original conversat
 | D05 | Generalize `tier_strength` beyond opus | design-drift | P2 | S |
 | C01 | Extract `loop-lib.sh` (the shared ~70%) | consolidation | P1 | L |
 | C02 | Dedupe the postflight pair | consolidation | P3 | M |
-| C03 | Shared `overlay-edit.sh` for the mark-* scripts | consolidation | P2 | M |
 | F01 | Cost/usage ledger from the stream-json | feature | P1 | M |
 | F02 | Stop-file graceful shutdown | feature | P1 | S |
 | F03 | `prioritize.sh` — supported backlog reordering | feature | P2 | S |

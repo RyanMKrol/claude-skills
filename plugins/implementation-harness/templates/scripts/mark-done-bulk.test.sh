@@ -12,7 +12,8 @@ FAIL=0
 setup_repo() {   # echoes the repo path
   local d bare
   d="$(mktemp -d)"
-  git init -q "$d"
+  git init -q -b main "$d"   # explicit -b main: mark-done.sh/mark-reviewed.sh now branch-guard against
+                              # MAIN_BRANCH (default "main") — don't rely on the host's init.defaultBranch (B05)
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
   cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/overlay-edit.sh" "$d/.harness/scripts/"
