@@ -180,6 +180,7 @@ For each task, in dependency order, produce a JSON object:
   "verify": [],                       // or ["run-app"]
   "expectsTest": false,               // true → the loop requires a test file in the diff (structural gate); set for test-pinnable tasks
   "visualVerify": false,              // OPTIONAL — true forces the VISUAL_VERIFY_HOOK "actually LOOK at it" check; false suppresses; OMIT to use the facets heuristic (see §3). Usually omitted.
+  "ciSkipOk": false,                  // OPTIONAL — true ONLY for genuinely CI-irrelevant work (pure docs/config, nothing a test suite exercises); authorizes a builder [skip ci] commit. Almost always omitted — an unauthorized [skip ci] fails the attempt (D01).
   "spec": ".harness/tasks/TNNN.md"    // the task's do/done-when (## Do / ## Done when) — author this MD file too
   // NO model/effort/escalation, NO inline do/doneWhen — the policy auto-tunes difficulty from facets + the ledger
 }

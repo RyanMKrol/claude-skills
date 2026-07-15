@@ -42,6 +42,40 @@ Entry format:
 
 ---
 
+## 1.86.1 → 1.87.0 — `[skip ci]` requires planner authorization (`ciSkipOk`), not just builder wording (D01)
+
+Design-drift fix (P1). Both loop variants honored `[skip ci]` in the build commit's message
+unconditionally — but the BUILDER writes that message (often a cheap/weak tier), so a `[skip ci]`
+tag (accidental — copying house style from git log — or deliberate, dodging a check it's failing)
+skipped the model-agnostic CI gate entirely, leaving only the sampled audit as a backstop. Violates
+PRINCIPLES.md P2 ("a gate satisfiable by text the builder itself writes"). Fix: `[skip ci]` is now
+honored ONLY when the task carries a new optional `ciSkipOk: true` field — set by the planning-stage
+skills (add-to-backlog/convert-ideas), never the builder. A `[skip ci]` commit on a task without the
+field is now a structural failure (`unauthorized-skip-ci`, same bucket as scope-creep) — checked in
+`structural_checks`, BEFORE the push/CI-wait, since GitHub itself never creates a run for a
+`[skip ci]` commit (nothing for `wait_ci_green` to find on an unauthorized one either way).
+
+New `--struct-selftest <id>` dispatch (parity with the other `--*-selftest` entry points) runs the
+real `structural_checks` against a fixture commit — covers D01 plus a first-ever behavioral baseline
+for the pre-existing empty-diff/scope-creep checks (previously only statically grepped).
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `structural_checks` gains the
+  `ciSkipOk`-gated `[skip ci]` check; new `--struct-selftest` dispatch. `scripts/consolidate-ideas.mjs`
+  — carries `ciSkipOk:true` through from a pending unit to the resulting task (same pattern as
+  `visualVerify`; omitted unless explicitly `true`, never a stray `false`). `docs/HARNESS.md` §8.1 —
+  documents the new field. Project-local operational skills `skills/implementation-harness-add-to-
+  backlog/SKILL.md`, `skills/implementation-harness-convert-ideas/SKILL.md` — one-line authoring
+  guidance each (planner-only, almost always omitted).
+- config: none — `ciSkipOk` lives in `tracking/TASKS.json`, which is USER DATA (never touched by
+  upgrade); this just teaches the mechanism to recognize an already-additive, already-optional field
+  a project's own TASKS.json may or may not use. No `harness.env`/`facets.json` change.
+- new files: none. renamed/removed: none.
+- manual attention: none — all touched files are mechanism or project-local operational skills
+  (content-diffed on upgrade).
+- breaking: none on the happy path (no existing task has `ciSkipOk`, so behavior is unchanged unless
+  a task's builder commit already happened to say `[skip ci]` — which is exactly the case this fixes,
+  not a regression).
+
 ## 1.86.0 → 1.86.1 — CI fix: pin bare-repo `git init` to `-b main` in test fixtures (hotfix, no harness behavior change)
 
 CI-only bug, caught live: `rewire-dependents.test.sh`'s new "moved-remote" case (added in 1.84.1)

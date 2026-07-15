@@ -33,6 +33,7 @@
 #         .harness/scripts/loop.sh --rl-selftest detect|wait …    # verify usage-limit detection + reset parsing, then exit
 #         .harness/scripts/loop.sh --audit-parse-selftest <file>  # verify audit VERDICT sentinel extraction, then exit
 #         .harness/scripts/loop.sh --audit-rl-cap-selftest <id>   # verify the audit-path RL_MAX_WAIT cap, then exit
+#         .harness/scripts/loop.sh --struct-selftest <id>         # run structural_checks on the current checkout's commit, then exit
 # Config: .harness/config/harness.env (sourced if present) and/or the environment.
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
@@ -103,7 +104,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"                # give up + exit for supervis
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"            # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                   # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"          # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && [ "${1:-}" != "--audit-rl-cap-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && [ "${1:-}" != "--audit-rl-cap-selftest" ] && [ "${1:-}" != "--struct-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -1140,6 +1141,18 @@ SCOPE
 $changed
 CHANGED
   if [ -n "$creep" ]; then STRUCT_FAIL_KIND="scope-creep"; STRUCT_FAIL_DETAIL="${creep# }"; log "structural: $id changed files OUTSIDE scope (scope creep):$creep — fail"; return 1; fi
+  # D01: [skip ci] is a PLANNER-granted permission (ciSkipOk on the task), never something the
+  # builder's own commit message can self-authorize (PRINCIPLES.md P2 — a gate satisfiable by text
+  # the builder itself writes is exactly the listed drift smell). Checked here (BEFORE the push/CI
+  # wait) since GitHub itself never creates a run for a [skip ci] commit — there'd be nothing for
+  # wait_ci_green to find on an unauthorized one, so this must fire at commit-inspection time.
+  if git -C "$ROOT" log -1 --format=%s HEAD 2>/dev/null | grep -qF '[skip ci]'; then
+    if [ "$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.ciSkipOk // false')" != "true" ]; then
+      STRUCT_FAIL_KIND="unauthorized-skip-ci"
+      log "structural: $id's commit contains [skip ci] but the task has no ciSkipOk:true — fail"
+      return 1
+    fi
+  fi
   want_test="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.expectsTest // false')"
   if [ "$want_test" = "true" ] && ! printf '%s\n' "$changed" | any_test_path; then
     STRUCT_FAIL_KIND="test-missing"; log "structural: $id has expectsTest=true but no test file changed — fail"; return 1
@@ -1181,6 +1194,19 @@ CHANGED
   fi
   return 0
 }
+
+# --struct-selftest <id> — runs the REAL structural_checks against whatever is ALREADY committed on
+# $ROOT's current branch (the caller sets up the fixture: a task in TASKS.json on origin/$MAIN_BRANCH,
+# a diverging local commit) and prints STRUCT_FAIL_KIND, or PASS if it returns 0. No claude subprocess,
+# no gh/network — actionlint/LOCAL_DOD checks are naturally skipped unless the fixture's diff/env
+# actually trigger them. Covers D01 (unauthorized [skip ci]) plus a baseline for the pre-existing
+# empty-diff/scope-creep checks, which had no behavioral coverage before this — see
+# tests/struct-checks.test.sh.
+if [ "${1:-}" = "--struct-selftest" ]; then
+  structural_checks "${2:-T001}" || true
+  echo "${STRUCT_FAIL_KIND:-PASS}"
+  exit 0
+fi
 
 # audit_prompt <id> <spec> <diff> — the independent auditor's prompt (strict PASS/FAIL on ## Done when).
 audit_prompt() {

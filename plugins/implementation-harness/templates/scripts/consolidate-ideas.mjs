@@ -166,6 +166,10 @@ function main() {
     // omitting the field means "fall back to the facets heuristic at runtime"). A boolean check keeps
     // a stray string/null from becoming a truthy field.
     if (typeof unit.visualVerify === 'boolean') task.visualVerify = unit.visualVerify;
+    // Same pass-through pattern for ciSkipOk (D01) — planner-granted [skip ci] authorization.
+    // Omitting the field means "no authorization" (the loop's own default), so only carry it
+    // through when the unit explicitly set it true (never let a stray truthy value slip in).
+    if (unit.ciSkipOk === true) task.ciSkipOk = true;
     if (unit.gate !== 'needs-human' && unit.facets) task.facets = unit.facets;
     newTasks.push(task);
   });

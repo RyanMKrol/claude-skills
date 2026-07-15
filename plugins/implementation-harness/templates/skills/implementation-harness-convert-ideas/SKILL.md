@@ -163,6 +163,7 @@ this idea/cluster used in its scratch filenames):
 >          "design": null, "verify": [], "expectsTest": false,   // true → the loop REQUIRES a test file in the diff; if you set it, say in specDoneWhen WHAT the test must assert (else the builder can only write a token one)
 >          "facets": { "layer": "...", "workType": "...", "risk": [] },
 >          "visualVerify": true,   // OPTIONAL — include ONLY per step 2b (a maybe-visual task you judged visual). Omit for auto-covered / non-visual tasks.
+>          "ciSkipOk": false,      // OPTIONAL — true ONLY for genuinely CI-irrelevant work (pure docs/config); authorizes a builder [skip ci] commit. Almost always omitted.
 >          "specOverview": "ONE or TWO plain-language sentences — the 'what are we actually doing here, and why, at a glance' line. It's read FIRST and fastest, before the denser Do / Done-when detail.",
 >          "specDo": "1-3 sentences: the work.",
 >          "specDoneWhen": "The task-specific, concrete, runnable acceptance bar. Do NOT restate the universal DoD (format/lint/test/CI-green) — that's already covered once, globally."

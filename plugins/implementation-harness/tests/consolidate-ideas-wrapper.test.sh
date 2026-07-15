@@ -56,6 +56,27 @@ assert "commit pushed to origin" bash -c "cd '$d' && [ \"\$(git rev-parse HEAD)\
 assert "pending file removed after success" [ ! -f "$d/.harness/.pending-tasks/idea1.json" ]
 rm -rf "$d"
 
+# 1b. D01: a unit with ciSkipOk:true carries the field through to the resulting task; a unit that
+# omits it produces a task with NO ciSkipOk key at all (never a stray false — matches how visualVerify
+# is passed through, so the loop's `// false` default applies cleanly either way).
+d="$(setup_repo)"
+cat >"$d/.harness/.pending-tasks/idea2.json" <<'JSON'
+{"units":[{"tempId":"idea2-a","title":"docs-only task","dependsOn":[],"gate":null,"tags":[],"scope":["docs/x.md"],
+  "verify":[],"expectsTest":false,"facets":{"layer":"backend","workType":"docs","risk":[]},"ciSkipOk":true,
+  "specOverview":"overview","specDo":"do the thing","specDoneWhen":"it is done"}],"ideaIds":[]}
+JSON
+run "$d" >/dev/null
+assert "ciSkipOk:true on the unit → ciSkipOk:true on the resulting task" \
+  bash -c "jq -e '.tasks[]|select(.title==\"docs-only task\")|.ciSkipOk==true' '$d/.harness/tracking/TASKS.json' >/dev/null"
+rm -rf "$d"
+
+d="$(setup_repo)"
+write_pending "$d" idea1   # no ciSkipOk in the unit
+run "$d" >/dev/null
+assert "ciSkipOk omitted on the unit → key absent on the task (not a stray false)" \
+  bash -c "! jq -e '.tasks[]|select(.title==\"a new task\")|has(\"ciSkipOk\")' '$d/.harness/tracking/TASKS.json' >/dev/null"
+rm -rf "$d"
+
 # 2. No pending files → "nothing to do", exit 0, no commit.
 d="$(setup_repo)"
 before="$(cd "$d" && git rev-list --count HEAD)"
