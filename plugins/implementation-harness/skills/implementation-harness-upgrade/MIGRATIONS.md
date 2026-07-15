@@ -42,6 +42,38 @@ Entry format:
 
 ---
 
+## 1.84.1 → 1.85.0 — audit-path RL retry loop is now capped by RL_MAX_WAIT (B07 fix 2); fixed a real rl_banner crash discovered while testing it
+
+Bug fix (P1). B07's fix 2, the last open piece of that proposal (fixes 1 and 3 — the tool_result
+false-positive and its selftest fixtures — shipped in 1.74.1). The audit step's rate-limit retry
+loop had NO waited-time accounting, unlike the build path (which tracks `rl_waited` against
+`RL_MAX_WAIT` and `exit 5`s for `supervise.sh` to relaunch) — a genuine, prolonged limit during the
+audit step slept the loop forever with no way out. Mirrored the build path's exact accounting into
+the audit path, in both variants.
+
+Building a real in-process test for this (`--audit-rl-cap-selftest`, overriding `run_claude` to
+always report rate-limited and running the real `audit_gate` retry loop) surfaced a SEPARATE,
+pre-existing bug: `rl_banner`'s `reset_txt="$(grep ... | tail -1)"` pipeline reports failure under
+`set -o pipefail` whenever the notice has no "resets…" wording (a normal, valid limit message shape)
+— and since every one of `rl_banner`'s 6 call sites (build + audit path, both variants) invokes it
+as a bare statement, that failure tripped `set -e` and **crashed the whole loop process** instead of
+gracefully backing off, for any genuine rate-limit notice lacking a parseable reset time. This has
+been live since `rl_banner` was introduced; nothing previously exercised it with a no-reset-time
+fixture under `set -e`. Fixed with `|| true` on the pipeline (matches the existing style — see the
+`rl_reset_wait` comment on the same file for why THAT one is unaffected: its callers already wrap
+each call in `|| true`, which bash's `errexit` treats as exempting the callee's whole body).
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `audit_gate`'s retry loop gains
+  `rl_waited` accounting + the `RL_MAX_WAIT` cap + `exit 5`, identical shape to the build path
+  (fallback poll stays `RL_POLL`, not the build path's exponential backoff — audit doesn't need its
+  own-attempt-budget shape). New `--audit-rl-cap-selftest <id>` dispatch (parity with
+  `--audit-parse-selftest`). `rl_banner` (a `tests/loop-parity.test.sh`-pinned shared function) gets
+  the `|| true` fix — kept byte-identical across variants.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — both are mechanism (content-diffed on upgrade).
+- breaking: none. The `rl_banner` fix only prevents a crash that should never have been "successful"
+  behavior; the cap only prevents an infinite wait that should never have been relied upon.
+
 ## 1.84.0 → 1.84.1 — rewire-dependents.sh + consolidate-ideas.sh get the same branch guard + pathspec-scoped commits; rewire-dependents.sh's lock/push are now real (B05 + C03, part 2/2)
 
 Bug fix, completing part 1/2. `consolidate-ideas.sh` (multiple paths, not a single overlay) and

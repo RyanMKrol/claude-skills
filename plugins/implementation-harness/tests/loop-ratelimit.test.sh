@@ -77,4 +77,43 @@ for V in loop.sh loop.in-place.sh; do
   rm -rf "$d"
 done
 
+# --- B07 fix 2: the audit-path RL retry loop must give up after RL_MAX_WAIT, not sleep forever -----
+# THE BUG (fixed): unlike the build path (which tracks rl_waited against RL_MAX_WAIT and exit 5s for
+# supervise to relaunch), the audit path's retry loop had NO waited-counter — a genuine, prolonged
+# rate limit during the audit step slept the loop asleep forever with no way out. Exercised via each
+# loop's --audit-rl-cap-selftest, which overrides run_claude in-process (no real claude subprocess)
+# to ALWAYS report rate-limited, forces a mandatory audit sample, and runs the real audit_gate retry
+# loop for real with a tiny RL_MAX_WAIT/RL_POLL.
+setup_audit_repo() {   # echoes "<repo-path> <bare-origin-path>" (called via $(...), a subshell — a
+                        # plain variable assignment inside it can NEVER propagate to the caller, so
+                        # both paths must come back through stdout, not a "script-global" var)
+  local d bare; d="$(mktemp -d)"; bare="$(mktemp -d)"
+  git init -q -b main "$d"
+  ( cd "$d" && git config user.email t@t.com && git config user.name t )
+  mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.sh" "$SCRIPT_DIR/loop.in-place.sh" "$d/.harness/scripts/"
+  chmod +x "$d/.harness/scripts/"*.sh
+  printf '{"tasks":[{"id":"T001","status":"pending","gate":null,"facets":{"layer":"backend","workType":"feature"}}]}' > "$d/.harness/tracking/TASKS.json"
+  ( cd "$d" && git add -A && git commit -q -m init )
+  git init -q --bare "$bare"
+  ( cd "$d" && git remote add origin "$bare" && git push -q -u origin main )
+  echo "$d $bare"
+}
+
+for V in loop.sh loop.in-place.sh; do
+  read -r d bare <<<"$(setup_audit_repo)"
+  set +e
+  # LOOP_WT=$d: the worktree variant's audit_gate runs `git -C "$LOOP_WT" diff origin/main..HEAD` —
+  # point it at the real repo (which has a real origin/main) rather than the default sibling
+  # "$d-loop" dir, which doesn't exist here (no real worktree in this in-process selftest). The
+  # in-place variant ignores LOOP_WT (it diffs $ROOT directly), so this is a harmless no-op for it.
+  out="$(cd "$d" && env -u CLAUDECODE RL_MAX_WAIT=2 RL_POLL=1 LOOP_WT="$d" bash ".harness/scripts/$V" --audit-rl-cap-selftest T001 2>&1)"
+  rc=$?
+  set -e
+  assert "[$V] audit-path RL cap: gives up once RL_MAX_WAIT is exceeded (exit 5, not a hang)" [ "$rc" = 5 ]
+  assert "[$V] audit-path RL cap: log names the cap that tripped" \
+    bash -c 'printf "%s" "$1" | grep -qE "still usage/session-limited after [0-9]+s \(cap 2s\)"' _ "$out"
+  rm -rf "$d" "$bare"
+done
+
 [ "$FAIL" = 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }

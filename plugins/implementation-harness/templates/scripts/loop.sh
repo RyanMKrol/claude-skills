@@ -42,6 +42,7 @@
 #         .harness/scripts/loop.sh --scope-selftest [entry file]  # verify scope-entry matching (extension globs), then exit
 #         .harness/scripts/loop.sh --rl-selftest detect|wait …    # verify usage-limit detection + reset parsing, then exit
 #         .harness/scripts/loop.sh --audit-parse-selftest <file>  # verify audit VERDICT sentinel extraction, then exit
+#         .harness/scripts/loop.sh --audit-rl-cap-selftest <id>   # verify the audit-path RL_MAX_WAIT cap, then exit
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
 # Config: .harness/config/harness.env (sourced if present) and/or the environment override the
@@ -110,7 +111,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"           # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                  # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"         # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && [ "${1:-}" != "--audit-rl-cap-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -144,7 +145,11 @@ _hms() {
 # quoted). Mirrors supervise.sh's boxed style.
 rl_banner() {
   local secs="$1" outf="$2" note="${3:-}" reset_txt resume
-  reset_txt="$(grep -hoiE 'resets[^.)]{0,60}\)?' "$outf" "${outf}.jsonl" 2>/dev/null | tail -1)"   # raw sibling too — the notice isn't a text_delta, so it's only in the .jsonl
+  # `|| true`: under set -o pipefail, a NO-MATCH grep (no "resets…" wording in the notice — a
+  # perfectly normal genuine limit message) reports the pipeline as failed even though `tail -1`
+  # itself succeeded — a bare assignment like this (not part of an if/&&/||) would then trip
+  # set -e and kill the WHOLE SCRIPT right here (discovered via the B07 audit-cap selftest).
+  reset_txt="$(grep -hoiE 'resets[^.)]{0,60}\)?' "$outf" "${outf}.jsonl" 2>/dev/null | tail -1 || true)"   # raw sibling too — the notice isn't a text_delta, so it's only in the .jsonl
   resume="$(date -v+"${secs}"S '+%a %H:%M %Z' 2>/dev/null || date -d "+${secs} seconds" '+%a %H:%M %Z' 2>/dev/null || echo "in $(_hms "$secs")")"
   log "══════════════════════════════════════════════════════════════════════"
   log "🛑 Claude usage/session limit hit — NOT a failure; the loop will auto-resume."
@@ -1318,7 +1323,7 @@ fi
 # cur_verification. Spawns a fresh, independent auditor at max(opus-medium, builder tier) ONLY if
 # sampled. 0 = pass (or not sampled), 1 = audit FAIL (a failed attempt).
 audit_gate() {
-  local id="$1" layer wt count pm bi ai am ae rel spec="" diff out verdict arc rlpoll
+  local id="$1" layer wt count pm bi ai am ae rel spec="" diff out verdict arc rlpoll rl_waited
   cur_verification="ci-only"
   layer="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.layer // empty')"
   wt="$(tj -r --arg id "$id" '.tasks[]|select(.id==$id)|.facets.workType // empty')"
@@ -1355,6 +1360,7 @@ audit_gate() {
   diff="$(git -C "$LOOP_WT" diff origin/main..HEAD 2>/dev/null)"
   rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$LOOP_WT/$rel" ] && spec="$(cat "$LOOP_WT/$rel")"
   out="$LOOP_WT/.harness/worklog/$id.audit.md"
+  rl_waited=0   # B07 fix 2: cap the audit-path RL loop like the build path — it used to retry forever
   while :; do
     # `… || arc=$?` (NOT `; arc=$?`) — run_claude flips `set -e` back ON internally before it
     # `return`s, so a bare `; arc=$?` would let a nonzero return KILL loop.sh right here (before arc
@@ -1362,9 +1368,17 @@ audit_gate() {
     # the call in an AND-OR list, which `set -e` never aborts on.
     arc=0; set +e; run_claude "$am" "$ae" "$(audit_prompt "$id" "$spec" "$diff")" audit || arc=$?; set -e
     if [ "$arc" = 10 ]; then
+      # B07 fix 2: same rl_waited/RL_MAX_WAIT accounting as the build path (the ONLY difference from
+      # there is the fallback poll interval on a reset time we can't parse — RL_POLL, not exponential
+      # backoff, since the audit path doesn't need the build path's own-attempt-budget shape). Without
+      # this a genuine, prolonged limit during the audit step slept the loop forever with no way out.
+      if [ "$rl_waited" -ge "$RL_MAX_WAIT" ]; then
+        log "audit: still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
+        run_hook exhausted rate-limit; board; exit 5
+      fi
       rlpoll="$(rl_reset_wait "$LOOP_WT/.harness/worklog/.claude-out.audit" || true)"; rlpoll="${rlpoll:-$RL_POLL}"
-      rl_banner "$rlpoll" "$LOOP_WT/.harness/worklog/.claude-out.audit" "(this is the AUDIT step, not the build — NOT an audit fail)"
-      sleep "$rlpoll"; continue
+      rl_banner "$rlpoll" "$LOOP_WT/.harness/worklog/.claude-out.audit" "(this is the AUDIT step, not the build — NOT an audit fail; waited $(_hms "$rl_waited") so far)"
+      sleep "$rlpoll"; rl_waited=$(( rl_waited + rlpoll )); continue
     fi
     break
   done
@@ -1380,6 +1394,26 @@ audit_gate() {
   fi
   return 1
 }
+
+# --audit-rl-cap-selftest <id> — exercises B07 fix 2 (the audit-path RL_MAX_WAIT cap) IN-PROCESS: no
+# real claude subprocess, no real audit sampling decision. Redefines run_claude (last definition
+# wins in bash) to ALWAYS report rate-limited with no parseable reset time, forces a mandatory audit
+# via cur_explored=1 (skips the sampling roll), then calls the real audit_gate and lets its retry
+# loop run for real — asserting it actually gives up (process exit 5) once RL_MAX_WAIT is exceeded,
+# rather than sleeping forever. Caller sets RL_MAX_WAIT/RL_POLL small and prepares a repo + LOOP_WT
+# with a real task id — see tests/loop-ratelimit.test.sh.
+if [ "${1:-}" = "--audit-rl-cap-selftest" ]; then
+  run_claude() {
+    local phase="$4"
+    printf 'Claude AI usage limit reached.\n' > "$LOOP_WT/.harness/worklog/.claude-out.$phase"
+    : > "$LOOP_WT/.harness/worklog/.claude-out.$phase.jsonl"
+    return 10
+  }
+  cur_explored=1; cur_base=0; cur_rung=0
+  mkdir -p "$LOOP_WT/.harness/worklog"
+  audit_gate "${2:-T001}"
+  exit $?
+fi
 
 # --- Corrupt-backlog pre-flight: a backlog that won't parse must fail CLOSED (exit 3) ------------
 # tj()/select_task swallow all errors (blob's `|| true`, jq's `2>/dev/null`), so a missing, empty,
