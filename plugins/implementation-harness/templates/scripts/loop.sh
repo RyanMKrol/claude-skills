@@ -43,6 +43,7 @@
 #         .harness/scripts/loop.sh --rl-selftest detect|wait …    # verify usage-limit detection + reset parsing, then exit
 #         .harness/scripts/loop.sh --audit-parse-selftest <file>  # verify audit VERDICT sentinel extraction, then exit
 #         .harness/scripts/loop.sh --audit-rl-cap-selftest <id>   # verify the audit-path RL_MAX_WAIT cap, then exit
+#         .harness/scripts/loop.sh --audit-trail-selftest <id> <PASS|FAIL>  # verify audit output survives worktree teardown, then exit
 # Extend: drop scripts under .harness/custom/hooks/ (on-<event>.sh) and patterns in
 #         .harness/custom/sensitive-paths.txt — see .harness/docs/HARNESS.md "Extending the harness".
 # Config: .harness/config/harness.env (sourced if present) and/or the environment override the
@@ -111,7 +112,7 @@ RL_MAX_WAIT="${RL_MAX_WAIT:-21600}"               # give up + exit for supervise
 RL_BACKOFF_MIN="${RL_BACKOFF_MIN:-300}"           # exponential-fallback FIRST sleep (unknown reset)
 RL_EXP_MAX="${RL_EXP_MAX:-3600}"                  # exponential-fallback cap (unknown-reset path only)
 RL_BACKOFF_MAX="${RL_BACKOFF_MAX:-18000}"         # cap for a PARSED reset wait (~5h — a known reset can be hours away)
-FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && [ "${1:-}" != "--audit-rl-cap-selftest" ] && FORCE_TASK="${1:-}"
+FORCE_TASK=""; [ "${1:-}" != "--guard-selftest" ] && [ "${1:-}" != "--scope-exempt-selftest" ] && [ "${1:-}" != "--scope-selftest" ] && [ "${1:-}" != "--rl-selftest" ] && [ "${1:-}" != "--test-selftest" ] && [ "${1:-}" != "--audit-parse-selftest" ] && [ "${1:-}" != "--audit-rl-cap-selftest" ] && [ "${1:-}" != "--audit-trail-selftest" ] && FORCE_TASK="${1:-}"
 POSTFLIGHT="$SCRIPT_DIR/postflight.sh"
 
 read -r -a FLAGS <<<"$CLAUDE_FLAGS"
@@ -1049,8 +1050,12 @@ rl_detect() {
 # `?` turns a parse failure into `empty` for just that line) skips a bad line and keeps going.
 run_claude() {
   local model="$1" effort="$2" pr="$3" phase="$4"
-  local raw="$LOOP_WT/.harness/worklog/.claude-out.${phase}.jsonl"   # raw stream events — dashboard's live tail
-  local out="$LOOP_WT/.harness/worklog/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
+  # B04: the PRIMARY checkout's worklog (like FAILURES_BUF/HEARTBEAT), NOT $LOOP_WT — the worktree is
+  # torn down within seconds of this attempt ending (cleanup_task on every path: structural fail, CI
+  # red, audit fail, AND success via record_outcome), which used to delete these transcripts before a
+  # human (or the dashboard) could ever read them on a failure.
+  local raw="$HARNESS_DIR/worklog/.claude-out.${phase}.jsonl"   # raw stream events — dashboard's live tail
+  local out="$HARNESS_DIR/worklog/.claude-out.${phase}"          # reassembled plain text — unchanged meaning
   local rc
   local -a eff=(); [ -n "$effort" ] && eff=(--effort "$effort")   # some models (e.g. Haiku) have no effort param — omit the flag entirely
   # The FULL prompt handed to Claude (build or audit) goes to a PER-PHASE FILE under worklog/, NOT the
@@ -1064,8 +1069,10 @@ run_claude() {
   # AUDITOR tier, not a ladder rung, so rung/attempt is meaningless there and omitted.
   _meta="($model${effort:+ / $effort})"
   [ "$phase" = build ] && _meta="$_meta  ·  rung ${cur_rung:-0} · attempt $(( ${cur_attempts:-0} + 1 ))"
-  # FULL prompt → per-phase worklog file (always written; this replaces the old console dump). Path mirrors
-  # this variant's .claude-out.* (the worktree's own worklog dir, where the agent + dashboard read).
+  # FULL prompt → per-phase worklog file (always written; this replaces the old console dump). Stays
+  # in the WORKTREE's own worklog dir — unlike .claude-out.*/audit.md, NOT moved to the primary
+  # checkout by B04 (out of that fix's scope; pinned as-is by print-prompt-banner.test.sh). It's lost
+  # on worktree teardown same as before this change.
   local _pfile="$LOOP_WT/.harness/worklog/.claude-prompt.${phase}"
   { printf '%s\n=====  %s PROMPT  —  task %s  %s\n%s\n%s\n' \
       "$_bar" "$_ph" "${cur_task:-?}" "$_meta" "$_bar" "$pr"; } > "$_pfile" 2>/dev/null || true
@@ -1359,7 +1366,9 @@ audit_gate() {
   log "audit: $id cell (${layer:-?}×${wt:-?}) $count confirmed, p=${pm}per-mille → AUDITING at $am/$ae (auditor $AUDITOR_MODEL/$AUDITOR_EFFORT, bumped to builder tier if stronger)"
   diff="$(git -C "$LOOP_WT" diff origin/main..HEAD 2>/dev/null)"
   rel="$(task_spec_rel "$id")"; [ -n "$rel" ] && [ -f "$LOOP_WT/$rel" ] && spec="$(cat "$LOOP_WT/$rel")"
-  out="$LOOP_WT/.harness/worklog/$id.audit.md"
+  # B04: the PRIMARY checkout's worklog, not $LOOP_WT — see the matching comment on run_claude's
+  # raw/out derivation for why (the worktree tears down within seconds of this attempt ending).
+  out="$HARNESS_DIR/worklog/$id.audit.md"
   rl_waited=0   # B07 fix 2: cap the audit-path RL loop like the build path — it used to retry forever
   while :; do
     # `… || arc=$?` (NOT `; arc=$?`) — run_claude flips `set -e` back ON internally before it
@@ -1376,13 +1385,13 @@ audit_gate() {
         log "audit: still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         run_hook exhausted rate-limit; board; exit 5
       fi
-      rlpoll="$(rl_reset_wait "$LOOP_WT/.harness/worklog/.claude-out.audit" || true)"; rlpoll="${rlpoll:-$RL_POLL}"
-      rl_banner "$rlpoll" "$LOOP_WT/.harness/worklog/.claude-out.audit" "(this is the AUDIT step, not the build — NOT an audit fail; waited $(_hms "$rl_waited") so far)"
+      rlpoll="$(rl_reset_wait "$HARNESS_DIR/worklog/.claude-out.audit" || true)"; rlpoll="${rlpoll:-$RL_POLL}"
+      rl_banner "$rlpoll" "$HARNESS_DIR/worklog/.claude-out.audit" "(this is the AUDIT step, not the build — NOT an audit fail; waited $(_hms "$rl_waited") so far)"
       sleep "$rlpoll"; rl_waited=$(( rl_waited + rlpoll )); continue
     fi
     break
   done
-  cp "$LOOP_WT/.harness/worklog/.claude-out.audit" "$out" 2>/dev/null || true
+  cp "$HARNESS_DIR/worklog/.claude-out.audit" "$out" 2>/dev/null || true
   verdict="$(audit_verdict_extract "$out")"
   if [ "$verdict" = "PASS" ]; then cur_verification="audited"; log "audit: PASS for $id (reasons → $out)"; return 0; fi
   if [ -z "$verdict" ]; then
@@ -1405,12 +1414,35 @@ audit_gate() {
 if [ "${1:-}" = "--audit-rl-cap-selftest" ]; then
   run_claude() {
     local phase="$4"
-    printf 'Claude AI usage limit reached.\n' > "$LOOP_WT/.harness/worklog/.claude-out.$phase"
-    : > "$LOOP_WT/.harness/worklog/.claude-out.$phase.jsonl"
+    # B04: matches where the REAL run_claude now writes (the primary checkout, not $LOOP_WT) — this
+    # override exists to simulate exactly what real run_claude would produce.
+    printf 'Claude AI usage limit reached.\n' > "$HARNESS_DIR/worklog/.claude-out.$phase"
+    : > "$HARNESS_DIR/worklog/.claude-out.$phase.jsonl"
     return 10
   }
   cur_explored=1; cur_base=0; cur_rung=0
-  mkdir -p "$LOOP_WT/.harness/worklog"
+  mkdir -p "$HARNESS_DIR/worklog"
+  audit_gate "${2:-T001}"
+  exit $?
+fi
+
+# --audit-trail-selftest <id> <PASS|FAIL> — exercises B04 (the worktree variant's audit output must
+# survive worktree teardown) IN-PROCESS: no real claude subprocess. Redefines run_claude (last
+# definition wins in bash) to write a sentinel VERDICT line and return 0 (no rate-limit branch),
+# forces a mandatory audit via cur_explored=1, then calls the real audit_gate. Does NOT tear the
+# worktree down itself — the caller does that (simulating cleanup_task) AFTER this process exits, then
+# checks $HARNESS_DIR/worklog/<id>.audit.md survived — see tests/audit-trail-persistence.test.sh.
+if [ "${1:-}" = "--audit-trail-selftest" ]; then
+  run_claude() {
+    local phase="$4"
+    # B04: matches where the REAL run_claude now writes (the primary checkout, not $LOOP_WT).
+    printf 'auditor reasoning here\nVERDICT: %s\n' "${_AUDIT_TRAIL_VERDICT:-FAIL}" > "$HARNESS_DIR/worklog/.claude-out.$phase"
+    : > "$HARNESS_DIR/worklog/.claude-out.$phase.jsonl"
+    return 0
+  }
+  _AUDIT_TRAIL_VERDICT="${3:-FAIL}"
+  cur_explored=1; cur_base=0; cur_rung=0
+  mkdir -p "$HARNESS_DIR/worklog"
   audit_gate "${2:-T001}"
   exit $?
 fi
@@ -1601,12 +1633,12 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         log "still usage/session-limited after ${rl_waited}s (cap ${RL_MAX_WAIT}s) — exiting for supervise to relaunch later."
         run_hook exhausted rate-limit; board; exit 5
       fi
-      rlwait="$(rl_reset_wait "$LOOP_WT/.harness/worklog/.claude-out.build" || true)"
+      rlwait="$(rl_reset_wait "$HARNESS_DIR/worklog/.claude-out.build" || true)"
       if [ -n "$rlwait" ]; then
-        rl_banner "$rlwait" "$LOOP_WT/.harness/worklog/.claude-out.build" "(that's the reported reset + a $(_hms "$RL_BUFFER") cushion; waited $(_hms "$rl_waited") so far)"
+        rl_banner "$rlwait" "$HARNESS_DIR/worklog/.claude-out.build" "(that's the reported reset + a $(_hms "$RL_BUFFER") cushion; waited $(_hms "$rl_waited") so far)"
       else
         rlwait="$rl_sleep"
-        rl_banner "$rlwait" "$LOOP_WT/.harness/worklog/.claude-out.build" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
+        rl_banner "$rlwait" "$HARNESS_DIR/worklog/.claude-out.build" "No reset time in the notice — exponential backoff (cap $(_hms "$RL_EXP_MAX"); waited $(_hms "$rl_waited") so far)."
         rl_sleep=$(( rl_sleep * 2 )); [ "$rl_sleep" -gt "$RL_EXP_MAX" ] && rl_sleep="$RL_EXP_MAX"
       fi
       heartbeat rate-limited

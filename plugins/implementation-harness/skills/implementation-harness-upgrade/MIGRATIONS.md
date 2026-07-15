@@ -42,6 +42,42 @@ Entry format:
 
 ---
 
+## 1.85.0 → 1.86.0 — worktree variant's audit trail + build/audit transcripts now survive worktree teardown (B04)
+
+Bug fix (P1), worktree variant only (the in-place variant already wrote to the primary checkout —
+verified unchanged). `audit_gate` wrote the auditor's reasoning to
+`$LOOP_WT/.harness/worklog/<id>.audit.md` — INSIDE the throwaway per-attempt worktree — and
+`cleanup_task` deletes that worktree within seconds of every attempt ending (structural fail, CI red,
+audit fail, AND success via `record_outcome`). A human reviewing why an audit failed found nothing;
+DESIGN.md §4.3's "audit reasons go to `worklog/<id>.audit.md`" didn't actually exist on worktree
+installs. Same problem for `run_claude`'s build/audit stream transcripts (what the dashboard live-
+tails) — also written under `$LOOP_WT`. Fix: both now write to the PRIMARY checkout's `worklog/`,
+following the existing `FAILURES_BUF`/`HEARTBEAT` precedent (both already lived there for the same
+reason). The dashboard's `claudeOutTailFor` already searches the primary checkout as one of its two
+candidates (picking whichever has the newest mtime) specifically because of this bug — no dashboard
+change needed; its live-tail is simply more reliable now that the primary-checkout candidate is the
+only one that ever has data.
+
+Building a real in-process test for this (`--audit-trail-selftest`, same technique as B07's
+`--audit-rl-cap-selftest`) required actually tearing a real `git worktree` down mid-test and
+confirming the primary checkout's files survived — a stronger regression guard than the proposal's
+own suggested minimum (a static grep). Verified the test would have failed against the pre-fix
+code by running it against a reverted copy of the affected paths.
+
+- mechanism: `scripts/loop.sh` (worktree variant only) — `run_claude`'s `raw`/`out` local vars,
+  `audit_gate`'s `out=`, and every co-located `rl_reset_wait`/`rl_banner`/`cp` call that referenced
+  the same claude-out paths (build AND audit phases) now anchor on `$HARNESS_DIR/worklog/` instead of
+  `$LOOP_WT/.harness/worklog/`. New `--audit-trail-selftest <id> <PASS|FAIL>` dispatch (parity with
+  `--audit-rl-cap-selftest`/`--audit-parse-selftest`). `.claude-prompt.*` (the full prompt file) is
+  UNCHANGED — deliberately out of this fix's scope, still lives in the worktree (pinned by
+  `print-prompt-banner.test.sh`).
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — mechanism (content-diffed on upgrade).
+- breaking: none. A worktree-variant install's `worklog/<id>.audit.md` and `.claude-out.*` now
+  persist across attempts where they used to vanish on teardown — this is the fix, not a regression
+  (a stale one from a PRIOR task is simply overwritten by the next task's audit, same as the
+  in-place variant already behaved).
+
 ## 1.84.1 → 1.85.0 — audit-path RL retry loop is now capped by RL_MAX_WAIT (B07 fix 2); fixed a real rl_banner crash discovered while testing it
 
 Bug fix (P1). B07's fix 2, the last open piece of that proposal (fixes 1 and 3 — the tool_result

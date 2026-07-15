@@ -31,15 +31,14 @@ agent should be able to work from the file alone, without the original conversat
 
 ## Recommended order
 
-**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07 — done)*
-**Next (high value):** B04 → B06 → D01 → C01 (the structural fix) → T01 → F01
+**Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04 — done)*
+**Next (high value):** B06 → D01 → C01 (the structural fix) → T01 → F01
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
 
 ## Index
 
 | ID | Title | Type | Priority | Effort |
 |----|-------|------|----------|--------|
-| B04 | Persist the worktree variant's audit trail | bug | P1 | S |
 | B06 | Lock granularity — owner CLIs starve for the whole run | bug | P1 | M |
 | B08 | CI-indeterminate re-check parity (in-place) | bug | P2 | S |
 | B10 | Bound the CI watch (`gh run watch`) | bug | P2 | S |
