@@ -52,7 +52,7 @@ setup_repo() {  # setup_repo <loop-src-path> <backlog-json> → echoes repo path
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking" "$d/.harness/worklog" "$d/.harness/config"
   cp "$src" "$d/.harness/scripts/loop.sh"
-  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/policy.jq" "$d/.harness/scripts/"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/policy.jq" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
   printf '%s\n' "$backlog" >"$d/.harness/tracking/TASKS.json"
   ( cd "$d" && git add -A && git commit -q -m init )

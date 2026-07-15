@@ -22,7 +22,7 @@ setup_repo() {   # echoes the repo path — a git repo whose .harness/scripts ho
   git init -q "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/config" "$d/.harness/tracking"
-  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop.sh" "$SCRIPT_DIR/loop.in-place.sh" "$d/.harness/scripts/"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/loop.sh" "$SCRIPT_DIR/loop.in-place.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
   # loop.in-place.sh's own top-level setup exits 3 before reaching ANY dispatch flag past
   # --guard-selftest if tracking/TASKS.json is absent (loop.sh's worktree variant has no such

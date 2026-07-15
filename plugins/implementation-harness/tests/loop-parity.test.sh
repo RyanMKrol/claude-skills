@@ -26,9 +26,27 @@ assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "F
 assert "worktree variant exists with its marker" grep -q '^# harness-loop-variant: worktree' "$WT"
 assert "in-place variant exists with its marker" grep -q '^# harness-loop-variant: in-place' "$IP"
 
-# Verified byte-identical at the time this manifest was authored (v1.70.x). Alphabetical.
-MANIFEST="_custom_preamble _hms _visual_verify_custom board bump ci_conclusion ci_find_run ci_status_now \
-gtier guard_selftest heartbeat in_scope_exempt log rand_pm record_failure rl_banner rl_detect rl_selftest \
+# C01: shared logic is being extracted, in stages, into loop-lib.sh (sourced by both variants) instead
+# of hand-mirrored here. Stage 1 (RL family) moved _hms, rl_banner, rl_detect, rl_selftest, plus
+# rl_reset_wait/rl_cli_said/rl_build_wait (never pinned below — rl_reset_wait genuinely diverged in
+# comments pre-extraction, and rl_cli_said/rl_build_wait are new/never had a local copy to pin). A
+# moved function must exist ONLY in the lib — never re-inlined locally by either variant (the
+# no-reinline guard below) — and both variants must actually source the lib.
+LIB="$SCRIPT_DIR/../templates/scripts/loop-lib.sh"
+assert "loop-lib.sh exists" [ -f "$LIB" ]
+assert "worktree variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$WT"
+assert "in-place variant sources loop-lib.sh" grep -qE '^\. "\$SCRIPT_DIR/loop-lib\.sh"' "$IP"
+MOVED_TO_LIB="_hms rl_banner rl_detect rl_reset_wait rl_cli_said rl_selftest rl_build_wait"
+for fn in $MOVED_TO_LIB; do
+  assert "$fn defined in loop-lib.sh" grep -qE "^$fn\(\) \{" "$LIB"
+  assert "$fn NOT re-inlined in loop.sh" bash -c "! grep -qE '^$fn\(\) \{' '$WT'"
+  assert "$fn NOT re-inlined in loop.in-place.sh" bash -c "! grep -qE '^$fn\(\) \{' '$IP'"
+done
+
+# Verified byte-identical at the time this manifest was authored (v1.70.x); shrinks as extraction
+# (C01) moves a function into loop-lib.sh instead — see the lib-presence block above. Alphabetical.
+MANIFEST="_custom_preamble _visual_verify_custom board bump ci_conclusion ci_find_run ci_status_now \
+gtier guard_selftest heartbeat in_scope_exempt log rand_pm record_failure \
 run_hook run_integrate_hook scope_exempt_selftest scope_selftest throttled_push tier_strength \
 visual_verify_block"
 

@@ -167,7 +167,7 @@ else
   cp -p "$TPL/scripts/loop.sh" "$H/scripts/loop.sh"
   cp -p "$TPL/scripts/postflight.sh" "$H/scripts/postflight.sh"            # worktree board: reads origin/main + detects the tNNN build branch
 fi
-cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scope-lib.sh" "$TPL/scripts/overlay-edit.sh" "$TPL/scripts/policy.jq" "$TPL/scripts/ensure-actionlint.sh" "$H/scripts/"   # scope-lib.sh: shared scope_match, REQUIRED by loop.sh + check-task-scope.sh (they source it — a missing copy aborts them). overlay-edit.sh: shared owner-overlay commit/push machinery, REQUIRED by mark-done.sh/mark-failed.sh/mark-reviewed.sh (they source it). ensure-actionlint.sh: fetches the pinned actionlint into .harness/.bin for structural_checks' workflow-YAML gate.
+cp -p "$TPL/scripts/supervise.sh" "$TPL/scripts/repo-lock.sh" "$TPL/scripts/scope-lib.sh" "$TPL/scripts/loop-lib.sh" "$TPL/scripts/overlay-edit.sh" "$TPL/scripts/policy.jq" "$TPL/scripts/ensure-actionlint.sh" "$H/scripts/"   # scope-lib.sh: shared scope_match, REQUIRED by loop.sh + check-task-scope.sh (they source it — a missing copy aborts them). loop-lib.sh: shared loop logic (C01), REQUIRED by loop.sh (it sources it — a missing copy aborts it). overlay-edit.sh: shared owner-overlay commit/push machinery, REQUIRED by mark-done.sh/mark-failed.sh/mark-reviewed.sh (they source it). ensure-actionlint.sh: fetches the pinned actionlint into .harness/.bin for structural_checks' workflow-YAML gate.
 cp -p "$TPL/scripts/mark-done.sh" "$TPL/scripts/mark-failed.sh" "$TPL/scripts/mark-reviewed.sh" "$TPL/scripts/mark-done-bulk.test.sh" "$TPL/scripts/check-task-scope.sh" "$TPL/scripts/scope-gap-dismiss.sh" "$TPL/scripts/rewire-dependents.sh" "$H/scripts/"   # scope-gap-dismiss.sh: fix-scope-gaps' dismissal writer; rewire-dependents.sh: repair a task stranded on an already-reviewed failed dep (pre-loop-checkin points at it)
 cp -p "$TPL/scripts/consolidate-ideas.sh" "$TPL/scripts/consolidate-ideas.mjs" "$H/scripts/"   # ideas->tasks pipeline consolidation (needs Node — see below)
 cp -p "$TPL/scripts/pre-push" "$H/scripts/pre-push"   # git pre-push hook — BOTH loop variants point the builder/auditor's git at it (env-scoped, per-subprocess) to block agent pushes so the loop is the sole pusher (the local gate runs before the push). See run_claude.
@@ -315,7 +315,7 @@ grep -qE 'exit 1|TODO: replace' "$T/.github/workflows/ci.yml" && echo "FAIL: ci.
 # CI_WORKFLOW must equal ci.yml name:
 W=$(grep -m1 '^name:' "$T/.github/workflows/ci.yml" | sed -E 's/^name:[[:space:]]*//')
 grep -q "CI_WORKFLOW:=${W}" "$T/.harness/config/harness.env" || echo "WARN: CI_WORKFLOW != ci.yml name ($W)"
-for s in loop.sh supervise.sh postflight.sh repo-lock.sh scope-lib.sh overlay-edit.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh scope-gap-dismiss.sh rewire-dependents.sh consolidate-ideas.sh ensure-actionlint.sh; do
+for s in loop.sh supervise.sh postflight.sh repo-lock.sh scope-lib.sh loop-lib.sh overlay-edit.sh mark-done.sh mark-failed.sh mark-reviewed.sh mark-done-bulk.test.sh check-task-scope.sh scope-gap-dismiss.sh rewire-dependents.sh consolidate-ideas.sh ensure-actionlint.sh; do
   test -x "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s not executable"
   bash -n "$T/.harness/scripts/$s" || echo "FAIL: scripts/$s has a shell syntax error"
 done

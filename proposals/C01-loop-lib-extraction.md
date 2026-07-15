@@ -1,5 +1,7 @@
 # C01: Extract `loop-lib.sh` — the shared ~70% of the two loop variants
 
+**Progress**: Stage 1 (RL family) done — shipped 1.88.0. Stages 2–4 remaining.
+
 **Type**: consolidation · **Priority**: P1 · **Effort**: L (do it in stages, one commit per stage)
 **Affected files**: `templates/scripts/loop.sh`, `loop.in-place.sh`, NEW `templates/scripts/loop-lib.sh`, `tests/loop-parity.test.sh` (manifest shrinks as functions move), upgrade skill's file lists, `create`'s chmod/validation, MIGRATIONS
 **Release**: MINOR bump per stage · MIGRATIONS entry per stage (new mechanism file first stage) · checksums · `bash -n`

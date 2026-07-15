@@ -42,6 +42,40 @@ Entry format:
 
 ---
 
+## 1.87.0 → 1.88.0 — extract shared loop logic into `loop-lib.sh`, stage 1: the rate-limit family (C01)
+
+Consolidation (P1), staged (this is stage 1 of 4 — see `proposals/C01-*.md` for the rest, or the
+plugin's git history once that file is gone). `loop.sh` and `loop.in-place.sh` hand-mirror ~70% of
+their logic, pinned byte-identical by `tests/loop-parity.test.sh`; every recent regression (the
+usage-limit-detection miss 1.69.0, the idle-handling bug 1.65.0, the B08 CI-recheck parity gap) lived
+in exactly that hand-mirrored region. New sourced `scripts/loop-lib.sh` (same pattern as
+`scope-lib.sh`/`repo-lock.sh`) now holds the RL_* rate-limit family: the `RL_POLL`/`RL_MAX_WAIT`/
+`RL_BACKOFF_MIN`/`RL_EXP_MAX`/`RL_BACKOFF_MAX`/`RL_BUFFER`/`RL_RE`/`RL_HARD_RE` knob defaults, and
+`_hms`, `rl_banner`, `rl_reset_wait` (this also reconciles a comment-only drift between the two
+variants — no behavior change), `rl_cli_said`, `rl_detect`, `rl_selftest`, plus a NEW
+`rl_build_wait` function that replaces the ~25-line inline usage-limit backoff block the BUILD path
+used to carry duplicated in each variant's main loop (parsed-reset-vs-exponential decision, banner,
+sleep, RL_MAX_WAIT give-up) — pure logic extraction, no behavior change. Both variants now source
+`loop-lib.sh` right after `scope-lib.sh` (still AFTER `harness.env`, so an env override of an RL_*
+knob still wins). `tests/loop-parity.test.sh`'s manifest shrinks accordingly and gains a lib-presence
++ no-reinline guard (asserts each moved function exists ONLY in the lib, never re-inlined locally) —
+the shrink-toward-zero pattern the proposal calls for as more stages land.
+
+- mechanism: NEW `scripts/loop-lib.sh` — the RL family (see above). `scripts/loop.sh`,
+  `scripts/loop.in-place.sh` — the moved code deleted locally, replaced by the `. loop-lib.sh` source
+  line and (for the build-path backoff block) a 4-line call to `rl_build_wait`; no other behavior
+  change. `skills/implementation-harness-create/SKILL.md` — copies + chmods + `bash -n`-checks the
+  new file alongside `scope-lib.sh`.
+- config: none.
+- new files: `scripts/loop-lib.sh` — REQUIRED, sourced by `scripts/loop.sh` (a missing copy aborts
+  it under `set -euo pipefail`, same class as `scope-lib.sh`). Must land in the SAME upgrade that
+  refreshes `loop.sh`/`loop.in-place.sh`.
+- manual attention: none — all touched/added files are mechanism (content-diffed on upgrade; the new
+  file is a clean add-candidate via the checksum fast-path once this version is in the ledger).
+- breaking: none.
+
+---
+
 ## 1.86.1 → 1.87.0 — `[skip ci]` requires planner authorization (`ciSkipOk`), not just builder wording (D01)
 
 Design-drift fix (P1). Both loop variants honored `[skip ci]` in the build commit's message

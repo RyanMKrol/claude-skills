@@ -36,7 +36,7 @@ setup_repo() {
   git init -q -b main "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
-  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.sh" "$d/.harness/scripts/"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
   printf '{"tasks":[{"id":"T001","status":"pending","gate":null,"facets":{"layer":"backend","workType":"feature"}}]}' > "$d/.harness/tracking/TASKS.json"
   ( cd "$d" && git add -A && git commit -q -m init )

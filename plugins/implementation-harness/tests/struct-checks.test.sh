@@ -39,7 +39,7 @@ setup_wt() {
   git init -q -b main "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
-  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.sh" "$d/.harness/scripts/"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
   tasks_json "$extra" > "$d/.harness/tracking/TASKS.json"
   echo "a" > "$d/a.txt"
@@ -97,7 +97,7 @@ setup_inplace() {   # setup_inplace <ciSkipOk-json-fragment> <changed-file> <com
   git init -q -b main "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
-  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.in-place.sh" "$d/.harness/scripts/"
+  cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.in-place.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
   tasks_json "$extra" > "$d/.harness/tracking/TASKS.json"
   echo "a" > "$d/a.txt"
