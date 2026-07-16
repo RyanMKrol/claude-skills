@@ -34,6 +34,11 @@ for V in loop.sh loop.in-place.sh; do
   f="$SCRIPT_DIR/$V"
   assert "[$V] DoD prompt hardened: run slow checks to completion (poll)"    has 'POLL to completion' "$f"
   assert "[$V] DoD prompt: an unobserved/incomplete check is failed:soft"    has 'OBSERVE is NOT a pass' "$f"
+  # General-path run→fix→re-run-until-green instruction (item 2a) — must be present in BOTH prompts
+  # (item 2a is hand-mirrored between the two prompt heredocs, not a shared loop-lib.sh block, so pin
+  # it here to catch drift). Also the "unlimited re-runs" reassurance, formerly expectsTest-only.
+  assert "[$V] DoD prompt: red check → fix + re-run (general path)"          has 'FIX IT and RE-RUN' "$f"
+  assert "[$V] DoD prompt: no per-attempt limit on re-running the suite"     has 'as many times as you need' "$f"
   # The builder is told never to edit the root README (maintainer-owned) — pairs with the
   # structural_checks readme-edit hard-block (struct-checks.test.sh), so the prompt never invites a
   # move that would auto-fail the attempt.

@@ -487,13 +487,17 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, 
    allowed-files list + the HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
 
 2. DEFINITION OF DONE (.harness/docs/HARNESS.md §5 — all must hold before you report `done`):
-   a. Run the project's full verification suite exactly as defined in CLAUDE.md / .harness/docs/HARNESS.md §5
-      (format, lint, tests, build). These MIRROR CI — run them locally first; every check must pass.
-      Add tests for new behaviour. Run every check to COMPLETION and read its real exit status: for a SLOW
-      check (a multi-minute build/test), request an extended tool timeout or run it in the background and
-      POLL to completion — never fire it under a default-timeout blocking call and assume it passed. A check
-      that times out, is still running, or whose result you did not OBSERVE is NOT a pass — that is
-      `failed:soft` (retryable), never `done`.
+   a. Run the project's full verification suite exactly as defined in CLAUDE.md /
+      .harness/docs/HARNESS.md §5 (format, lint, tests, build). These MIRROR CI — run them locally
+      first; every check must pass. Run every check to COMPLETION and read its real exit status: for a
+      SLOW check (a multi-minute build/test), request an extended tool timeout or run it in the
+      background and POLL to completion — never fire it under a default-timeout blocking call and assume
+      it passed. A check that times out, is still running, or whose result you did not
+      OBSERVE is NOT a pass — that is `failed:soft` (retryable), never `done`. If ANY check comes back
+      RED, FIX IT and RE-RUN — re-run the suite as many times as you need; there is NO limit on how
+      often you run it in one attempt. Report `done` ONLY after you have SEEN every check pass. Report
+      `failed:soft` only when you genuinely cannot get it green this attempt (the fix is outside your
+      `scope`, or needs a human or a resource you don't have) — not the moment a check first goes red.
    b. Run the task's integration / end-to-end checks when their preconditions are met. A check that
       needs credentials, funds, or external resources you don't have: never silently skip a required
       one and call it "passed" — record failed:blocked if the task's core needs it.

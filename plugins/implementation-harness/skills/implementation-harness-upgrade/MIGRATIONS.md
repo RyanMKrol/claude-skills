@@ -42,6 +42,32 @@ Entry format:
 
 ---
 
+## 1.92.0 → 1.93.0 — builder prompt: explicit run → fix → re-run-until-green on the general path + variant parity
+
+Both builder prompts' Definition-of-Done step (item 2a) now spell out the full test loop for EVERY
+task, not just `expectsTest` ones: run the suite, and **if any check is red, FIX IT and RE-RUN — as
+many times as needed, with no per-attempt limit — reporting `done` only once every check has been SEEN
+to pass, and `failed:soft` only when it genuinely can't be made green this attempt** (not the moment a
+check first goes red). Previously that "re-run freely / build until it passes" reassurance lived ONLY
+in the `expectsTest` block, so a builder on an ordinary task could bail to `failed:soft` on a first red
+instead of iterating — wasting a cold retry / CI cycle. Item 2a is now BYTE-IDENTICAL across both loop
+variants.
+
+Two messaging divergences reconciled while there: (1) the worktree COMMIT step now also says "fix a
+failing check" when iterating (matching in-place); (2) the in-place-only "Add tests for new behaviour"
+line was removed — whether a task must *add* tests is the planner's `expectsTest` decision (the general
+build path is deliberately NOT a blanket TDD mandate; see `expects_test_block`'s own comment), whereas
+*running* the full suite is mandatory for all tasks either way.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `prompt()` DoD item 2a rewritten +
+  unified byte-for-byte; worktree COMMIT-step wording aligned to in-place. `tests/loop-pushblock.test.sh`
+  pins the new run-fix-rerun instruction in both variants.
+- config: none. new files: none. renamed/removed: none.
+- manual attention: none — mechanism only (content-diffed on upgrade).
+- breaking: none — prompt guidance only; the deterministic gates (LOCAL_DOD, CI, audit) are unchanged.
+
+---
+
 ## 1.91.0 → 1.92.0 — the root README is a product doc; the harness never maintains project documentation
 
 Convention change, two linked decisions:

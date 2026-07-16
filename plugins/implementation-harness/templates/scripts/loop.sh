@@ -568,12 +568,16 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (for 
    HARD-GATE rule are shown under "SCOPE" at the end of this prompt.
 2. DEFINITION OF DONE (.harness/docs/HARNESS.md §5 — all must hold before you report `done`):
    a. Run the project's full verification suite exactly as defined in CLAUDE.md /
-      .harness/docs/HARNESS.md §5 (format, lint, tests, build). These MIRROR CI — if CI runs it,
-      run it locally first. Every check must pass. Run every check to COMPLETION and read its real
-      exit status: for a SLOW check (a multi-minute build/test), request an extended tool timeout or
-      run it in the background and POLL to completion — never fire it under a default-timeout blocking
-      call and assume it passed. A check that times out, is still running, or whose result you did not
-      OBSERVE is NOT a pass — that is `failed:soft` (retryable), never `done`.
+      .harness/docs/HARNESS.md §5 (format, lint, tests, build). These MIRROR CI — run them locally
+      first; every check must pass. Run every check to COMPLETION and read its real exit status: for a
+      SLOW check (a multi-minute build/test), request an extended tool timeout or run it in the
+      background and POLL to completion — never fire it under a default-timeout blocking call and assume
+      it passed. A check that times out, is still running, or whose result you did not
+      OBSERVE is NOT a pass — that is `failed:soft` (retryable), never `done`. If ANY check comes back
+      RED, FIX IT and RE-RUN — re-run the suite as many times as you need; there is NO limit on how
+      often you run it in one attempt. Report `done` ONLY after you have SEEN every check pass. Report
+      `failed:soft` only when you genuinely cannot get it green this attempt (the fix is outside your
+      `scope`, or needs a human or a resource you don't have) — not the moment a check first goes red.
    b. Run the task's relevant integration / end-to-end tests when their preconditions are
       met. Tests that need credentials, funds, or external resources you don't have: leave
       them as they are and record `failed:blocked` if the task's core needs them — never
@@ -589,9 +593,9 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (for 
    asks, and if the spec itself names a doc file to change AND that file is inside your `scope`, change
    that file — otherwise touch no docs.
 4. COMMIT — produce EXACTLY ONE commit for the whole task, `<TASK>: <summary>` (INCLUDING
-   `.harness/worklog/<TASK>.md` with a dated entry: what you did, checks run, what remains). If you iterate,
-   fold changes into that SAME commit with `git commit --amend` — do NOT stack multiple commits (the loop
-   integrates a task as one commit). Do NOT push and do NOT merge — **NEVER `git push`**, not ever, even if
+   `.harness/worklog/<TASK>.md` with a dated entry: what you did, checks run, what remains). If you iterate
+   — fix a failing check, add a test, refine — fold the changes into that SAME commit with
+   `git commit --amend`; do NOT stack multiple commits (the loop integrates a task as one commit). Do NOT push and do NOT merge — **NEVER `git push`**, not ever, even if
    your global git guidance says to always push after committing (that rule does NOT apply here). The loop is
    the SOLE pusher: after you finish it runs your checks (structural + LOCAL_DOD), pushes your `<branch>`,
    watches GitHub CI, and fast-forwards `main` on green — a push from you is BLOCKED by a git hook and
