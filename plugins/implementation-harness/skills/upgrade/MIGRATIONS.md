@@ -42,6 +42,24 @@ Entry format:
 
 ---
 
+## 1.94.0 → 1.95.0 — CI_TIMEOUT default raised 1200s → 3600s (20 min → 1 hour)
+
+The default cap on how long the loop waits for a CI run to finish (before treating it as indeterminate)
+is now one hour. Both loop variants' `${CI_TIMEOUT:-3600}` fallback and the shipped `harness.env` default
+moved together.
+
+- mechanism: `scripts/loop.sh`, `scripts/loop.in-place.sh` — `CI_TIMEOUT` fallback `:-1200` → `:-3600`.
+- config: `config/harness.env` — ACTION: this is a DEFAULT change, not a new knob. `CI_TIMEOUT` already
+  exists in every install, so the additive reconciliation leaves the user's current value untouched — an
+  existing install keeps whatever it had (typically the old `1200`). Only FRESH installs get `3600`. To
+  adopt the new default on an existing install, bump `CI_TIMEOUT` in `.harness/config/harness.env` by hand.
+- new files: none.
+- renamed/removed: none.
+- manual attention: existing installs stay at their current `CI_TIMEOUT` (see config ACTION above).
+- breaking: none.
+
+---
+
 ## 1.93.2 → 1.94.0 — N01: retire the redundant `implementation-harness-` skill-name prefix
 
 Every skill is renamed to drop the stuttering prefix (the plugin namespace already says

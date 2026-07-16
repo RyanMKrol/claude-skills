@@ -90,7 +90,7 @@ EFFORT="${EFFORT:-}"                              # low|medium|high|xhigh|max, o
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"                 # soft failures per rung before escalating (2: the global ladder is fine-grained, so fewer tries per rung bounds the total attempt budget)
 MAX_ITERS="${MAX_ITERS:-100}"                     # global iteration cap (backstop)
 WAIT_SECONDS="${WAIT_SECONDS:-30}"               # backoff between retries / CI polls
-CI_TIMEOUT="${CI_TIMEOUT:-1200}"                 # max seconds to wait for a CI run to finish
+CI_TIMEOUT="${CI_TIMEOUT:-3600}"                 # max seconds to wait for a CI run to finish (default 1h)
 CI_WORKFLOW="${CI_WORKFLOW:-CI}"                 # MUST match `name:` in your CI workflow yaml
 REQUIRE_CI="${REQUIRE_CI:-1}"                     # 1 = never merge without green CI
 INTEGRATE_HOOK="${INTEGRATE_HOOK:-}"             # optional cmd run after each task integrates (deploy/restart)
