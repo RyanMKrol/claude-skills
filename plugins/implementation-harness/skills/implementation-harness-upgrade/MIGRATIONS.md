@@ -42,6 +42,24 @@ Entry format:
 
 ---
 
+## 1.93.1 → 1.93.2 — B11: worktree idle reconcile path tears down the scratch tNNN branch
+
+The worktree loop's idle → reconcile-and-continue path (`loop.sh`) now calls `cleanup_task "$branch"`
+after `record_outcome`, so the scratch `tNNN` branch is torn down like every other terminal path.
+Previously only `record_outcome`'s worktree removal ran, leaving the local `tNNN` branch REF behind — so
+`postflight.sh`'s `inprogress()` (which greps local `t[0-9]{3,}` branches) reported it "🔨 In flight"
+forever after an idle reconcile, making the status board lie. The two idle BLOCK sub-paths were already
+clean (they go through `block_task` → `cleanup_task`); only the reconcile-and-continue path leaked.
+Worktree-only: the in-place idle path has no branch (idle → `mark_done`), so there is no parity change.
+- mechanism: scripts/loop.sh — one `cleanup_task "$branch"` added in the idle reconcile-and-continue path
+- config: none
+- new files: none
+- renamed/removed: none
+- manual attention: none
+- breaking: none
+
+---
+
 ## 1.92.0 → 1.93.0 — builder prompt: explicit run → fix → re-run-until-green on the general path + variant parity
 
 Both builder prompts' Definition-of-Done step (item 2a) now spell out the full test loop for EVERY

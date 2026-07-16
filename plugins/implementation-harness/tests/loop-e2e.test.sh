@@ -206,6 +206,16 @@ scenario_idle_reconcile() {  # <label> <loop-src>
     bash -c "git -C '$bare' show main:.harness/ledgers/outcomes.jsonl 2>/dev/null | jq -e 'select(.id==\"T001\") | .blocked==false and .verification==\"ci-only\"' >/dev/null"
   assert "[$label] idle: no build file was produced (idle committed nothing)" \
     bash -c "! git -C '$bare' show main:src/app.txt >/dev/null 2>&1"
+
+  # B11: the idle reconcile-and-continue path must tear the scratch branch/worktree down like every
+  # other terminal path — otherwise the local tNNN branch lingers and postflight reports it "in flight"
+  # forever (its inprogress() greps local `t[0-9]{3,}` branches).
+  if [ "$label" = worktree ]; then
+    local wt; wt="$(dirname "$d")/$(basename "$d")-loop"
+    assert "[$label] idle: no leftover local tNNN branch (postflight won't report it in-flight)" \
+      bash -c "! git -C '$d' show-ref --verify --quiet refs/heads/t001"
+    assert "[$label] idle: isolation worktree removed after reconcile" [ ! -d "$wt" ]
+  fi
 }
 
 # ── Scenario 2b: failed:blocked → status=blocked + a blocked outcome row (terminal) ─────────────────

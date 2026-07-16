@@ -1091,6 +1091,11 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
         else
           log "agent reports idle on $task — Done-when already met on main ($([ "$idle_ci" = 0 ] && echo 'CI green' || echo 'CI status unconfirmed — proceeding as before')); reconciling status=done and continuing."
           record_outcome "$task" false
+          # B11: tear the scratch branch/worktree down like every other terminal path (the block
+          # sub-paths above get this via block_task→cleanup_task). record_outcome removes the worktree
+          # but not the tNNN branch ref, so without this the local branch lingers and postflight's
+          # inprogress() reports it "in flight" forever. AFTER the ledger write, mirroring the done path.
+          cleanup_task "$branch"
           heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
         fi
       fi
