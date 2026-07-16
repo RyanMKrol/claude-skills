@@ -267,9 +267,24 @@ Build each from the corresponding template, substituting the interview answers. 
   inline edit to a plugin-owned prose file breaks the clean-upgrade path). The authoritative DoD commands
   live in `.github/workflows/ci.yml` and `.harness/config/harness.env`; if the project wants its real
   commands recorded in prose, add them to the overlay `.harness/custom/docs/HARNESS.md`, never here.
-- **`README.md`** — title = project name, opening = purpose, plus an initial implementation-status
-  table seeded from the tasks you write in step 6. (Honor step-2 choice if a README existed —
-  offer to inject a "Build status" section rather than overwrite.)
+- **`README.md`** (repo ROOT — a **human product document**, not a harness artifact) — title = project
+  name, opening = the purpose/what-it-is paragraph, and (as much as the interview gives you) a short
+  "how a human runs/uses it" section. Then add ONE small section — a single header plus a single line —
+  that points newcomers at the harness, e.g.:
+
+  ```markdown
+  ## Building this project
+
+  This project is built by an autonomous implementation harness. To add work and run it, see
+  [`.harness/README.md`](.harness/README.md).
+  ```
+
+  **Do NOT** put an implementation-status table, a backlog/task listing, task counts, or any
+  progress/"what's been built" section in the README — that belongs in `TASKS.json` and the dashboard
+  (always current), and a status section here only rots (see the root `CLAUDE.md` golden rule 3: the
+  README is maintainer-owned product docs, and the loop never touches it). If a README already existed
+  (step-2 choice), do NOT overwrite it — just offer to add the one "Building this project" pointer
+  section if it's missing.
 
 ## 6. Initial `TASKS.json`
 

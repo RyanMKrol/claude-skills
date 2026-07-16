@@ -41,24 +41,20 @@ that drives autonomous runs is described in [`.harness/docs/HARNESS.md`](./.harn
 - Merge only when the change passes the Definition of Done ([`.harness/docs/HARNESS.md`](./.harness/docs/HARNESS.md) §5)
   and only when the work was asked for — don't merge speculative changes.
 
-### 3. Every change updates the documentation
+### 3. The loop owns task status; the README is a product doc
 
-Treat docs as part of "done," not an afterthought. Keep docs in lockstep with the code **in
-the same commit** — never as a follow-up. A task is **done when its branch is integrated into
-`main`** (code + docs both updated). On every change:
-
-- **`README.md`** — update the implementation-status section in the same commit so it always
-  reflects what the code does, IF you're working by hand (outside the harness). Under the
-  autonomous loop (either isolation variant), the LOOP is the sole writer of
-  `.harness/tracking/TASKS.json` `"status"` — it flips a task to `"done"` itself, in a follow-up
-  commit, once the build clears the structural checks and the audit gate. Never set `"status"`
-  yourself while working on a harness-driven task; doing so trips the scope gate.
-- **`TASKS.json`** — if working BY HAND (no harness / no loop running), set the task's `"status"`
-  to `"done"` in the same commit as the work, same as any other doc update.
-- **`PLAN.md` / design docs** — update only if the change alters the design or an
-  architectural decision. Day-to-day implementation usually doesn't touch them.
-- If a change introduces a convention or decision worth remembering, note it here in
-  `CLAUDE.md`.
+- **Task status** — under the autonomous loop (either isolation variant), the LOOP is the sole
+  writer of `.harness/tracking/TASKS.json` `"status"`: it flips a task to `"done"` itself, in a
+  follow-up commit, once the build clears the structural checks and the audit gate. **Never set
+  `"status"` yourself while working on a harness-driven task** — doing so trips the scope gate. If
+  you're working BY HAND (no harness / no loop running), set the task's `"status"` to `"done"` in
+  the same commit as the work.
+- **The `README.md` is a product document** — what the project IS and how a human uses it. It is
+  **maintainer-owned**: the loop NEVER edits it, and it does **not** track implementation status,
+  backlog size, or task progress (those live in `TASKS.json` and the dashboard, which stay current —
+  a status section in the README would only go stale). Keeping the README accurate is a deliberate,
+  by-hand act by the project's maintainers when the product's user-facing behaviour or usage
+  genuinely changes — it is not the harness's job, and no task is expected to update it.
 
 ### 4. One atomic task at a time
 
@@ -78,18 +74,7 @@ backlog edit, a recovery), **commit and push it immediately**, don't leave it si
 across a session. (The `mark-*.sh` and `consolidate-ideas.sh` tools already commit+push for you; the
 risk is hand-edits and multi-step flows that don't.)
 
-### 5. Every change records its trade-offs & limitations
-
-- When a change introduces or reveals a design **trade-off**, **bottleneck**, or known
-  **limitation**, add a row to [`.harness/custom/docs/LIMITATIONS.md`](./.harness/custom/docs/LIMITATIONS.md)
-  **in the same commit** — what it is, *why* it was chosen, its **impact**, and *when to revisit*. (Record
-  it in the `custom/` **overlay**, not the plugin-owned `.harness/docs/LIMITATIONS.md`, which is refreshed
-  on harness upgrade — see `.harness/custom/CLAUDE.md`.)
-- That file is the single place to evaluate the design's compromises later without
-  re-deriving them from the code. A capped scope, a hardcoded assumption, an "un-handled for
-  now" — that's exactly what belongs there.
-
-### 6. Tests never touch production state
+### 5. Tests never touch production state
 
 A task's Definition-of-Done **test** run must execute against a **scratch / throwaway** resource —
 a temp database, a fake or sandboxed endpoint, a tmp working dir — **never** the project's real
@@ -102,7 +87,7 @@ production default under tests). This matters most under the **in-place loop var
 ([`.harness/docs/HARNESS.md`](./.harness/docs/HARNESS.md) §6), which works directly in the primary checkout and shares
 the live local DB / daemon — there a leaky test pollutes real state immediately.
 
-### 7. Backlog tasks carry facets (difficulty auto-tuning)
+### 6. Backlog tasks carry facets (difficulty auto-tuning)
 
 Every BUILDABLE task you add to `TASKS.json` MUST carry a `"facets": { "layer": …, "workType": …,
 "risk": [...] }` object, with values chosen ONLY from `facets.json`'s controlled vocabulary (use the
@@ -125,13 +110,14 @@ mandate is restated in **`.harness/CLAUDE.md`**, which loads whenever you work i
    `origin/main` and works in an isolation worktree — you don't switch branches yourself.)*
 2. Create a fresh branch off `main` (or, under the harness, work in the worktree/branch the
    loop already checked out for you).
-3. Read `README.md` (current state) and the relevant `TASKS.json` entry.
+3. Read `README.md` (for product context) and the relevant `TASKS.json` entry.
 4. Make the change, keeping it atomic and within the task's `Scope:`.
-5. Update docs in the same commit: `README.md`, `TASKS.json`, `.harness/docs/LIMITATIONS.md` (any new
-   trade-off, golden rule 5), and design docs / `CLAUDE.md` if applicable.
+5. If working BY HAND (no loop running), set the task's `TASKS.json` `"status"` in the same commit —
+   under the harness the loop owns status, so leave it alone (golden rule 3). Do NOT treat the root
+   `README.md` as something to update per change — it is maintainer-owned product documentation, not a
+   status log (golden rule 3).
 6. **Verify the Definition of Done** ([`.harness/docs/HARNESS.md`](./.harness/docs/HARNESS.md) §5): your
-   project's format/lint/test/build all pass, integration/empirical checks where the task
-   asks, docs in lockstep.
+   project's format/lint/test/build all pass, integration/empirical checks where the task asks.
 7. Commit on the branch and push. Don't merge by hand under the harness — the loop watches
    CI and integrates on green. Working manually, merge per golden rule 2 once green.
 
@@ -163,7 +149,7 @@ fast-forward to `main` is rejected, or `git merge origin/main` reports conflicts
 them, don't abandon the task:**
 
 1. **Resolve on your own branch** (`git fetch origin && git merge origin/main`), preserving
-   **both sides' intent** — union docs/status rows (keep every task's ✅), union dependency /
+   **both sides' intent** — union `TASKS.json` entries (keep every task), union dependency /
    manifest lines, and *integrate* (never discard) code changes. Read the other commit's
    `TASKS.json` spec + `worklog/` to understand what it was doing.
 2. **Re-run the full Definition of Done** on the merged result. A resolution that builds but

@@ -329,6 +329,17 @@ structural_checks() {
   STRUCT_FAIL_KIND=""; STRUCT_FAIL_DETAIL=""   # set on each fail path so the ledger records WHICH check failed
   changed="$(git -C "$WORK_DIR" diff --name-only "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)"
   if [ -z "$changed" ]; then STRUCT_FAIL_KIND="empty-diff"; log "structural: $id produced an EMPTY diff — fail"; return 1; fi
+  # The repo-root README.md is MAINTAINER-OWNED product documentation — the loop NEVER edits it
+  # (CLAUDE.md golden rule 3). A builder diff that touches it AUTO-FAILS, regardless of the task's
+  # scope: the root README is never a valid scope target for the loop. Status/backlog live in
+  # TASKS.json + the dashboard (always current), and human-facing product docs are a deliberate
+  # maintainer act, not a build output. `grep -qx` matches the WHOLE line, so a nested sub-doc like
+  # `docs/README.md` or `packages/x/README.md` is NOT caught — only the repo-root `README.md`.
+  if printf '%s\n' "$changed" | grep -qx 'README.md'; then
+    STRUCT_FAIL_KIND="readme-edit"
+    log "structural: $id's diff touches the root README.md — the loop never edits it (maintainer-owned product doc) — fail"
+    return 1
+  fi
   # Scope-creep gate: every changed file must be WITHIN the task's declared `scope` (exact path or
   # under a scope directory) — except the always-allowed worklog + test files (and any
   # SCOPE_EXEMPT_GLOBS). The strong planner's `scope` is a binding contract; any other file the

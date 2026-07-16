@@ -419,6 +419,39 @@ Apply exactly what was approved:
 Cleanly-unmodified stale files may be grouped into a single "refresh these N files?" confirmation, but the
 user must always be able to see what diverged before approving.
 
+## 4a. Offer the documentation-convention cleanup (root `README.md` + `CLAUDE.md`) — user-data, ASK-only
+
+A version in this upgrade range changed how the harness treats project documentation: **the root
+`README.md` is now a human product document (maintainer-owned) — NOT a status log** — and the loop is
+forbidden from editing it; separately, **keeping project docs current is the owner's responsibility, not
+the harness's**, so the doc-lockstep / "record every trade-off in `LIMITATIONS.md`" mandates were removed
+from the root `CLAUDE.md`'s golden rules. Both files are **user-data the upgrade never auto-writes** — but
+existing installs still carry the old, polluted versions, so **offer** to clean them up (never silently
+edit; these edits happen only on an explicit yes, and you show the exact change first). This is the
+`manual attention` item for those files made actionable.
+
+Run this only when the transition range crosses the version that introduced the change (check the ledger
+entry). Two independent offers:
+
+1. **Root `README.md` — strip harness-status pollution.** Detect it: a `## …status`/`## Build status`/
+   `## Implementation status` section, a Markdown table of `T0NN` task rows, a backlog/"N tasks pending"
+   count, or a per-task done/pending checklist. If found, tell the user the README should read as *what the
+   product is + how to use it* (status/backlog live in `TASKS.json` + the dashboard, always current), and
+   **offer** to: remove the status/backlog section(s), keep the genuine product prose, and add a single
+   `## Building this project` section pointing at `.harness/README.md` if one isn't already present. Show the
+   proposed result before writing. If they decline, leave it and just note it stays as-is.
+2. **Root `CLAUDE.md` — trim the stale doc-maintenance mandates.** Detect it: a golden rule titled
+   "Every change updates the documentation", a rule mandating a `LIMITATIONS.md` row on every change, or
+   "docs in lockstep" in the workflow/DoD. If found, **offer** to reconcile it toward the current template
+   (`$TPL/CLAUDE.md`): keep the loop-owns-`TASKS.json`-status invariant + the README-is-a-product-doc
+   framing, drop the doc-lockstep/trade-off-log mandates. Because root `CLAUDE.md` is user-data that may
+   carry the owner's OWN edits, do NOT blind-overwrite — show a targeted diff of just the rule changes and
+   apply only the ones they approve (this is the same careful, consent-gated edit the §1b standardize path
+   makes to root prose).
+
+Neither offer blocks the upgrade — decline is always fine, and whatever the user skips stays listed under
+manual attention in the Stage 5 report.
+
 ## 5. Re-stamp, validate, and report
 
 - **Re-stamp:** write the new version — `printf '%s\n' "$REF_VERSION" > "$H/.harness-version"` — so the

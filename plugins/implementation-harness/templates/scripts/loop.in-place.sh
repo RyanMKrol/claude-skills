@@ -477,7 +477,7 @@ BLOCKED by a git hook and bypasses that gate. `HARNESS_AGENT` is the loop's priv
 unset, or pass it to any command. Your CI is LOCAL (step 2) — run it yourself; you never push to see CI.
 You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, and .harness/docs/HARNESS.md exactly.
 
-1. ORIENT. Read CLAUDE.md (conventions) and README.md (the current implemented state), then find this task:
+1. ORIENT. Read CLAUDE.md (conventions) and README.md (for product context), then find this task:
    `jq '.tasks[]|select(.id=="<TASK>")' .harness/tracking/TASKS.json` (read its scope/verify and orchestration
    fields; if its `design` field points to a .harness/docs/designs/… doc, READ and follow it). The task's
    `do` + `done-when` live in the Markdown spec at the JSON `spec` path (.harness/tasks/<TASK>.md,
@@ -505,11 +505,13 @@ You run head-less and unattended. Obey CLAUDE.md, .harness/tracking/TASKS.json, 
    credential file, and never edit .gitignore to un-ignore them. The loop's pre-push guard HALTS the
    whole run if any sensitive path is staged — so stage precisely.
 
-4. DOCS IN LOCKSTEP (same commit) — but ONLY docs that are in your SCOPE. If a convention/feature
-   change needs README.md / CLAUDE.md / .harness/docs/LIMITATIONS.md AND that file is in your scope, update it; if a
-   needed doc is NOT in scope, do NOT edit it (it trips the scope gate) — record `failed:blocked` noting the
-   missing doc. Do NOT edit .harness/tracking/TASKS.json — the loop owns task status. Write your notes to
-   .harness/worklog/<TASK>.md (always allowed; a dated entry: what you did, checks run, what remains).
+4. DOCS ARE NOT YOUR JOB. Keeping project documentation current is the maintainers' responsibility, not
+   the build loop's — do NOT go update docs to reflect your change. NEVER edit the repo-root README.md: it
+   is maintainer-owned product documentation, NOT a status log, and touching it AUTO-FAILS this task. Do
+   NOT edit .harness/tracking/TASKS.json either — the loop owns task status. The ONLY doc you write is your
+   own .harness/worklog/<TASK>.md (always allowed; a dated entry: what you did, checks run, what remains).
+   If the spec ITSELF names a doc file to change AND that file is inside your `scope`, change that one file;
+   otherwise touch no docs.
 
 5. COMMIT — produce EXACTLY ONE commit for the whole task, `<TASK>: <summary>` (do NOT push), staging your
    intended files explicitly. If you iterate — add a test, fix a failing check after running the DoD — fold

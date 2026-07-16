@@ -108,12 +108,12 @@ itself effort-less.
 Edit `.harness/config/facets.json`'s `.tiers.ladder` to the agreed shape. Validate with
 `jq empty .harness/config/facets.json`. Show the user the final ladder before finishing.
 
-## 6. Trade-offs worth remembering
+## 6. Trade-offs worth remembering (optional)
 
 If this change is a meaningful trade-off (e.g. accepting more unsupervised spend for a longer ladder,
-or trusting a cheaper model at tier-0 before it has track record), offer to add a row to
-`.harness/custom/docs/LIMITATIONS.md` (golden rule 5 in the project's `CLAUDE.md`) — what was chosen,
-why, and when to revisit.
+or trusting a cheaper model at tier-0 before it has track record), you *may* — entirely at your
+discretion — jot it in `.harness/custom/docs/LIMITATIONS.md` (an optional project-owned log; the
+harness never requires it) so the reasoning isn't lost. What was chosen, why, and when to revisit.
 
 ## 7. Wrap up
 

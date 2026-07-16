@@ -42,6 +42,53 @@ Entry format:
 
 ---
 
+## 1.91.0 → 1.92.0 — the root README is a product doc; the harness never maintains project documentation
+
+Convention change, two linked decisions:
+
+1. **The repo-root `README.md` is human product documentation, maintainer-owned — NOT a status log.**
+   The autonomous loop is now FORBIDDEN from editing it: `structural_checks` (`loop-lib.sh`) hard-fails
+   any builder diff touching the exact repo-root `README.md` (new `STRUCT_FAIL_KIND=readme-edit`),
+   **regardless of the task's scope** — the root README is never a valid scope target for the loop.
+   (Nested sub-docs like `docs/README.md` or `packages/x/README.md` are unaffected — only the exact
+   repo-root `README.md` is blocked.) Backlog/status live in `TASKS.json` + the dashboard, which stay
+   current; a status section in the README only rots.
+2. **Keeping project documentation current is the owner's responsibility, not the harness's.** All
+   "update docs in lockstep" / "record every trade-off in `LIMITATIONS.md`" mandates were removed from
+   the builder prompts, the root `CLAUDE.md` golden rules, `HARNESS.md` §5 DoD, and the workflow steps.
+   The `custom/docs/LIMITATIONS.md` overlay still ships but is now explicitly **optional** — no task
+   ever updates it.
+
+`create` now writes a root README of product-name + purpose + a one-line `## Building this project`
+pointer to `.harness/README.md` (no implementation-status table). `upgrade` gains a new **§4a** step that
+OFFERS (asks, never auto-writes — both are user-data) to strip harness-status pollution from an existing
+root README and trim the stale doc-lockstep mandates from an existing root `CLAUDE.md`.
+
+- mechanism: `scripts/loop-lib.sh` — `structural_checks` gains the root-README hard-block (`readme-edit`,
+  fires before scope-creep). `scripts/loop.sh`, `scripts/loop.in-place.sh` — `prompt()` no longer tells
+  the builder to update docs/README in lockstep; states the root README is maintainer-only (edit → auto-
+  fail); orientation line softened to "read README.md (for product context)". `docs/HARNESS.md` — §5 DoD
+  item 6, the §4 WORK-step, the §10 rule, and the §12 heading de-mandated. `docs/LIMITATIONS.md`
+  (harness-owned) + `custom/docs/LIMITATIONS.md` (overlay) — reframed as optional; golden-rule-5 citations
+  dropped. `README.md` (→ `.harness/README.md`) — the LIMITATIONS/`CLAUDE.md` file-table descriptors
+  de-mandated. Project-local operational skills `skills/implementation-harness-update-ladder/SKILL.md`
+  (§6 trade-off note made optional, dangling golden-rule-5 citation dropped) and
+  `skills/implementation-harness-add-to-backlog/SKILL.md` (dropped "docs lockstep" from the universal-bar
+  reminder).
+- config: none. new files: none. renamed/removed: none.
+- manual attention: **root `README.md`** and **root `CLAUDE.md`** are user-data — the upgrade NEVER
+  auto-edits them, so existing installs keep their old (status-polluted README / doc-lockstep `CLAUDE.md`)
+  until the owner accepts the new **§4a** cleanup offer. The root `CLAUDE.md` golden rules were also
+  **renumbered** in the template (removed rule 5 "record trade-offs"; old rule 6 "tests never touch prod"
+  → 5; old rule 7 "facets" → 6) — a hand-edited root `CLAUDE.md` won't auto-adopt this; §4a reconciles it
+  on consent.
+- breaking: **behavior change** — a task previously scoped to edit the repo-root `README.md` will now
+  AUTO-FAIL (`readme-edit`) once this `loop-lib.sh` reaches the install on upgrade. If any project
+  deliberately kept README in a task's scope, move that doc work to a maintainer step. This is the
+  intended enforcement: the loop is not a documentation author.
+
+---
+
 ## 1.90.0 → 1.91.0 — extract shared loop logic into `loop-lib.sh`, stage 4: the long tail (C01, DONE)
 
 Consolidation (P1), stage 4 of 4 — **this completes C01**; `proposals/C01-*.md` is deleted in this

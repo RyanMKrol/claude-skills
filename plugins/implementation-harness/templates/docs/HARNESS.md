@@ -249,8 +249,8 @@ supervise.sh (heartbeat)
                              off origin/main — every attempt is COLD (no resume of partial work).
          3. WORK  (claude):  one `claude -p` (policy-chosen model/effort) IN that worktree: build
                              the task FRESH from its spec in scope, pass the Definition of Done
-                             (§5), update docs in lockstep, commit ONE commit on `tNNN`. Do NOT
-                             push, do NOT merge — the loop is the sole pusher.
+                             (§5), commit ONE commit on `tNNN`. Do NOT push, do NOT merge — the
+                             loop is the sole pusher.
          4. GATE  (shell):   run structural checks + LOCAL_DOD locally FIRST; on pass push `tNNN`
                              and watch its CI (`gh run watch`); on green run the sampled blocking
                              audit. all pass → fast-forward main via push (never checks main out),
@@ -310,9 +310,10 @@ A task is **done** only when **all** of the following hold. The loop will **not*
    by a fresh stronger agent (`max(opus-medium, builder tier)`) verifying the diff against the spec's
    `## Done when`, which must return PASS. A structural/audit FAIL is a `failed:soft` → cold retry /
    escalate. Each outcome is logged to `outcomes.jsonl` tagged `audited`/`ci-only`.
-6. **Docs in lockstep.** In the **same commit**: the task's `TASKS.json` `status` set to `"done"`, the
-   `README.md` status row updated, and any new trade-off added to `.harness/docs/LIMITATIONS.md`
-   (`CLAUDE.md` golden rules 3 & 5).
+6. **Task status is the loop's to set — not the builder's.** The loop flips the task's `TASKS.json`
+   `status` to `"done"` itself, in its own follow-up commit, once 1–5 hold (`CLAUDE.md` golden rule 3).
+   The builder never sets status, and never updates the root `README.md` — that is maintainer-owned
+   product documentation the loop never touches, not a per-task status log.
 
 Only when 1–6 hold does the task integrate. Anything short of that is a `failed:*` with a
 worklog entry, never a `done`.
@@ -652,7 +653,8 @@ The loop **skips** `needs-human` during selection and surfaces it on the status 
    policy picks the start tier from the task's facets, and on repeated soft-failure the loop
    escalates up the global ladder before stopping for a human.
 4. Never mark `done` with any §5 gate red (including a red or unobserved CI run).
-5. Touch only the task's scope; update docs in the **same** commit.
+5. Touch only the task's scope. Never edit the root `README.md` (maintainer-owned) or set task
+   status (the loop owns it).
 6. **Every attempt is cold** — never read prior worklogs or resume partial work (§2.4).
 7. Never cross a 🔒 needs-human boundary autonomously.
 8. At most **one** task branch exists at a time (single-flight).
@@ -684,7 +686,7 @@ The loop **skips** `needs-human` during selection and surfaces it on the status 
 
 ---
 
-## 12. Trade-offs & limitations (kept honest — mirror into `.harness/docs/LIMITATIONS.md`)
+## 12. Trade-offs & limitations (the harness's own, kept honest)
 
 - **Hardened DoD makes each task longer.** Integration + empirical + CI-watch add wall-clock
   and tokens per task, raising the chance a single window can't finish one. Mitigation: keep

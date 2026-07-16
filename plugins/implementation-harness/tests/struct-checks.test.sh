@@ -23,10 +23,10 @@ trap cleanup EXIT
 
 assert() { local desc="$1"; shift; if "$@"; then echo "ok - $desc"; else echo "FAIL - $desc"; FAIL=1; fi; }
 
-# tasks_json <ciSkipOk-line-or-empty> — T001 scoped to a.txt only.
+# tasks_json <ciSkipOk-line-or-empty> [scope-json-array] — T001, scoped to a.txt by default.
 tasks_json() {
-  local extra="$1"
-  printf '{"tasks":[{"id":"T001","status":"pending","gate":null,"scope":["a.txt"]%s}]}' "$extra"
+  local extra="$1" scope="${2:-[\"a.txt\"]}"
+  printf '{"tasks":[{"id":"T001","status":"pending","gate":null,"scope":%s%s}]}' "$scope" "$extra"
 }
 
 # --- worktree variant (loop.sh) -------------------------------------------------------------------
@@ -34,21 +34,21 @@ tasks_json() {
 # worktree add` (not a plain directory) — structural_checks' unrelated git-diff calls need a genuine
 # repo there, same reasoning as audit-trail-persistence.test.sh.
 setup_wt() {
-  local extra="$1" file="$2" msg="$3" d bare wt
+  local extra="$1" file="$2" msg="$3" scope="${4:-}" d bare wt
   d="$(mktemp -d)"; bare="$(mktemp -d)"; wt="$(mktemp -d)"; rm -rf "$wt"
   git init -q -b main "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
   cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
-  tasks_json "$extra" > "$d/.harness/tracking/TASKS.json"
+  tasks_json "$extra" "$scope" > "$d/.harness/tracking/TASKS.json"
   echo "a" > "$d/a.txt"
   ( cd "$d" && git add -A && git commit -q -m init )
   git init -q --bare -b main "$bare"
   ( cd "$d" && git remote add origin "$bare" && git push -q -u origin main )
   ( cd "$d" && git worktree add -q "$wt" -b tprobe main )
   if [ -n "$file" ]; then
-    echo "changed" >> "$wt/$file" 2>/dev/null || { mkdir -p "$(dirname "$wt/$file")"; echo "changed" > "$wt/$file"; }
+    mkdir -p "$(dirname "$wt/$file")"; echo "changed" >> "$wt/$file"
     ( cd "$wt" && git add -A && git commit -q -m "$msg" )
   fi
   echo "$d $wt"
@@ -88,24 +88,41 @@ assert "[worktree] ciSkipOk:true but no [skip ci] in message → PASS (permits, 
   [ "$(run_wt_struct "$d_wt" "$wt_wt")" = PASS ]
 ( cd "$d_wt" && git worktree remove --force "$wt_wt" 2>/dev/null || true )
 
+# README hard-block (maintainer-owned): a builder diff touching the ROOT README.md auto-fails,
+# regardless of scope — the loop never edits it. readme-edit fires BEFORE scope-creep.
+read -r d_wt wt_wt <<<"$(setup_wt "" "README.md" "touch README")"; TMPS+=("$d_wt")
+assert "[worktree] root README.md edit (not in scope) → readme-edit (fires before scope-creep)" \
+  [ "$(run_wt_struct "$d_wt" "$wt_wt")" = readme-edit ]
+( cd "$d_wt" && git worktree remove --force "$wt_wt" 2>/dev/null || true )
+
+read -r d_wt wt_wt <<<"$(setup_wt "" "README.md" "touch README" '["a.txt","README.md"]')"; TMPS+=("$d_wt")
+assert "[worktree] root README.md edit EVEN WHEN in scope → readme-edit (scope can't authorize it)" \
+  [ "$(run_wt_struct "$d_wt" "$wt_wt")" = readme-edit ]
+( cd "$d_wt" && git worktree remove --force "$wt_wt" 2>/dev/null || true )
+
+read -r d_wt wt_wt <<<"$(setup_wt "" "docs/README.md" "touch nested README" '["docs/README.md"]')"; TMPS+=("$d_wt")
+assert "[worktree] NESTED docs/README.md (in scope) → PASS (only the ROOT README is blocked)" \
+  [ "$(run_wt_struct "$d_wt" "$wt_wt")" = PASS ]
+( cd "$d_wt" && git worktree remove --force "$wt_wt" 2>/dev/null || true )
+
 # --- in-place variant (loop.in-place.sh) ------------------------------------------------------------
 # No separate worktree: the in-place loop operates directly in $ROOT, so the fixture commits its
 # diverging change straight onto the SAME checkout, one commit ahead of origin/main.
-setup_inplace() {   # setup_inplace <ciSkipOk-json-fragment> <changed-file> <commit-msg> → echoes <d>
-  local extra="$1" file="$2" msg="$3" d bare
+setup_inplace() {   # setup_inplace <ciSkipOk-json-fragment> <changed-file> <commit-msg> [scope-json] → echoes <d>
+  local extra="$1" file="$2" msg="$3" scope="${4:-}" d bare
   d="$(mktemp -d)"; bare="$(mktemp -d)"
   git init -q -b main "$d"
   ( cd "$d" && git config user.email t@t.com && git config user.name t )
   mkdir -p "$d/.harness/scripts" "$d/.harness/tracking"
   cp "$SCRIPT_DIR/repo-lock.sh" "$SCRIPT_DIR/scope-lib.sh" "$SCRIPT_DIR/loop-lib.sh" "$SCRIPT_DIR/policy.jq" "$SCRIPT_DIR/loop.in-place.sh" "$d/.harness/scripts/"
   chmod +x "$d/.harness/scripts/"*.sh
-  tasks_json "$extra" > "$d/.harness/tracking/TASKS.json"
+  tasks_json "$extra" "$scope" > "$d/.harness/tracking/TASKS.json"
   echo "a" > "$d/a.txt"
   ( cd "$d" && git add -A && git commit -q -m init )
   git init -q --bare -b main "$bare"
   ( cd "$d" && git remote add origin "$bare" && git push -q -u origin main )
   if [ -n "$file" ]; then
-    echo "changed" >> "$d/$file" 2>/dev/null || { mkdir -p "$(dirname "$d/$file")"; echo "changed" > "$d/$file"; }
+    mkdir -p "$(dirname "$d/$file")"; echo "changed" >> "$d/$file"
     ( cd "$d" && git add -A && git commit -q -m "$msg" )
   fi
   echo "$d"
@@ -134,6 +151,19 @@ assert "[in-place] [skip ci] WITHOUT ciSkipOk → unauthorized-skip-ci (D01 — 
 
 d="$(setup_inplace ',"ciSkipOk":true' "a.txt" "edit a.txt")"; TMPS+=("$d")
 assert "[in-place] ciSkipOk:true but no [skip ci] in message → PASS (permits, doesn't force)" \
+  [ "$(run_inplace_struct "$d")" = PASS ]
+
+# README hard-block (maintainer-owned) — same as the worktree cases above.
+d="$(setup_inplace "" "README.md" "touch README")"; TMPS+=("$d")
+assert "[in-place] root README.md edit (not in scope) → readme-edit (fires before scope-creep)" \
+  [ "$(run_inplace_struct "$d")" = readme-edit ]
+
+d="$(setup_inplace "" "README.md" "touch README" '["a.txt","README.md"]')"; TMPS+=("$d")
+assert "[in-place] root README.md edit EVEN WHEN in scope → readme-edit (scope can't authorize it)" \
+  [ "$(run_inplace_struct "$d")" = readme-edit ]
+
+d="$(setup_inplace "" "docs/README.md" "touch nested README" '["docs/README.md"]')"; TMPS+=("$d")
+assert "[in-place] NESTED docs/README.md (in scope) → PASS (only the ROOT README is blocked)" \
   [ "$(run_inplace_struct "$d")" = PASS ]
 
 [ "$FAIL" = 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }

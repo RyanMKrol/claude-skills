@@ -34,6 +34,10 @@ for V in loop.sh loop.in-place.sh; do
   f="$SCRIPT_DIR/$V"
   assert "[$V] DoD prompt hardened: run slow checks to completion (poll)"    has 'POLL to completion' "$f"
   assert "[$V] DoD prompt: an unobserved/incomplete check is failed:soft"    has 'OBSERVE is NOT a pass' "$f"
+  # The builder is told never to edit the root README (maintainer-owned) — pairs with the
+  # structural_checks readme-edit hard-block (struct-checks.test.sh), so the prompt never invites a
+  # move that would auto-fail the attempt.
+  assert "[$V] prompt forbids editing the root README (maintainer-owned)"    has 'NEVER edit the repo-root README.md' "$f"
 done
 
 # ---- Worktree-specific: loop owns the tNNN push; local gate runs BEFORE it ----

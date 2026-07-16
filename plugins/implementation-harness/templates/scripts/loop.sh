@@ -556,7 +556,7 @@ prompt() {
   cat <<'EOF'
 
 Obey CLAUDE.md, .harness/tracking/TASKS.json, and .harness/docs/HARNESS.md exactly. You run
-head-less and unattended. First read CLAUDE.md (conventions) and README.md (the current implemented state).
+head-less and unattended. First read CLAUDE.md (conventions) and README.md (for product context).
 
 1. BUILD COLD. You are starting FRESH on a clean branch off origin/main — do NOT look for or rely on
    any prior-attempt state (worklog, partial commits); build this task from the spec alone. Read this
@@ -583,8 +583,11 @@ head-less and unattended. First read CLAUDE.md (conventions) and README.md (the 
       you OBSERVED in the worklog. The bar is the behaviour the task specifies.
 3. DO NOT edit .harness/tracking/TASKS.json — the loop, not the builder, sets `"status"` to `"done"`
    itself once your build clears the structural checks + audit gate below, in a follow-up commit
-   the loop makes on its own. If a doc (README.md, .harness/docs/LIMITATIONS.md, …) genuinely needs
-   updating for THIS task, update it only if it's listed in your `scope` below — otherwise leave it.
+   the loop makes on its own. NEVER edit the repo-root README.md — it is maintainer-owned product
+   documentation, NOT a status log, and touching it AUTO-FAILS this task (the loop never updates it).
+   Keeping project documentation current is the maintainers' job, not yours: build only what the spec
+   asks, and if the spec itself names a doc file to change AND that file is inside your `scope`, change
+   that file — otherwise touch no docs.
 4. COMMIT — produce EXACTLY ONE commit for the whole task, `<TASK>: <summary>` (INCLUDING
    `.harness/worklog/<TASK>.md` with a dated entry: what you did, checks run, what remains). If you iterate,
    fold changes into that SAME commit with `git commit --amend` — do NOT stack multiple commits (the loop

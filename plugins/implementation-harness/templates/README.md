@@ -122,8 +122,8 @@ deliberately *not* parallel).
 | `config/harness.env` | Optional config: model, effort, caps, CI workflow name. |
 | `config/facets.json` | Facet vocabulary + global tier ladder + policy knobs. |
 | `docs/HARNESS.md` | Authoritative design of the harness. |
-| `docs/LIMITATIONS.md` | The trade-off / limitation log (part of "done"). |
-| `CLAUDE.md` | Working conventions every task obeys (branch + self-merge, docs lockstep). |
+| `docs/LIMITATIONS.md` | The harness's own trade-off / limitation log. |
+| `CLAUDE.md` | Working conventions every task obeys (branch + self-merge; the loop owns task status). |
 | `tracking/TASKS.json` | The backlog: schema + example tasks (replace with your own). |
 | `tracking/IDEAS.jsonl` | Committed ideas inbox (JSONL: one `{id,title,description,capturedAt}` object per line) — see below. |
 | `tracking/human-done.json` / `manual-fail.json` / `reviews.json` | Owner-overlay files — see `docs/designs/manual-fail-signal.md`. |
