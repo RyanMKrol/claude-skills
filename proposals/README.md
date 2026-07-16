@@ -32,7 +32,7 @@ agent should be able to work from the file alone, without the original conversat
 ## Recommended order
 
 **Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04, D01, C01 — done; B06 — abandoned, see its file)*
-**Next (high value):** T01 → F01
+**Next (high value):** F01 *(T01 — done: `tests/loop-e2e.test.sh`, the fake-claude/fake-gh e2e harness; scenarios: happy-path, idle-reconcile, failed:blocked, soft-fail escalation, scope-creep, garbage — both variants. CI/rate-limit/persist-or-shout scenarios grow with B08/B10/B12.)*
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
 
 ## Index
@@ -68,7 +68,6 @@ agent should be able to work from the file alone, without the original conversat
 | Q02 | Shared relay-protocol reference (dedupe ~60 lines ×2) | skill-quality | P1 | M |
 | Q05 | Origin marker on shared scratch drafts | skill-quality | P2 | S |
 | Q06 | customize: batch the want-it triage | skill-quality | P3 | S |
-| T01 | Fake-claude/fake-gh e2e loop test harness | testing | P1 | L |
 | T02 | `--struct-selftest` for structural_checks | testing | P2 | M |
 | T03 | reconcile_overlays test (both variants) | testing | P2 | S |
 | T04 | rl_reset_wait parse-matrix test | testing | P2 | S |
