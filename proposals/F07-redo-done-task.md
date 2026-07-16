@@ -1,7 +1,7 @@
 # F07: Redo-done-task — an authoring front-end for the manual-fail signal
 
 **Type**: feature · **Priority**: P2 · **Effort**: M
-**Affected files**: NEW project-local skill (e.g. `implementation-harness-redo-task`) or a documented mode of review-failed; registration plumbing (create/upgrade/READMEs, per the 1.70.0 checklist)
+**Affected files**: NEW project-local skill (e.g. `harness-redo-task`) or a documented mode of review-failed; registration plumbing (create/upgrade/READMEs, per the 1.70.0 checklist)
 **Release**: MINOR bump · MIGRATIONS entry · checksums
 
 ## Problem
@@ -36,7 +36,7 @@ it MUST bias toward asking, per the plugin CLAUDE.md principle):
   when`), one consolidation commit + one overlay commit, both pushed.
 - Refuses non-done targets (point at review-failed for failed/blocked ones).
 - The interview asks — it never silently invents the corrected DoD.
-- Registered everywhere per the checklist; naming consistent with N01 if that has landed.
+- Registered everywhere per the checklist; named `harness-redo-task` per the N01 convention (landed in 1.94.0).
 
 ## Notes
 

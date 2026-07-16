@@ -1,7 +1,7 @@
 # F06: Notification starter pack for lifecycle hooks
 
 **Type**: feature · **Priority**: P2 · **Effort**: S
-**Affected files**: `templates/custom/hooks/on-blocked.sh.example`, `on-drained.sh.example`, `on-exhausted.sh.example` (and siblings), `skills/implementation-harness-customize/SKILL.md` (catalog §1 + the hooks drafting interview)
+**Affected files**: `templates/custom/hooks/on-blocked.sh.example`, `on-drained.sh.example`, `on-exhausted.sh.example` (and siblings), `skills/customize/SKILL.md` (catalog §1 + the hooks drafting interview)
 **Release**: MINOR bump · MIGRATIONS entry (custom/*.example are add-if-missing scaffolding — note that class) · checksums · **catalog rule**: any custom/ extension change must update the customize catalog in the same commit (plugin CLAUDE.md)
 
 ## Problem

@@ -1,7 +1,7 @@
 # Q05: Origin marker on shared scratch drafts
 
 **Type**: skill-quality · **Priority**: P2 · **Effort**: S
-**Affected files**: `templates/skills/implementation-harness-convert-ideas/SKILL.md` (draft schema + Stage-0 recovery), `implementation-harness-review-failed/SKILL.md` (same), `templates/scripts/consolidate-ideas.mjs` (tolerate/ignore the field), later `relay-protocol.md` if Q02 lands
+**Affected files**: `templates/skills/harness-convert-ideas/SKILL.md` (draft schema + Stage-0 recovery), `harness-review-failed/SKILL.md` (same), `templates/scripts/consolidate-ideas.mjs` (tolerate/ignore the field), later `relay-protocol.md` if Q02 lands
 **Release**: PATCH/MINOR bump · MIGRATIONS entry · checksums
 
 ## Problem

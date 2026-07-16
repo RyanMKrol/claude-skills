@@ -1,7 +1,7 @@
 # Q02: Extract the shared relay protocol (convert-ideas §4 ≙ review-failed Stage 3)
 
 **Type**: skill-quality / consolidation · **Priority**: P1 · **Effort**: M
-**Affected files**: `templates/skills/implementation-harness-convert-ideas/SKILL.md` §4, `implementation-harness-review-failed/SKILL.md` Stage 3, NEW shared reference (recommended: `templates/docs/relay-protocol.md`), `implementation-harness-loop-prepare/SKILL.md` (pointer), create/upgrade plumbing for the new doc, MIGRATIONS
+**Affected files**: `templates/skills/harness-convert-ideas/SKILL.md` §4, `harness-review-failed/SKILL.md` Stage 3, NEW shared reference (recommended: `templates/docs/relay-protocol.md`), `harness-loop-prepare/SKILL.md` (pointer), create/upgrade plumbing for the new doc, MIGRATIONS
 **Release**: MINOR bump · MIGRATIONS entry (new mechanism doc + two skill edits) · checksums
 
 ## Problem

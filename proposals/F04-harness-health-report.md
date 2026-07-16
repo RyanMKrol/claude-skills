@@ -1,7 +1,7 @@
 # F04: Harness-health report — make the write-only ledgers speak
 
 **Type**: feature · **Priority**: P2 · **Effort**: M
-**Affected files**: NEW project-local skill `templates/skills/implementation-harness-health/SKILL.md` (name it consistently with N01 if that lands first) OR a dashboard tab (`server.js`/`lib.js`); registration plumbing either way
+**Affected files**: NEW project-local skill `templates/skills/harness-health/SKILL.md` (the `harness-` prefix follows the N01 naming convention, landed in 1.94.0) OR a dashboard tab (`server.js`/`lib.js`); registration plumbing either way
 **Release**: MINOR bump · MIGRATIONS entry · checksums
 
 ## Problem

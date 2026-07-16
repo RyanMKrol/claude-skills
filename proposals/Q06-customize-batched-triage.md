@@ -1,7 +1,7 @@
 # Q06: customize — batch the want-it? triage into one call
 
 **Type**: skill-quality · **Priority**: P3 · **Effort**: S
-**Affected files**: `plugins/implementation-harness/skills/implementation-harness-customize/SKILL.md` (§2 flow)
+**Affected files**: `plugins/implementation-harness/skills/customize/SKILL.md` (§2 flow)
 **Release**: PATCH bump · checksums (global skill — not under templates/, so NO MIGRATIONS entry needed; version bump still mandatory)
 
 ## Problem

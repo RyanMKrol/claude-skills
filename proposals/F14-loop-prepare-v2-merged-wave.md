@@ -1,7 +1,7 @@
 # F14: loop-prepare v2 — one merged agent wave, one relay, one consolidation
 
 **Type**: feature · **Priority**: P3 (after Q02) · **Effort**: M
-**Affected files**: `templates/skills/implementation-harness-loop-prepare/SKILL.md`; depends hard on Q02 (shared relay protocol) landing first
+**Affected files**: `templates/skills/harness-loop-prepare/SKILL.md`; depends hard on Q02 (shared relay protocol) landing first
 **Release**: MINOR bump · MIGRATIONS entry · checksums
 
 ## Problem

@@ -1,7 +1,7 @@
 # F08: Fleet status — one view across every harness repo
 
 **Type**: feature · **Priority**: P3 · **Effort**: M
-**Affected files**: NEW global (plugin-registered) skill under `plugins/implementation-harness/skills/`; `implementation-harness-create` (append the new install to the registry); plugin README
+**Affected files**: NEW global (plugin-registered) skill under `plugins/implementation-harness/skills/`; `implementation-harness:create` (append the new install to the registry); plugin README
 **Release**: MINOR bump · MIGRATIONS not needed for the global skill itself (not under templates/) BUT the create-skill change is also outside templates/ — verify; checksums regen still mandatory with the bump
 
 ## Problem
@@ -17,7 +17,7 @@ hand-forked consumer repos sat un-upgraded for months without anything surfacing
    line. `create` appends the new project on scaffold (mkdir -p the dir; skip duplicates);
    `fleet-status` also offers to add/remove paths and silently skips lines whose path no longer
    exists (report them as stale entries).
-2. **Skill**: a GLOBAL skill (`implementation-harness-fleet-status` — or per N01's naming), since
+2. **Skill**: a GLOBAL skill (`implementation-harness:fleet-status` — bare name per the N01 convention, landed in 1.94.0), since
    it must work from anywhere and reasons ACROSS projects (the project-local pattern exists so
    skill logic can't outrun a repo's `.harness/` — this skill only READS, so global is safe; state
    that rationale in the skill header). Read-only guarantees verbatim from pre-loop-checkin.

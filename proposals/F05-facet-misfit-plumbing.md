@@ -1,7 +1,7 @@
 # F05: Wire facet-misfits from convert-ideas/review-failed into the poor-fit gate
 
 **Type**: feature (fixing a dead data-flow) · **Priority**: P2 · **Effort**: S
-**Affected files**: `templates/skills/implementation-harness-convert-ideas/SKILL.md` (§3 step 2), `implementation-harness-review-failed/SKILL.md` (follow-up authoring step), `templates/scripts/consolidate-ideas.mjs`, `implementation-harness-add-to-backlog/SKILL.md` (threshold check reference)
+**Affected files**: `templates/skills/harness-convert-ideas/SKILL.md` (§3 step 2), `harness-review-failed/SKILL.md` (follow-up authoring step), `templates/scripts/consolidate-ideas.mjs`, `harness-add-to-backlog/SKILL.md` (threshold check reference)
 **Release**: MINOR bump · MIGRATIONS entry (mechanism) · checksums
 
 ## Problem
