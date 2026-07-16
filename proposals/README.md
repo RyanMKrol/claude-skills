@@ -42,7 +42,6 @@ agent should be able to work from the file alone, without the original conversat
 | B06 | Lock granularity — owner CLIs starve for the whole run | bug | P1 | M |
 | B08 | CI-indeterminate re-check parity (in-place) | bug | P2 | S |
 | B10 | Bound the CI watch (`gh run watch`) | bug | P2 | S |
-| B11 | Worktree idle path leaks the tNNN branch | bug | P2 | S |
 | B12 | Loop status pushes must rebase-and-retry | bug | P2 | S |
 | B14 | Dashboard hardening batch (escaping, EADDRINUSE, readBody, spec path) | bug | P2 | S |
 | B15 | Dashboard performance (tail reads, async spawns, parse-error banner) | bug | P2 | M |
