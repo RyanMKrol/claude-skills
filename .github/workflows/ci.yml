@@ -148,7 +148,7 @@ jobs:
           set -euo pipefail
           range="${{ steps.range.outputs.range }}"
           tpl="plugins/implementation-harness/templates"
-          ledger="plugins/implementation-harness/skills/implementation-harness-upgrade/MIGRATIONS.md"
+          ledger="plugins/implementation-harness/skills/upgrade/MIGRATIONS.md"
           if [ -n "$(git diff --name-only "$range" -- "$tpl" || true)" ] \
             && [ -z "$(git diff --name-only "$range" -- "$ledger" || true)" ]; then
             echo "::error::$tpl changed without a $ledger entry — the upgrade skill is ledger-driven, so this change never reaches existing installs on upgrade."
@@ -161,8 +161,8 @@ jobs:
           set -euo pipefail
           range="${{ steps.range.outputs.range }}"
           manifest="plugins/implementation-harness/.claude-plugin/plugin.json"
-          checksums="plugins/implementation-harness/skills/implementation-harness-upgrade/CHECKSUMS.jsonl"
-          gen="plugins/implementation-harness/skills/implementation-harness-upgrade/gen-checksums.sh"
+          checksums="plugins/implementation-harness/skills/upgrade/CHECKSUMS.jsonl"
+          gen="plugins/implementation-harness/skills/upgrade/gen-checksums.sh"
 
           if ! git diff "$range" -- "$manifest" | grep -q '^+.*"version"'; then
             echo "no implementation-harness version bump — ok"

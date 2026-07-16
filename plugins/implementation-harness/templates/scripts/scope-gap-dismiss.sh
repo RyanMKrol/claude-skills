@@ -7,7 +7,7 @@
 # for the same <path> (so repeated runs don't grow the file). The ONLY writer of these files;
 # check-task-scope.sh is the reader (is_dismissed matches on .path + .specHash).
 #
-# WHY THIS IS A SCRIPT (not an inline command in implementation-harness-fix-scope-gaps' step 6):
+# WHY THIS IS A SCRIPT (not an inline command in harness-fix-scope-gaps' step 6):
 # the dismissal `reason` is free-form, house-style prose that routinely contains non-ASCII (em dashes).
 # Interpolating that into a MULTI-LINE shell command handed to an agent's Bash tool intermittently
 # corrupts the shell's parsing of the FOLLOWING lines — every command after the multibyte character

@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-evaluate-fit
+name: evaluate-fit
 description: >-
   Use when the user wants to check whether an already-installed harness is well-tuned to THIS project and
   fix any mismatches — phrases like "evaluate the harness fit", "does the harness suit this project",
@@ -17,7 +17,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion, Skil
 
 # Evaluate harness fit — tune the customizable surface to THIS project
 
-The `implementation-harness:implementation-harness-create` step scaffolds a *generic* harness and tailors
+The `implementation-harness:create` step scaffolds a *generic* harness and tailors
 what it can from whatever the project looked like at setup — which is often **almost nothing** (a fresh repo).
 As a project takes shape, the harness's project-specific knobs (the difficulty **floor**, the `layer` facet
 vocabulary, the `custom/` overlay) can drift out of fit, and there is otherwise **no path to re-fit them**
@@ -33,7 +33,7 @@ Read this whole file, then execute in order.
 ## 0. Pre-flight
 
 - Require a harness: `.harness/scripts/loop.sh`, `.harness/config/harness.env`, and `.harness/config/facets.json`
-  must exist. If not, send the user to `implementation-harness:implementation-harness-create` and stop.
+  must exist. If not, send the user to `implementation-harness:create` and stop.
 - Read the installed version for context: `cat .harness/.harness-version 2>/dev/null`.
 - Note `$ARGUMENTS`: if it names a focus area (e.g. `facets`, `hooks`, `floor`, `visual`), you may still run
   the full dive but bias the report/apply toward that area. With no argument, evaluate the whole surface.
@@ -55,7 +55,7 @@ as **strictly read-only**.
 - `.harness/config/harness.env` — the scalar knobs (edit/uncomment a knob; never restructure the file).
 - `.harness/config/facets.json` — **only** the project-specific parts: `.facets.layer.values` (additive
   tailoring) and, cautiously, `.policy` knobs. **Do NOT hand-edit `.tiers.ladder`** — delegate that to
-  `implementation-harness:implementation-harness-update-ladder`, which owns the ladder-migration runbook.
+  `implementation-harness:harness-update-ladder`, which owns the ladder-migration runbook.
 
 **READ-ONLY (mechanism — NEVER edit, only report on):**
 - `.harness/scripts/**`, `.harness/dashboard/**`, `.harness/docs/**`, the pristine `.harness/CLAUDE.md`
@@ -69,7 +69,7 @@ as **strictly read-only**.
 **Re-assert guard.** If the deep dive surfaces a real need that can ONLY be met by changing mechanism (a
 script, a doc, the dashboard, the ladder-migration logic), **STOP — do not edit it.** Record it as an
 *upstream idea* in your report and point the user at
-`implementation-harness:implementation-harness-report-issue`. Never satisfy a need by editing a plugin-owned
+`implementation-harness:report-issue`. Never satisfy a need by editing a plugin-owned
 file — that is the fork this skill exists to prevent.
 
 ## 2. Deep-dive the project (full multi-agent fan-out — always)
@@ -147,7 +147,7 @@ Walk the recommendations in ranked order. For each, use `AskUserQuestion` (*Appl
   affected tasks (via the authoring path) so none are left dangling. `.policy` knobs: change only with a
   clear rationale, one at a time.
 - **Tier ladder (`.tiers.ladder`):** do NOT edit it here — invoke
-  `implementation-harness:implementation-harness-update-ladder` (or tell the user to run it) so the ladder
+  `implementation-harness:harness-update-ladder` (or tell the user to run it) so the ladder
   migration is handled correctly.
 
 ## 6. Wrap up

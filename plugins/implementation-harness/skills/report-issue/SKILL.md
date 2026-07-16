@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-report-issue
+name: report-issue
 description: >-
   Use when the user wants to report a bug or problem with the implementation-harness PLUGIN itself —
   phrases like "report a bug", "file an issue", "something's wrong with the harness", "the loop is
@@ -119,7 +119,7 @@ Title: concise, prefixed for filterability — e.g. `[harness] loop crash-loops 
 Body (Markdown), mirroring the maintainer's proposal style:
 
 ```
-**Reported via** `/implementation-harness-report-issue`
+**Reported via** `/implementation-harness:report-issue`
 
 ## TL;DR
 <one-paragraph summary of the problem>

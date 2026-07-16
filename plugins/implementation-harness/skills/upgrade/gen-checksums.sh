@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # gen-checksums.sh — maintainer-only tool for THIS repo. Regenerates
-# CHECKSUMS.jsonl, the per-version file-hash ledger implementation-harness-upgrade's
+# CHECKSUMS.jsonl, the per-version file-hash ledger implementation-harness:upgrade's
 # Stage 3/4 use to auto-upgrade a file that's merely stale (byte-identical to some
 # past released version, never locally edited) without asking the user anything.
 #
@@ -12,7 +12,7 @@
 # File discovery is UNCONDITIONAL and self-updating — every run globs everything
 # under the mechanism directories (templates/scripts, templates/dashboard,
 # templates/docs/**, templates/harness-CLAUDE.md, templates/README.md,
-# templates/skills/implementation-harness-*/SKILL.md). There is no separate
+# templates/skills/harness-*/SKILL.md). There is no separate
 # manifest and no exclude list: a new file added under any of these directories is
 # picked up automatically on the very next run, nothing to remember to update. A
 # checksummed-but-never-installed file (e.g. a CI-only test script) is simply inert,

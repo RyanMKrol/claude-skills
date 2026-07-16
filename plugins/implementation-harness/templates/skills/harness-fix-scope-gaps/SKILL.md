@@ -1,7 +1,7 @@
 ---
-name: implementation-harness-fix-scope-gaps
+name: harness-fix-scope-gaps
 description: >-
-  Internal fix-side companion to `implementation-harness-pre-loop-checkin`'s check (e) — invoke this
+  Internal fix-side companion to `harness-pre-loop-checkin`'s check (e) — invoke this
   when a pre-loop-checkin report (or the owner directly) flags scope-authoring WARNs from
   `check-task-scope.sh` and wants them triaged. Not meant to be run blind/standalone without a reason —
   it's the follow-up step after warnings are already known. Fans out one cheap-model subagent per WARN
@@ -24,7 +24,7 @@ confident real gaps, and only bother the owner with what's genuinely ambiguous. 
 `$ARGUMENTS` (a task id narrows the sweep to it; empty = every warning `check-task-scope.sh` finds).
 Read this whole file, then execute in order.
 
-This is the fix-side companion to `/implementation-harness-pre-loop-checkin`'s read-only check (e) —
+This is the fix-side companion to `/harness-pre-loop-checkin`'s read-only check (e) —
 that command only ever reports raw warnings; this one is where they get resolved.
 
 ## ⚠️ Guardrails (do not violate)
@@ -37,7 +37,7 @@ that command only ever reports raw warnings; this one is where they get resolved
 - **Never invent a scope entry the judge didn't actually recommend.** The subagent fan-out is the
   source of truth for what gets added; don't add anything based on your own independent guess.
 - **One commit for the whole sweep**, staging only `.harness/tracking/TASKS.json` — mirrors
-  `/implementation-harness-loop-recover`'s own git-hygiene convention (never `git add -A`).
+  `/harness-loop-recover`'s own git-hygiene convention (never `git add -A`).
   `.harness/.scope-gap-ignores/*.json` (step 6) is gitignored local scratch — never staged, never
   committed, same as `.pending-tasks/*.json` never being committed.
 - **Judge subagents are read-only** — they return a verdict, they never edit `TASKS.json` themselves.
@@ -91,7 +91,7 @@ a time) — each call:
 - `REAL_GAP` + `high` confidence → stage `(task_id, path)` for auto-apply (step 5).
 - `REAL_GAP` + `low` confidence, or a subagent whose output didn't parse as a clean verdict line →
   collect for a single **batched `AskUserQuestion`** (one question per still-ambiguous pair, or grouped
-  if there are many — mirror `/implementation-harness-upgrade`'s batched-question pattern rather than
+  if there are many — mirror `/implementation-harness:upgrade`'s batched-question pattern rather than
   asking one at a time) so the owner only spends attention on what a cheap model genuinely couldn't
   resolve, not on everything `check-task-scope.sh` flagged. The owner's answer to each resolves it the
   same way: "add to scope" → step 5, "false positive / leave it" → step 6.

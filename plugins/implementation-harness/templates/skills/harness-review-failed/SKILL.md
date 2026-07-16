@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-review-failed
+name: harness-review-failed
 description: >-
   Use when the user wants to review the harness's failed or blocked backlog tasks and turn what
   went wrong into better-specified follow-up tasks — phrases like "review the failed tasks",
@@ -29,7 +29,7 @@ loop never re-selects or re-opens either on its own, so a human review is the on
 This is a **deliberate, human-invoked review** — nothing in the loop's run path ever calls it. You are
 the COORDINATOR: you build the worklist and do the final consolidation; you delegate the actual
 investigate-and-shape work to one sub-agent per task, running concurrently. It **reuses the exact same
-pending-tasks / consolidation machinery as `implementation-harness-convert-ideas`** (each agent writes
+pending-tasks / consolidation machinery as `harness-convert-ideas`** (each agent writes
 only its own `.harness/.pending-tasks/<slug>.json`; `scripts/consolidate-ideas.sh` does the id
 allocation, spec writing, `TASKS.json` merge, and single commit+push). It **never touches `IDEAS.jsonl`**.
 Every review also ends with the **original task closed out AND recorded reviewed** — the coordinator
@@ -42,7 +42,7 @@ anything already recorded reviewed). Read this whole file, then execute in order
 
 ## Stage 0 — recovery check (before anything else)
 
-Exactly like `implementation-harness-convert-ideas`'s pre-flight — a prior sweep may have been
+Exactly like `harness-convert-ideas`'s pre-flight — a prior sweep may have been
 interrupted. `mkdir -p .harness/.pending-tasks .harness/.pending-questions`, then:
 - Leftover `.pending-tasks/*.json` are drafts an agent finished shaping. A draft whose DoD is already
   **confirmed** — no sibling `.pending-questions/<slug>.json` with unresolved questions — can go straight
@@ -55,7 +55,7 @@ interrupted. `mkdir -p .harness/.pending-tasks .harness/.pending-questions`, the
 - Both empty → proceed.
 
 Also require the harness (`.harness/docs/HARNESS.md`, `scripts/loop.sh`, `tracking/TASKS.json`) and
-`jq` + `node` on PATH; if anything is missing, point the user at `implementation-harness:implementation-harness-create`.
+`jq` + `node` on PATH; if anything is missing, point the user at `implementation-harness:create`.
 
 ## Stage 1 — build the worklist
 
@@ -150,7 +150,7 @@ NOT have `AskUserQuestion`, and never touches `tracking/TASKS.json`, `tasks/`, `
 >
 > **4. Shape the follow-up — no lock, no git, no `TASKS.json` edit.** Write
 > `.harness/.pending-tasks/<SLUG>.json` in this exact shape (the same one
-> `implementation-harness-convert-ideas` uses, so the consolidation script reads it unchanged):
+> `harness-convert-ideas` uses, so the consolidation script reads it unchanged):
 > ```json
 > {
 >   "units": [
@@ -370,5 +370,5 @@ reviewed in `tracking/reviews.json`; originally-`"blocked"` tasks now also read 
 Stage 3's closeout AND are recorded reviewed — moving them out of both the dashboard's Human Tasks bucket
 and its "Failed — Pending Review" bucket, into Done permanently. Neither is ever re-selected by a future
 `/review-failed` sweep, since Stage 1's query excludes anything already recorded reviewed. If the sweep
-produced ≥1 new task, close by suggesting the user run `/implementation-harness-pre-loop-checkin` before
+produced ≥1 new task, close by suggesting the user run `/harness-pre-loop-checkin` before
 the next unattended loop run.

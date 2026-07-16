@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-pre-loop-checkin
+name: harness-pre-loop-checkin
 description: >-
   Use for a read-only GO/NO-GO check of the harness backlog BEFORE starting an unattended loop run —
   phrases like "is the backlog ready to run", "check before I start the loop", "pre-flight the
@@ -15,7 +15,7 @@ allowed-tools: Read, Bash, Glob, AskUserQuestion, Skill
 
 Vet the autonomous build harness (`.harness/scripts/loop.sh`, run via `.harness/scripts/supervise.sh`)
 **BEFORE** the owner starts an unattended run. This is the pre-run mirror of
-`/implementation-harness-loop-recover` — but where that command diagnoses AND FIXES state, this one
+`/harness-loop-recover` — but where that command diagnoses AND FIXES state, this one
 only **looks and reports**. Focus target: `$ARGUMENTS` (a task id narrows checks 1 and 4 to it but
 still runs the global checks 2 and 3; empty = full sweep). Read this whole file, then run the checks.
 
@@ -32,7 +32,7 @@ exists (zero-token). This command adds the pre-run **quality validation + a GO/N
 - **No destructive/mutating git** — no `commit`, `push`, `add`, `reset`, `clean`, `restore`,
   `checkout --`, `rebase`, branch create/delete. `git status`/`log`/`fetch`/`rev-list`/`rev-parse` (read-only) are fine.
 - If you find something that needs fixing, **report it** — don't fix it here. Point the owner at
-  `/implementation-harness-loop-recover` (interrupt-shaped state damage) or a manual edit.
+  `/harness-loop-recover` (interrupt-shaped state damage) or a manual edit.
 
 ## 1. Runnable work + needs-human blockers
 
@@ -105,7 +105,7 @@ jq -r 'to_entries | map(select(.value.failed==true) | .key) | join(", ") | if .=
   dep it waits on, and that it will never build as-is. This is **GO-with-a-loud-note** by default (the loop
   still builds other eligible work), but flag it as something to fix. Which fix depends on whether the dead
   dependency has already been `reviewed`:
-  - **dead dep NOT yet reviewed** (still in `/implementation-harness-review-failed`'s worklist) → that skill
+  - **dead dep NOT yet reviewed** (still in `/harness-review-failed`'s worklist) → that skill
     handles it: its step 4d surfaces these dependents when it reviews the failed task and offers to rewire
     them onto the replacement. Point the owner there.
   - **dead dep ALREADY reviewed** → review-failed's worklist permanently excludes it, so step 4d can never
@@ -138,7 +138,7 @@ Report: dirty tree yes/no (if yes, list paths — the in-place loop refuses to s
 vs `origin/main`; **if a `loop.sh`/`supervise.sh` process is alive OR the lock is held by a live PID**,
 say so plainly and recommend **NOT** starting a second run (two loop processes step on each other's git
 state). If the lock dir exists but its `pid` is dead, note it as **stale** — a human or
-`/implementation-harness-loop-recover` can clear it; do not clear it yourself here.
+`/harness-loop-recover` can clear it; do not clear it yourself here.
 
 ## 3. Dependency short-circuits (informational only)
 
@@ -217,11 +217,11 @@ advisory — inspect the flagged file(s); override if it's a false positive)** r
 downgrade: an owner should see and judge it, not have it disappear into an informational note.
 
 Offer
-to triage and fix them via `implementation-harness-fix-scope-gaps` (it fans out a cheap-model judge per
+to triage and fix them via `harness-fix-scope-gaps` (it fans out a cheap-model judge per
 warning and only asks about genuinely ambiguous cases) — that skill is `user-invocable: false` (not in
 the owner's own `/` menu; a deliberate follow-up step, not something to run blind), so surface the offer
 via the `AskUserQuestion` flow in the Final report section below rather than a command to type
-themselves, the same way this command already points at `/implementation-harness-loop-recover` (which IS
+themselves, the same way this command already points at `/harness-loop-recover` (which IS
 directly invocable) for other fixable categories; this command itself never fixes anything, it only
 reports — any fix only happens as an explicit follow-up step once the owner confirms.
 
@@ -241,10 +241,10 @@ Consolidate into ONE glance-able report before the owner starts a run:
   - **Nothing to build** — 0 eligible tasks (every remaining task is gated/blocked); resolve a
     needs-human task or unmet dependency first (e.g. "mark T012 done in the dashboard first").
   - **A loop is already running / a live lock is held** — don't start a second one; run
-    `/implementation-harness-loop-recover` first if the lock is stale.
+    `/harness-loop-recover` first if the lock is stale.
   - **A scope-gap advisory on a pending, buildable task** (check (e), the heuristic file-mention class) —
     name the flagged task/file; a NO-GO the owner can override if it's a false positive (offer
-    `implementation-harness-fix-scope-gaps`).
+    `harness-fix-scope-gaps`).
   - **An unsupported scope-glob shape on a pending, buildable task** (check (e), the non-heuristic class) —
     a **firm** NO-GO (not a maybe): the entry would fail every build attempt as unrecoverable scope-creep,
     so it must be rewritten to a directory prefix or explicit paths **by hand** before the run
@@ -255,19 +255,19 @@ Consolidate into ONE glance-able report before the owner starts a run:
 ## Offer any fix via `AskUserQuestion` — don't make the owner type it out
 
 If the verdict names a concrete follow-up fix the owner could run right now (today that's only the
-check-(e) scope-gap advisory → `implementation-harness-fix-scope-gaps`, since that's the one companion
+check-(e) scope-gap advisory → `harness-fix-scope-gaps`, since that's the one companion
 skill this command knows about), close the report with **one `AskUserQuestion` call** instead of ending
 on a prose question the owner has to answer by typing — a clickable option is strictly easier than
 composing a reply:
 - Question: something like "Scope-gap advisory on N task(s) — triage and fix now?"
 - Options: `Yes, triage and fix them` (recommended, first) / `No, I'll review manually`. Mention in each
-  option's description what happens (`Yes` → runs `implementation-harness-fix-scope-gaps`, which mutates
+  option's description what happens (`Yes` → runs `harness-fix-scope-gaps`, which mutates
   `TASKS.json` scope arrays and pushes to main; `No` → nothing changes, verdict stands as NO-GO).
-- If the owner picks **Yes**, invoke the `Skill` tool for `implementation-harness-fix-scope-gaps` right
+- If the owner picks **Yes**, invoke the `Skill` tool for `harness-fix-scope-gaps` right
   then (it's `user-invocable: false` — not in the `/` menu — but still directly invocable by you once the
   owner has explicitly confirmed via the question). Report back what it did.
 - If **No** (or any other blocking issue with no companion skill, e.g. "a loop is already running"),
-  stop here — don't ask again, don't fix anything yourself. Point at `/implementation-harness-loop-recover`
+  stop here — don't ask again, don't fix anything yourself. Point at `/harness-loop-recover`
   or a manual edit as before.
 
 Remember: **this check-in itself changes nothing.** Any mutation only ever happens as an explicit

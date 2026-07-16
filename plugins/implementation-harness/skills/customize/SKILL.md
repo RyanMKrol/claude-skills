@@ -1,9 +1,9 @@
 ---
-name: implementation-harness-customize
+name: customize
 description: >-
   Use when the user wants to discover and set up the implementation harness's customization features —
   phrases like "customize the harness", "what can I customize", "set up the hooks / guard / preambles",
-  "harness feature walkthrough", "implementation-harness:implementation-harness-customize". Walks the `custom/` extension-point
+  "harness feature walkthrough", "implementation-harness:customize". Walks the `custom/` extension-point
   catalog one feature at a time: explains each, and for the ones the user wants, activates the opt-in file
   (.example → real) and helps DRAFT its content. Also invoked by create (all features) and upgrade (only
   features new since the install) so users always meet the features. Requires a scaffolded `.harness/`.
@@ -23,7 +23,7 @@ path. Read this whole file, then execute in order.
 ## 0. Pre-flight
 
 - Require a harness: `.harness/scripts/loop.sh` and `.harness/custom/` must exist. If not, send the user to
-  `implementation-harness:implementation-harness-create` (fresh install) and stop.
+  `implementation-harness:create` (fresh install) and stop.
 - **Determine scope** from `$ARGUMENTS`:
   - `--since <version>` (e.g. `--since 1.24.0`) → walk ONLY catalog features whose `since:` is **newer**
     than `<version>` (this is how `upgrade` shows a user just what's new since their install). Compare
@@ -111,7 +111,7 @@ For each in-scope catalog feature, in catalog order:
    - Replace the stub body with the drafted content; confirm what you wrote back to the user.
    - `chmod +x` any `hooks/*.sh`.
 4. **On "skip":** leave the `.example` in place (they can run
-   `implementation-harness:implementation-harness-customize` again any time) and move on.
+   `implementation-harness:customize` again any time) and move on.
 
 Never edit a plugin-owned file outside `custom/` to achieve any of this — the whole point is that these
 live in the overlay and survive upgrades.
@@ -120,8 +120,8 @@ live in the overlay and survive upgrades.
 
 - Summarize what got set up (and what was skipped, so they know it's still available).
 - Remind them: everything you wrote is under `.harness/custom/` and is **never touched by
-  `implementation-harness:implementation-harness-upgrade`**; re-run
-  `implementation-harness:implementation-harness-customize` anytime to set up more.
+  `implementation-harness:upgrade`**; re-run
+  `implementation-harness:customize` anytime to set up more.
 - If any hook/guard file was created, suggest a quick sanity check (`--guard-selftest` for the denylist; a
   dry `bash .harness/custom/hooks/on-<event>.sh <args>` for a hook).
 - Commit is the user's call (these are their files) — remind them to `git add -A && git commit` the new

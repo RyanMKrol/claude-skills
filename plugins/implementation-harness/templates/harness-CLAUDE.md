@@ -9,7 +9,7 @@ loop's design is in `docs/HARNESS.md` + `docs/designs/`.)
 
 **This is the #1 way to wreck the harness's upgradeability — treat an in-place edit as a red flag.** The
 plugin owns almost everything under `.harness/`: `scripts/*` (including `loop.sh`), `.harness/CLAUDE.md`
-(this file), `README.md`, and everything under `docs/`. `implementation-harness:implementation-harness-upgrade` keeps these
+(this file), `README.md`, and everything under `docs/`. `implementation-harness:upgrade` keeps these
 **byte-identical to the plugin** and refreshes them in place. The moment you hand-edit one of them, that file
 stops matching the reference, and **every future upgrade of it degrades into slow, error-prone manual
 reconciliation** — the exact "forked install that can never cleanly upgrade" trap the `custom/` overlay
@@ -30,7 +30,7 @@ realistically want to customize has a supported `custom/` home the upgrade **nev
 | label the dashboard so it's distinguishable from other projects' | `custom/dashboard-title.txt` |
 | add project notes to a shipped doc | the matching `custom/docs/…` overlay |
 
-Not sure which, or want a guided setup? Run **`implementation-harness:implementation-harness-customize`** —
+Not sure which, or want a guided setup? Run **`implementation-harness:customize`** —
 it walks these one at a time and drafts them with you. Full mechanics: `docs/HARNESS.md` §8.3.
 
 **The only genuine exception** is deeper `loop.sh`/script *logic* that no hook or `custom/` file can express
@@ -39,7 +39,7 @@ place — **flag it to be upstreamed into the plugin**, because a hand-edited sc
 
 ## Adding a backlog task → invoke the add-to-backlog skill
 
-To add a task to the backlog, invoke the **`implementation-harness-add-to-backlog`** skill. It is the **single
+To add a task to the backlog, invoke the **`harness-add-to-backlog`** skill. It is the **single
 source of authoring logic**: it assigns the task's **facets** (difficulty auto-tuning), pairs every
 chooser task with a review task, runs the **poor-fit / layer-evolution gate**, and writes a
 schema-correct task object + its `tasks/TNNN.md` spec. Prefer it over hand-editing `TASKS.json`.
@@ -100,23 +100,23 @@ the loop" / "run the harness", tell them to run `.harness/scripts/supervise.sh` 
 
 Beyond authoring, these skills help RUN the loop safely:
 
-- **`/implementation-harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run
+- **`/harness-pre-loop-checkin`** — read-only GO/NO-GO vetting before an unattended run
   (needs-human blockers, dirty tree / running loop / lock, per-task facets/spec/scope quality). Changes nothing.
-- **`implementation-harness-fix-scope-gaps`** — the fix-side companion to pre-loop-checkin's
+- **`harness-fix-scope-gaps`** — the fix-side companion to pre-loop-checkin's
   scope-authoring check: fans out a cheap-model judge per warning (real gap vs false positive) and
   fixes confident real gaps directly, so a NO-GO scope-gap advisory doesn't require inspecting every
   warning by hand. `user-invocable: false` — not in the owner's own `/` menu; offer to run it as the
   follow-up when pre-loop-checkin surfaces a scope-gap advisory, don't tell the owner to type it.
-- **`/implementation-harness-loop-recover`** — after a manual Ctrl-C interrupt, diagnose AND fix the
+- **`/harness-loop-recover`** — after a manual Ctrl-C interrupt, diagnose AND fix the
   state it left (orphaned tasks, stale lock, dirty tree / leftover worktree, ledger noise), then leave
   the loop restartable. This is the ONLY safe way to hand-correct loop state — do the recovery through
   it, not ad-hoc, and only ever while the loop is stopped.
-- **`/implementation-harness-review-failed`** — sweep `failed`/`blocked` tasks and author
+- **`/harness-review-failed`** — sweep `failed`/`blocked` tasks and author
   better-specified follow-ups (never a blind retry; never reopens the terminal task).
-- **`/implementation-harness-update-ladder`** — interview-driven walkthrough for adding, swapping, or
+- **`/harness-update-ladder`** — interview-driven walkthrough for adding, swapping, or
   removing a rung on `config/facets.json`'s `.tiers.ladder`, including models with no `effort`
   parameter (`effort: null`) and the right migration path for a swap vs an insert/remove.
-- **`/implementation-harness-loop-prepare`** — get the NEXT unattended run ready as ONE command:
+- **`/harness-loop-prepare`** — get the NEXT unattended run ready as ONE command:
   chains review-failed (if the last run left failed/blocked tasks) → convert-ideas (if the inbox
   has rows) → pre-loop-checkin → fix-scope-gaps (on WARNs), executing each constituent skill in
   full — all of its questions, none streamlined away — and ending at the GO/NO-GO verdict. It

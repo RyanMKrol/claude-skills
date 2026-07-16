@@ -7,7 +7,7 @@ this file** — so this is where your edits belong.
 ## Why this file exists — the overlay rule
 
 The harness's own prose files (`.harness/CLAUDE.md`, `README.md`, and everything under `docs/`) are
-**plugin-owned**: `implementation-harness:implementation-harness-upgrade` refreshes them from the latest plugin version. If you
+**plugin-owned**: `implementation-harness:upgrade` refreshes them from the latest plugin version. If you
 edit them in place, your changes collide with every future upgrade and force a manual reconcile. Instead,
 put project-specific additions in the matching file under `.harness/custom/` — this tree **mirrors** the
 harness layout (`custom/CLAUDE.md`, `custom/README.md`, `custom/docs/HARNESS.md`, …). The pristine files

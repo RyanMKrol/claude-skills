@@ -1,11 +1,11 @@
 ---
-name: implementation-harness-capture-idea
+name: harness-capture-idea
 description: >-
   Use for a quick, zero-ceremony capture of a feature idea, bug report, or improvement into the
   project's ideas inbox — phrases like "note this idea", "add this to the ideas list",
   "capture this for later", "/idea ...". Does NOT interview, decompose, or touch TASKS.json — it
   just appends one JSON row to .harness/tracking/IDEAS.jsonl (a committed inbox) for a later
-  implementation-harness-convert-ideas sweep. Requires the implementation harness to already be
+  harness-convert-ideas sweep. Requires the implementation harness to already be
   scaffolded (.harness/docs/HARNESS.md present).
 argument-hint: "<idea description>"
 allowed-tools: Read, Write, Edit, Bash, Glob
@@ -17,7 +17,7 @@ Append ONE JSON object, on its own line, to `.harness/tracking/IDEAS.jsonl` (a J
 per line) — no interview, no decomposition, no `TASKS.json` edit, no clarifying questions. This must
 never derail the task at hand: it's a quick side-append, no back-and-forth. But "zero-ceremony" means
 **no scoping/decisions**, NOT "terse" — capture the idea RICHLY (step 4): the context you have in
-front of you right now is cheap to record, and the later `implementation-harness-convert-ideas` sweep
+front of you right now is cheap to record, and the later `harness-convert-ideas` sweep
 runs COLD and would otherwise have to re-excavate all of it (or bug the user for it).
 
 ## Schema
@@ -37,14 +37,14 @@ Each line is one JSON object:
 ## Steps
 
 1. **Require the harness.** `.harness/docs/HARNESS.md` must exist. If missing, stop and tell the
-   user to run `implementation-harness:implementation-harness-create` first.
+   user to run `implementation-harness:create` first.
 2. **Ensure the inbox exists.** If `.harness/tracking/IDEAS.jsonl` doesn't exist yet, create it empty
    (JSONL has no header/comment convention — just start appending lines). This file is committed (it
    travels with the repo), so a converted idea's row is removed by
-   `implementation-harness-convert-ideas` once it becomes a `TASKS.json` task.
+   `harness-convert-ideas` once it becomes a `TASKS.json` task.
 3. **Determine the next id.** Read every line, parse its `id`, take the max (0 if the inbox is
    empty), and use max + 1. Ids are LOCAL to the current inbox contents, not a permanent ledger —
-   once an idea is converted its row is removed by `implementation-harness-convert-ideas`, and that
+   once an idea is converted its row is removed by `harness-convert-ideas`, and that
    id is never reused within the current inbox's remaining lifetime, but a fresh empty inbox
    restarts at 1.
 4. **Capture as much as you can — richly, in `description`.** The full substance of what the user
@@ -63,7 +63,7 @@ Each line is one JSON object:
 ## What this is NOT
 
 - **Not an interview.** Don't ask the user follow-up questions here — that's
-  `implementation-harness-convert-ideas`'s job, run later, across the whole inbox at once.
+  `harness-convert-ideas`'s job, run later, across the whole inbox at once.
 - **Not a `TASKS.json` write.** This skill never touches the backlog, never assigns facets, never
   creates a `tasks/TNNN.md` spec.
 - **Not deduplication.** If a similar idea already exists in the inbox, capture this one anyway —

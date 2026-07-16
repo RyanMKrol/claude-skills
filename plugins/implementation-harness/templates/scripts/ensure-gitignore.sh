@@ -11,8 +11,8 @@
 #
 # This script GUARANTEES the block instead. It owns a MARKER-DELIMITED region of the root .gitignore and
 # keeps it current, touching NOTHING outside its own two markers — your own entries are never read,
-# reordered, or modified. It is run by `implementation-harness-create` (on scaffold) and by
-# `implementation-harness-upgrade` (on EVERY run, so existing installs self-heal regardless of which
+# reordered, or modified. It is run by `implementation-harness:create` (on scaffold) and by
+# `implementation-harness:upgrade` (on EVERY run, so existing installs self-heal regardless of which
 # version they came from). Idempotent and safe to run at any time.
 #
 # Usage:  ensure-gitignore.sh [--check] [TARGET_ROOT]

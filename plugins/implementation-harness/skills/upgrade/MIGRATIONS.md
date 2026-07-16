@@ -42,6 +42,50 @@ Entry format:
 
 ---
 
+## 1.93.2 → 1.94.0 — N01: retire the redundant `implementation-harness-` skill-name prefix
+
+Every skill is renamed to drop the stuttering prefix (the plugin namespace already says
+`implementation-harness`). Two namespaces now: **global** skills go BARE (invoke
+`/implementation-harness:create`, `:customize`, `:evaluate-fit`, `:report-issue`, `:upgrade`), and the
+nine **project-local** skills take a short shared `harness-` prefix (invoke `/harness-convert-ideas`,
+`/harness-capture-idea`, …). All ~35 live cross-references across docs/READMEs/scripts/prompts were
+rewritten to match; historical `CHECKSUMS.jsonl`/`MIGRATIONS.md` lines were left verbatim.
+
+- mechanism:
+  - `skills/implementation-harness-{create,customize,evaluate-fit,report-issue,upgrade}/` →
+    `skills/{create,customize,evaluate-fit,report-issue,upgrade}/` (the plugin's own global skills — the
+    upgrade skill's own dir moved too, so `MIGRATIONS.md`/`CHECKSUMS.jsonl`/`gen-checksums.sh` now live
+    under `skills/upgrade/`; the repo CI's three hardcoded paths + repo `CLAUDE.md` prose were updated).
+  - `create/SKILL.md` — scaffold + validation loops now install/verify `harness-<name>/` (was
+    `implementation-harness-<name>/`); global-only guard covers all five globals.
+  - `upgrade/SKILL.md` — skills table retargeted to `harness-<name>/`; NEW one-time §3 rename step (see
+    renamed/removed); validation loop checks `harness-<name>` + warns on leftover pre-N01 dirs.
+  - loop prompts / scripts / dashboard prose (`loop.sh`, `loop.in-place.sh`, `dashboard/{server,lib}.js`,
+    `docs/**`, `harness-CLAUDE.md`, `templates/README.md`, `templates/CLAUDE.md`, `custom/CLAUDE.md`,
+    several `scripts/*.sh` comments) — skill-invocation references updated to the new names.
+- config: none.
+- new files: none (pure renames).
+- renamed/removed — **project-local skills, handled automatically by the §3 one-time rename step**:
+  `templates/skills/implementation-harness-<name>/` → `templates/skills/harness-<name>/` for all nine
+  (add-to-backlog, capture-idea, convert-ideas, fix-scope-gaps, loop-prepare, loop-recover,
+  pre-loop-checkin, review-failed, update-ladder). On upgrade, an existing install's
+  `$T/.claude/skills/implementation-harness-<name>/` is renamed to `harness-<name>/`: a CLEAN (never-edited)
+  file — matched against its OLD canonical key `skills/implementation-harness-<name>/SKILL.md` in any
+  historical `CHECKSUMS` line — is replaced with the current reference; a LOCALLY-EDITED one keeps the
+  user's body (its `name:` bumped to `harness-<name>`) and is surfaced for review. Checksum canonical
+  paths change accordingly (the 1.94.0 line carries `skills/harness-<name>/SKILL.md`; historical lines
+  keep the old keys, which the rename step depends on).
+- manual attention: any project-local skill the owner had **locally edited** is renamed in place but its
+  body is flagged as differing from the new reference for the owner to adjudicate (same as any edited
+  mechanism file). No user-data files are touched.
+- breaking: **invocation names change.** `/implementation-harness-<name>` → `/harness-<name>`
+  (project-local); `/implementation-harness:implementation-harness-<name>` → `/implementation-harness:<name>`
+  (global). Muscle memory, personal notes, or any external scripts/aliases referencing the old invocations
+  must be updated by hand. The upgrade renames the on-disk dirs so the skills themselves keep working under
+  the new names; global skills need no consumer action (updating the plugin is enough).
+
+---
+
 ## 1.93.1 → 1.93.2 — B11: worktree idle reconcile path tears down the scratch tNNN branch
 
 The worktree loop's idle → reconcile-and-continue path (`loop.sh`) now calls `cleanup_task "$branch"`

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-loop-variant: in-place   # read by implementation-harness-upgrade to pick the right reference — do not remove
+# harness-loop-variant: in-place   # read by implementation-harness:upgrade to pick the right reference — do not remove
 #
 # loop.sh — IN-PLACE variant of the single SEQUENTIAL "Ralph loop". Builds a TASKS.json backlog
 # ONE fully-verified task at a time, working DIRECTLY ON `main` in the primary checkout (NO git

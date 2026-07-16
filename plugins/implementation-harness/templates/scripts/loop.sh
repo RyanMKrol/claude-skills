@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-loop-variant: worktree   # read by implementation-harness-upgrade to pick the right reference — do not remove
+# harness-loop-variant: worktree   # read by implementation-harness:upgrade to pick the right reference — do not remove
 #
 # loop.sh — the single SEQUENTIAL "Ralph loop" that builds a TASKS.json backlog.
 #

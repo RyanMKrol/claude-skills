@@ -33,7 +33,7 @@ agent should be able to work from the file alone, without the original conversat
 
 **Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04, D01, C01 — done; B06 — abandoned, see its file)*
 **Next (high value):** F01 *(T01 — done: `tests/loop-e2e.test.sh`, the fake-claude/fake-gh e2e harness; scenarios: happy-path, idle-reconcile, failed:blocked, soft-fail escalation, scope-creep, garbage — both variants. CI/rate-limit/persist-or-shout scenarios grow with B08/B10/B12.)*
-**Then:** the rest of B/D, F02/F03, Q02 (before F14), N01 (the big rename), remaining F/T by taste.
+**Then:** the rest of B/D, F02/F03, Q02 (before F14), remaining F/T by taste. *(N01, the big skill-name rename, landed in 1.94.0.)*
 
 ## Index
 
@@ -72,4 +72,3 @@ agent should be able to work from the file alone, without the original conversat
 | T04 | rl_reset_wait parse-matrix test | testing | P2 | S |
 | T05 | Mutation-CLI tests (consolidate-ideas, mark-failed) | testing | P3 | S |
 | T06 | Skill non-ASCII lint + dashboard server smoke | testing | P3 | S |
-| N01 | Retire the redundant `implementation-harness-` skill-name prefix | new-idea | P1 | L |

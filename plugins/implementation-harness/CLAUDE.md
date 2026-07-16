@@ -24,14 +24,14 @@ This plugin has a deliberate division of labour, and it drives how the skills ar
   real unknown it records `failed:blocked` for a human, it does not clarify (see
   `templates/docs/HARNESS.md` §3 / §5.1).
 - **The planning stage is where a human IS present and a strong model is shaping the spec** — the
-  idea→task conversion (`implementation-harness-convert-ideas`) and the failed-task review
-  (`implementation-harness-review-failed`). This is the ONLY cheap place to resolve ambiguity, and a
+  idea→task conversion (`harness-convert-ideas`) and the failed-task review
+  (`harness-review-failed`). This is the ONLY cheap place to resolve ambiguity, and a
   spec that is wrong or under-specified here silently wastes a whole downstream build.
 
 **Therefore the planning-stage skills MUST bias toward asking**, not away: surface any decision that
 changes what gets built, and **always confirm the definition of done** with the owner (propose the
 acceptance bar, ask them to confirm/adjust) rather than deciding it silently.
-`implementation-harness-capture-idea` is the intentional exception — it is zero-ceremony and deliberately
+`harness-capture-idea` is the intentional exception — it is zero-ceremony and deliberately
 **defers** all questions to the `convert-ideas` sweep, which is exactly why conversion is where the
 questioning must concentrate.
 
@@ -58,9 +58,9 @@ safety invariant.** Do not make such a change silently.
 ## ⚠️ Every change under `templates/` MUST update the migration ledger (non-negotiable)
 
 Consumers don't run `templates/` directly — they run a **copy** scaffolded into their own repo's
-`.harness/` (by the `implementation-harness-create` skill). The **only** way a change you make here reaches
-a repo that *already has* a harness is the `implementation-harness-upgrade` skill — and that skill is
-driven by the migration ledger at **`skills/implementation-harness-upgrade/MIGRATIONS.md`**.
+`.harness/` (by the `implementation-harness:create` skill). The **only** way a change you make here reaches
+a repo that *already has* a harness is the `implementation-harness:upgrade` skill — and that skill is
+driven by the migration ledger at **`skills/upgrade/MIGRATIONS.md`**.
 
 **So: any change under `templates/` — editing, adding, renaming, or removing a file; adding a `harness.env`
 knob; changing a `facets.json` / `TASKS.json` schema — MUST add or extend the matching ledger entry in the
@@ -78,13 +78,13 @@ The ledger entry must record (newest-first, using the format documented at the t
 
 ## ⚠️ Every version bump MUST regenerate the checksums ledger (non-negotiable)
 
-The upgrade skill's checksum fast-path (`skills/implementation-harness-upgrade/CHECKSUMS.jsonl`) lets
+The upgrade skill's checksum fast-path (`skills/upgrade/CHECKSUMS.jsonl`) lets
 it auto-upgrade a file that's merely STALE (never locally edited) without asking — but it can only do
 that for versions actually recorded in the ledger. **Any commit that bumps `.claude-plugin/plugin.json`'s
 `version` MUST, in the same commit, re-run:**
 
 ```bash
-plugins/implementation-harness/skills/implementation-harness-upgrade/gen-checksums.sh --append
+plugins/implementation-harness/skills/upgrade/gen-checksums.sh --append
 ```
 
 No separate rule is needed for adding or removing a file under `templates/` — `gen-checksums.sh`
@@ -120,7 +120,7 @@ The plugin-owned **prose** files (`harness-CLAUDE.md`→`.harness/CLAUDE.md`, `R
 their edits in a parallel **`templates/custom/`** overlay (mirroring the prose layout) instead of editing
 the pristine files in place; each pristine file carries an include pointer to its overlay
 (`.harness/CLAUDE.md` uses a real `@custom/CLAUDE.md` import; the docs use a reference line), and `custom/*`
-is user-data the upgrade never overwrites (the `implementation-harness-upgrade` §1b *standardize* path
+is user-data the upgrade never overwrites (the `implementation-harness:upgrade` §1b *standardize* path
 migrates a fork onto this by extracting inline edits into `custom/`). Rules when maintaining prose:
 
 - **Adding a new plugin-owned prose file MUST, in the same change, add its `custom/` overlay stub and its
@@ -141,7 +141,7 @@ migrates a fork onto this by extracting inline edits into `custom/`). Rules when
   children and must never fire on an error/prereq exit (`exit 3`); `tests/loop-extend.test.sh`
   covers the guard extension + the dispatcher.
 - **Any new `custom/` extension point MUST be added to the customization catalog** in
-  `skills/implementation-harness-customize/SKILL.md` §1 (name, files, a `since: <version>`, and a drafting
+  `skills/customize/SKILL.md` §1 (name, files, a `since: <version>`, and a drafting
   interview) in the same change. That catalog is the single source of truth the **customize** skill walks on
   demand, that **create** walks in full, and that **upgrade** walks scoped to `--since <installed version>`
   — so a feature missing a catalog row is invisible to users (never surfaced on create/upgrade). The

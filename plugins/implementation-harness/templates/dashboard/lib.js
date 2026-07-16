@@ -102,7 +102,7 @@ function computeBacklog(tasksJson, overlays, blockedIds) {
 
   for (const task of tasks) {
     const failed = isFailed(task, overlays);
-    // Same population implementation-harness-review-failed's own Stage 1 worklist selects:
+    // Same population harness-review-failed's own Stage 1 worklist selects:
     // status=="failed" (incl. a manual-fail overturn) OR the literal status=="blocked" (NOT the
     // blockedIds worklog-grep fallback below — review-failed's own query only ever reads the
     // TASKS.json status field, so a legacy pre-status:"blocked" task it wouldn't pick up shouldn't

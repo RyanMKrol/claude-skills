@@ -129,7 +129,7 @@ time, never a tight, repeated re-test loop.
 its own — `tidx()` re-matches fresh every run, no ledger migration needed — but that only means the
 new rung *won't corrupt* anything. Getting it actually **tried** on cells that are already
 calibrated to a pricier tier requires raising `exploreProbabilityPM` above `0` — see
-`docs/HARNESS.md`'s "Inserting a new rung" note and the `implementation-harness-update-ladder`
+`docs/HARNESS.md`'s "Inserting a new rung" note and the `harness-update-ladder`
 skill, which prompts for this after an insert.
 
 ## 3. Capture — the ledger  *(in `loop.sh`)*

@@ -157,8 +157,8 @@ exists in the project but lives **out of band** (optional, human-driven), never 
 
 Because the loop builds blind from the spec on the policy-chosen (often weaker) model, **clarification is
 front-loaded into the authoring stage**, not the build. When ideas become tasks
-(`/implementation-harness-convert-ideas`) or a failed task is reviewed
-(`/implementation-harness-review-failed`), that is where a human confirms the **definition of done** and
+(`/harness-convert-ideas`) or a failed task is reviewed
+(`/harness-review-failed`), that is where a human confirms the **definition of done** and
 any open decision — while a strong model and a person are both in the room — so the unattended build pass
 inherits an unambiguous contract it can hit in one cold pass. Those planning skills deliberately bias
 *toward* asking; the loop, having no human to ask, deliberately does not.
@@ -221,7 +221,7 @@ to a pricier tier, so `pick_base()`'s normal "cheapest eligible tier" rule will 
 its own; it has no way to distinguish "unproven" from "proven bad." To actually get it tested on
 established work, raise `.policy.exploreProbabilityPM` (per-mille, default `0`) in `config/facets.json`
 — see `docs/designs/difficulty-autotune.md` §2a for the full mechanism. The
-`implementation-harness-update-ladder` skill prompts for this after every insert.
+`harness-update-ladder` skill prompts for this after every insert.
 
 **A rejected rung isn't stuck forever (`exploreCooldownN`).** If a probed rung fails its trial,
 it isn't excluded permanently — task difficulty can drift over a project's life (a codebase
@@ -552,7 +552,7 @@ loop's perspective**. `reconcile_overlays()` promotes `human-done`/`manual-fail`
 this same checkout takes effect on the loop's very next pass. A `manual-fail` entry also
 retroactively corrects difficulty calibration **by subtracting at read time**, never by mutating the
 append-only ledger — see `docs/designs/manual-fail-signal.md` for the full mechanism and rationale.
-`reviews.json` is now also written automatically by `implementation-harness-review-failed` (for every
+`reviews.json` is now also written automatically by `harness-review-failed` (for every
 task it investigates, so a future sweep never re-investigates it) and by the dashboard's "Mark done"
 action (a human completing a needs-human task themselves is itself a review) — both are just
 additional callers of `mark-reviewed.sh`, not a change to the mechanism itself.

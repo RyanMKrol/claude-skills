@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-convert-ideas
+name: harness-convert-ideas
 description: >-
   Use when the user wants to process the ideas inbox (.harness/tracking/IDEAS.jsonl) into real
   TASKS.json backlog tasks — phrases like "convert the ideas", "process the ideas inbox", "turn
@@ -23,7 +23,7 @@ whole file, then execute in order.
 
 - Require the harness: `.harness/docs/HARNESS.md`, `.harness/scripts/loop.sh`, and
   `.harness/tracking/TASKS.json` must exist. If any is missing, point the user at
-  `implementation-harness:implementation-harness-create` first.
+  `implementation-harness:create` first.
 - Require `jq` and `node` on PATH.
 - **Recovery check — do this BEFORE touching the current inbox.** An earlier sweep may have been
   interrupted (session ended mid-flight). Scan `.harness/.pending-tasks/` and
@@ -281,5 +281,5 @@ question). Do NOT claim an idea is "done" — converting it to tasks means the l
 not that it has been built.
 
 If the sweep produced ≥1 new task, close by suggesting the user run
-`/implementation-harness-pre-loop-checkin` before the next unattended loop run — it vets the new tasks'
+`/harness-pre-loop-checkin` before the next unattended loop run — it vets the new tasks'
 facets/spec/scope quality and needs-human blockers, and gives a GO/NO-GO verdict.

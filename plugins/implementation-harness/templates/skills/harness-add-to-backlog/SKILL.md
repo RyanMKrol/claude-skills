@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-add-to-backlog
+name: harness-add-to-backlog
 description: >-
   Use when a project already has the implementation harness (.harness/docs/HARNESS.md, .harness/scripts/loop.sh, .harness/tracking/TASKS.json
   present) and the user wants to draft or extend the task backlog — phrases like "add tasks",
@@ -23,7 +23,7 @@ but are never silently altered during an append.)
 ## 1. Pre-flight
 
 - Require the harness: `.harness/tracking/TASKS.json`, `.harness/docs/HARNESS.md`, and `.harness/scripts/loop.sh` must exist in the
-  project. If any is missing, stop and point the user at `implementation-harness:implementation-harness-create` first.
+  project. If any is missing, stop and point the user at `implementation-harness:create` first.
   (Either loop variant — worktree or in-place — installs as `.harness/scripts/loop.sh` and keeps
   `.harness/tracking/TASKS.json` at the same fixed path, so this skill is identical for both.)
 - Require `jq` (the loop and this skill use it). If absent, tell the user to `brew install jq`.

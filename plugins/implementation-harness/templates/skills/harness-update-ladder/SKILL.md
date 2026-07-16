@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-update-ladder
+name: harness-update-ladder
 description: >-
   Use when the user wants to add, swap, or remove a rung on this project's difficulty/tier ladder —
   phrases like "add a model to the ladder", "update the tier ladder", "add haiku to the ladder",
@@ -27,12 +27,12 @@ file, then execute in order.
 ## 0. Pre-flight
 
 - Confirm `.harness/docs/HARNESS.md` and `.harness/config/facets.json` exist — if not, this project
-  isn't scaffolded; point the user at `implementation-harness:implementation-harness-create` and stop.
+  isn't scaffolded; point the user at `implementation-harness:create` and stop.
 - Read the current `.tiers.ladder` from `.harness/config/facets.json` and show it to the user as the starting
   point.
 - Read `.harness/.harness-version`. **Effort-less rungs (`effort: null`) need >= 1.45.0.** If the
   installed version is older and the user's change would introduce a null-effort rung, tell them
-  plainly and offer, via `AskUserQuestion`, to run `implementation-harness:implementation-harness-upgrade`
+  plainly and offer, via `AskUserQuestion`, to run `implementation-harness:upgrade`
   first — don't hand-write the mechanism support yourself; that's exactly the kind of local fork this
   harness avoids (see the project's own `CLAUDE.md`).
 

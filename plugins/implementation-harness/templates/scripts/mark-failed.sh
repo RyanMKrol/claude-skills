@@ -3,7 +3,7 @@
 # mark-failed.sh — owner CLI: close out a task as a reviewed, non-success outcome. Two uses:
 #   - overturn a "done" task as a false success (an audit-missed bug, a visual regression the
 #     automated checks didn't catch, etc).
-#   - close out a "blocked" task once implementation-harness-review-failed has investigated it
+#   - close out a "blocked" task once harness-review-failed has investigated it
 #     (already resolved elsewhere / a better-specified follow-up was authored / not worth pursuing) —
 #     without this, a reviewed "blocked" task has no way to leave the dashboard's Human Tasks bucket.
 # Writes the tracking/manual-fail.json overlay with a REQUIRED reason; the loop's reconcile_overlays()

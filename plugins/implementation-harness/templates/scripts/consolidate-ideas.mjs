@@ -2,7 +2,7 @@
 // consolidate-ideas.mjs — the single locked consolidation pass of the ideas→tasks pipeline.
 // Pure data processing, NO git (that's consolidate-ideas.sh's job). Node core modules only.
 //
-// Reads every .harness/.pending-tasks/<slug>.json left by the implementation-harness-convert-ideas
+// Reads every .harness/.pending-tasks/<slug>.json left by the harness-convert-ideas
 // skill's per-idea conversion agents, each shaped:
 //   {
 //     "units": [

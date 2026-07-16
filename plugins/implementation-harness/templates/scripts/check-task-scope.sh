@@ -35,7 +35,7 @@ sha256_of_file() {
 # positive for <id> AND the spec hasn't changed since (specHash still matches). A gitignored,
 # per-task scratch file (.harness/.scope-gap-ignores/<id>.json) — never committed, so this is local
 # suppression state; a stale entry (spec since edited) just silently stops matching, nothing deletes
-# it. See implementation-harness-fix-scope-gaps, the only writer.
+# it. See harness-fix-scope-gaps, the only writer.
 is_dismissed() {
   local id="$1" path="$2" spec_hash="$3" f="$IGNORES_DIR/$id.json"
   [ -f "$f" ] || return 1
@@ -105,7 +105,7 @@ check_one() {
   # (`workoutStats.totalVolume`, `Promise.all`, `console.log`) as if they were filenames. This still
   # can't tell "a real file, but only mentioned as read-only background" from "a real file the spec
   # means to edit" (e.g. a path cited as a SCOPE_EXEMPT_GLOBS reference) — that class needs the
-  # mention's surrounding prose actually read, which is what implementation-harness-fix-scope-gaps'
+  # mention's surrounding prose actually read, which is what harness-fix-scope-gaps'
   # judge fan-out is for.
   bare_names="$(grep -oE '\`[A-Za-z0-9_-]+\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte|py|rb|go|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|rs|sql|graphql|gql|css|scss|sass|less|html|htm|json|jsonc|yaml|yml|md|mdx|sh|bash|zsh|toml|xml|svg|env|txt|csv|ini|conf|lock|prisma|proto)\`' "$spec_path" | tr -d '`' | sort -u)"
 

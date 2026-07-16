@@ -67,7 +67,7 @@ that drives autonomous runs is described in [`.harness/docs/HARNESS.md`](./.harn
 The in-place loop **hard-resets the working tree to `origin/main` (`git reset --hard`) between every
 attempt** — so any uncommitted work in the checkout while a run is in progress can be discarded. (At
 *startup* it refuses to run on a dirty tree rather than touch it, but once running it resets between
-attempts.) So any uncommitted work — notably a `/implementation-harness-convert-ideas` sweep that just
+attempts.) So any uncommitted work — notably a `/harness-convert-ideas` sweep that just
 authored a batch of new tasks, or a hand-edit to `TASKS.json` — is **not safe** until it's committed.
 **Treat "uncommitted" as "not durable."** When a discrete unit of work is done (a conversion sweep, a
 backlog edit, a recovery), **commit and push it immediately**, don't leave it sitting in the tree

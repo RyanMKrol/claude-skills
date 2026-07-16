@@ -35,33 +35,33 @@ flowchart TD
     class A,B,C,D,F human;
 ```
 
-**0. One-time — scaffold it.** `/implementation-harness:implementation-harness-create` interviews
+**0. One-time — scaffold it.** `/implementation-harness:create` interviews
 you (isolation mode, stack, format/lint/test/build commands, CI name, cold-start difficulty floor)
 and writes a self-contained `.harness/` plus a personalized `CLAUDE.md`, `ci.yml`, `harness.env`,
 and starter `TASKS.json`. Do this once per repo.
 
 **1. Capture ideas — anytime, zero ceremony.**
-`/implementation-harness-capture-idea <idea>` appends one row to `.harness/tracking/IDEAS.jsonl` and
+`/harness-capture-idea <idea>` appends one row to `.harness/tracking/IDEAS.jsonl` and
 stops. No interview, no decomposition, no `TASKS.json` write. It **deliberately defers every
 question** to the conversion sweep — which is exactly why conversion (next step) is where the
 questioning concentrates. Capture the instant the thought strikes; don't break your flow.
 
 **2. Convert the inbox — once a batch has accrued.**
-`/implementation-harness-convert-ideas` sweeps the **whole** `IDEAS.jsonl` inbox at once: it dedupes
+`/harness-convert-ideas` sweeps the **whole** `IDEAS.jsonl` inbox at once: it dedupes
 related ideas, fans out one sub-agent per idea/cluster to shape it into atomic, dependency-ordered
 tasks, **batches any genuine open questions back to you** (and always confirms the definition of
 done), then runs the locked `consolidate-ideas.sh` pass that allocates real task ids, writes each
 task's spec, appends to `TASKS.json`, and clears the converted rows from the inbox.
 
 **3. Pre-flight the backlog — before every unattended run.**
-`/implementation-harness-pre-loop-checkin` is a strictly **read-only** GO/NO-GO. It surfaces
+`/harness-pre-loop-checkin` is a strictly **read-only** GO/NO-GO. It surfaces
 needs-human blockers, session hygiene (dirty tree, a running loop, a held lock), dependency
 short-circuits, and per-task definition quality (facets, spec, scope). It changes nothing — it just
 tells you whether the loop is safe to start.
 
 **4. (optional) Fix scope-authoring gaps — when the check-in flags them.**
 If pre-loop-checkin's scope check finds WARNs, it **offers to run**
-`/implementation-harness-fix-scope-gaps` right there (this skill is a follow-up to the check-in, not
+`/harness-fix-scope-gaps` right there (this skill is a follow-up to the check-in, not
 something you run blind). It fans out a cheap-model judge per warning to decide real-gap vs
 false-positive against the spec's own prose, auto-applies the confident real gaps to each task's
 `scope`, and asks you only about the genuinely ambiguous ones.
@@ -76,7 +76,7 @@ agent can never kick off an unattended, git-mutating run on its own. Preview fir
 
 **6. Review failures — turn dead ends into better tasks.**
 When the loop leaves tasks `failed` (you overturned a false success) or `blocked` (it gave up),
-`/implementation-harness-review-failed` investigates each one's root cause (one sub-agent per task)
+`/harness-review-failed` investigates each one's root cause (one sub-agent per task)
 and authors a demonstrably-better follow-up — **never a blind retry**. The follow-ups re-enter the
 cycle at the pre-loop-checkin step.
 
@@ -84,16 +84,16 @@ cycle at the pre-loop-checkin step.
 
 Outside the main happy path:
 
-- `/implementation-harness-add-to-backlog <feature>` — author tasks **directly** from a feature
+- `/harness-add-to-backlog <feature>` — author tasks **directly** from a feature
   description, skipping the ideas inbox (a focused interview → atomic `TASKS.json` tasks).
-- `/implementation-harness-loop-recover` — clean up after a **manual** interrupt (Ctrl-C / killed
+- `/harness-loop-recover` — clean up after a **manual** interrupt (Ctrl-C / killed
   loop): orphaned tasks, stale locks, a dirty tree or leftover worktree, ledger noise.
-- `/implementation-harness-update-ladder` — add/swap/remove a model+effort rung on the difficulty
+- `/harness-update-ladder` — add/swap/remove a model+effort rung on the difficulty
   tier ladder.
-- `/implementation-harness:implementation-harness-customize` — walk the `custom/` overlay
+- `/implementation-harness:customize` — walk the `custom/` overlay
   extension-point catalog (conventions, lifecycle hooks, secret-guard, visual-verify, dashboard
   title) and activate what you want.
-- `/implementation-harness:implementation-harness-upgrade` — pull newer plugin versions into an
+- `/implementation-harness:upgrade` — pull newer plugin versions into an
   existing install (also adopts legacy/hand-forked installs).
 
 ## Skills
@@ -103,10 +103,10 @@ any project) bootstrap and reconcile a harness install (and file bug reports ups
 
 | Skill | Invoke | What it does |
 |---|---|---|
-| `implementation-harness-create` | `/implementation-harness:implementation-harness-create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, cold-start difficulty floor, optional run/backtest check), then copy the verbatim harness files (including the eight project-local skills below) and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/scripts/supervise.sh`. |
-| `implementation-harness-customize` | `/implementation-harness:implementation-harness-customize` | Guided walkthrough of the `custom/` extension-point catalog (lifecycle hooks, secret-guard denylist, visual-verify snippets, build/audit preambles, dashboard title, …) — activates the opt-in file and helps draft its content for each feature the user wants. |
-| `implementation-harness-upgrade` | `/implementation-harness:implementation-harness-upgrade [dir]` | Reconciles an installed `.harness/` (and the eight project-local skills below) against the plugin's bundled reference — refreshes plugin-owned mechanism files, adds new `harness.env` knobs additively, reports first and asks before every change. Also adopts legacy/hand-forked installs. |
-| `implementation-harness-report-issue` | `/implementation-harness:implementation-harness-report-issue` | Files a bug report about the plugin itself as a GitHub issue on `RyanMKrol/claude-skills`. Auto-captures the environment (plugin version, loop variant, bash/OS, tooling), synthesises the session, pushes for logs, scrubs secrets, does a real-bug-vs-misconfig plausibility check, then shows the full draft and files it via `gh` on explicit confirmation. Works with or without a scaffolded `.harness/`. |
+| `implementation-harness:create` | `/implementation-harness:create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, cold-start difficulty floor, optional run/backtest check), then copy the verbatim harness files (including the eight project-local skills below) and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/scripts/supervise.sh`. |
+| `implementation-harness:customize` | `/implementation-harness:customize` | Guided walkthrough of the `custom/` extension-point catalog (lifecycle hooks, secret-guard denylist, visual-verify snippets, build/audit preambles, dashboard title, …) — activates the opt-in file and helps draft its content for each feature the user wants. |
+| `implementation-harness:upgrade` | `/implementation-harness:upgrade [dir]` | Reconciles an installed `.harness/` (and the eight project-local skills below) against the plugin's bundled reference — refreshes plugin-owned mechanism files, adds new `harness.env` knobs additively, reports first and asks before every change. Also adopts legacy/hand-forked installs. |
+| `implementation-harness:report-issue` | `/implementation-harness:report-issue` | Files a bug report about the plugin itself as a GitHub issue on `RyanMKrol/claude-skills`. Auto-captures the environment (plugin version, loop variant, bash/OS, tooling), synthesises the session, pushes for logs, scrubs secrets, does a real-bug-vs-misconfig plausibility check, then shows the full draft and files it via `gh` on explicit confirmation. Works with or without a scaffolded `.harness/`. |
 
 Nine **project-local** skills (scaffolded by `create` into your project's own `.claude/skills/`,
 kept in sync by `upgrade` — invoke bare, no prefix — so their logic can never drift ahead of what
@@ -114,15 +114,15 @@ this specific project's `.harness/` version understands) operate a harness that'
 
 | Skill | Invoke | What it does |
 |---|---|---|
-| `implementation-harness-capture-idea` | `/implementation-harness-capture-idea <idea>` | Zero-ceremony: appends one `{id,title,description,capturedAt}` row to the committed `tracking/IDEAS.jsonl` inbox. No interview, no `TASKS.json` write — defers all questions to `convert-ideas`. |
-| `implementation-harness-convert-ideas` | `/implementation-harness-convert-ideas` | Sweeps the whole ideas inbox at once — dedupes, converts each idea/cluster in parallel via its own sub-agent, relays any open questions in one batch, then runs the locked `consolidate-ideas.sh` pass into `TASKS.json`. |
-| `implementation-harness-pre-loop-checkin` | `/implementation-harness-pre-loop-checkin [id]` | Read-only GO/NO-GO before an unattended run: needs-human blockers, session hygiene, dependency short-circuits, and per-task facets/spec/scope quality. Changes nothing; offers `fix-scope-gaps` if scope check (e) WARNs. |
-| `implementation-harness-fix-scope-gaps` | *offered by `pre-loop-checkin`* | Follow-up to the check-in's scope check: fans out one cheap-model judge per WARN (real-gap vs false-positive against the spec), auto-applies confident gaps to each task's `scope`, asks only on ambiguity. Not meant to be run blind. |
-| `implementation-harness-add-to-backlog` | `/implementation-harness-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `.harness/docs/HARNESS.md` §8.1) with auto-tuned difficulty (`facets`) and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
-| `implementation-harness-review-failed` | `/implementation-harness-review-failed [id]` | Sweeps every `failed`/`blocked` task, investigates the root cause (one sub-agent each, in parallel), and authors a demonstrably-better follow-up via the same `consolidate-ideas.sh` pipeline. Never a blind retry; never touches the terminal task's status. |
-| `implementation-harness-loop-recover` | `/implementation-harness-loop-recover [id]` | Recovers the loop after a manual interrupt: stops-check, surgical dirty-tree / leftover-worktree cleanup, stale-lock clearing, orphaned-task detection + fix (verified against the DoD), ledger-noise cleanup, then a readiness check. Mutates + pushes — the correcting the stopped loop can't do. |
-| `implementation-harness-update-ladder` | `/implementation-harness-update-ladder [model]` | Add, swap, or remove a rung on this project's difficulty/tier ladder (`config/facets.json`) — handles effort-less models (`effort: null`) and walks the right migration path for a swap vs an insert/remove. |
-| `implementation-harness-loop-prepare` | `/implementation-harness-loop-prepare` | Prepare the next unattended run as one command: chains `review-failed` (if the last run left failed/blocked tasks) → `convert-ideas` (if the inbox has rows) → `pre-loop-checkin` → `fix-scope-gaps` (on WARNs), executing each constituent skill in full — every question preserved — and ending at the GO/NO-GO verdict. Never starts the loop. |
+| `harness-capture-idea` | `/harness-capture-idea <idea>` | Zero-ceremony: appends one `{id,title,description,capturedAt}` row to the committed `tracking/IDEAS.jsonl` inbox. No interview, no `TASKS.json` write — defers all questions to `convert-ideas`. |
+| `harness-convert-ideas` | `/harness-convert-ideas` | Sweeps the whole ideas inbox at once — dedupes, converts each idea/cluster in parallel via its own sub-agent, relays any open questions in one batch, then runs the locked `consolidate-ideas.sh` pass into `TASKS.json`. |
+| `harness-pre-loop-checkin` | `/harness-pre-loop-checkin [id]` | Read-only GO/NO-GO before an unattended run: needs-human blockers, session hygiene, dependency short-circuits, and per-task facets/spec/scope quality. Changes nothing; offers `fix-scope-gaps` if scope check (e) WARNs. |
+| `harness-fix-scope-gaps` | *offered by `pre-loop-checkin`* | Follow-up to the check-in's scope check: fans out one cheap-model judge per WARN (real-gap vs false-positive against the spec), auto-applies confident gaps to each task's `scope`, asks only on ambiguity. Not meant to be run blind. |
+| `harness-add-to-backlog` | `/harness-add-to-backlog [feature]` | Repeatable. Focused interview that turns a feature/phase into atomic, dependency-ordered `TASKS.json` task objects (schema in `.harness/docs/HARNESS.md` §8.1) with auto-tuned difficulty (`facets`) and `gate`/`needs-human` markers — appended (via `jq`) without disturbing existing tasks. |
+| `harness-review-failed` | `/harness-review-failed [id]` | Sweeps every `failed`/`blocked` task, investigates the root cause (one sub-agent each, in parallel), and authors a demonstrably-better follow-up via the same `consolidate-ideas.sh` pipeline. Never a blind retry; never touches the terminal task's status. |
+| `harness-loop-recover` | `/harness-loop-recover [id]` | Recovers the loop after a manual interrupt: stops-check, surgical dirty-tree / leftover-worktree cleanup, stale-lock clearing, orphaned-task detection + fix (verified against the DoD), ledger-noise cleanup, then a readiness check. Mutates + pushes — the correcting the stopped loop can't do. |
+| `harness-update-ladder` | `/harness-update-ladder [model]` | Add, swap, or remove a rung on this project's difficulty/tier ladder (`config/facets.json`) — handles effort-less models (`effort: null`) and walks the right migration path for a swap vs an insert/remove. |
+| `harness-loop-prepare` | `/harness-loop-prepare` | Prepare the next unattended run as one command: chains `review-failed` (if the last run left failed/blocked tasks) → `convert-ideas` (if the inbox has rows) → `pre-loop-checkin` → `fix-scope-gaps` (on WARNs), executing each constituent skill in full — every question preserved — and ending at the GO/NO-GO verdict. Never starts the loop. |
 
 All thirteen are also model-invocable (Claude triggers them from the descriptions when you ask in
 plain language) — the four global ones from any project, the nine project-local ones once
@@ -135,22 +135,22 @@ implementation-harness/
 ├── .claude-plugin/plugin.json
 ├── README.md
 ├── skills/                     ← global, plugin-registered (colon-invoked)
-│   ├── implementation-harness-create/SKILL.md
-│   ├── implementation-harness-customize/SKILL.md
-│   └── implementation-harness-upgrade/{SKILL.md,MIGRATIONS.md,CHECKSUMS.jsonl,gen-checksums.sh}
+│   ├── implementation-harness:create/SKILL.md
+│   ├── implementation-harness:customize/SKILL.md
+│   └── implementation-harness:upgrade/{SKILL.md,MIGRATIONS.md,CHECKSUMS.jsonl,gen-checksums.sh}
 └── templates/                 ← the harness itself (single source of truth), vendored here
     ├── skills/                 ← sources for the nine project-local skills (scaffolded to
     │                             <project>/.claude/skills/implementation-harness-<name>/SKILL.md
     │                             by create, kept in sync by upgrade)
-    │   ├── implementation-harness-add-to-backlog/SKILL.md
-    │   ├── implementation-harness-capture-idea/SKILL.md
-    │   ├── implementation-harness-convert-ideas/SKILL.md
-    │   ├── implementation-harness-fix-scope-gaps/SKILL.md
-    │   ├── implementation-harness-loop-prepare/SKILL.md
-    │   ├── implementation-harness-loop-recover/SKILL.md
-    │   ├── implementation-harness-pre-loop-checkin/SKILL.md
-    │   ├── implementation-harness-review-failed/SKILL.md
-    │   └── implementation-harness-update-ladder/SKILL.md
+    │   ├── harness-add-to-backlog/SKILL.md
+    │   ├── harness-capture-idea/SKILL.md
+    │   ├── harness-convert-ideas/SKILL.md
+    │   ├── harness-fix-scope-gaps/SKILL.md
+    │   ├── harness-loop-prepare/SKILL.md
+    │   ├── harness-loop-recover/SKILL.md
+    │   ├── harness-pre-loop-checkin/SKILL.md
+    │   ├── harness-review-failed/SKILL.md
+    │   └── harness-update-ladder/SKILL.md
     ├── config/{harness.env,facets.json}
     ├── docs/{HARNESS,LIMITATIONS}.md, docs/designs/*.md
     ├── ledgers/                (outcomes.jsonl, failures.jsonl — seeded empty, committed)
@@ -183,13 +183,13 @@ itself is `templates/docs/HARNESS.md`; the owner-overlay/dashboard mechanism is
 `/plugin marketplace add ~/Development/claude-skills`.)
 
 Then it's available in every project. Use it by running
-`/implementation-harness:implementation-harness-create` inside a repo, or just asking Claude to "set
+`/implementation-harness:create` inside a repo, or just asking Claude to "set
 up the implementation harness here".
 
 ## Notes
 
 - The shipped `templates/.github/workflows/ci.yml` **fails on purpose** (an `exit 1` placeholder)
-  until `implementation-harness:implementation-harness-create` replaces its steps with your real
+  until `implementation-harness:create` replaces its steps with your real
   Definition-of-Done commands — so an un-personalized harness can never silently pass CI.
 - The loop integrates by pushing to `origin/main`; a GitHub remote is required when
   `REQUIRE_CI=1` (the default).

@@ -36,7 +36,7 @@ window, so every invocation is cheap to (re)start and an interruption is surviva
 Once the harness is installed (this `.harness/` folder is here), day-to-day use is a loop:
 **capture ideas as they occur → convert a batch into tasks → check the backlog is ready → run the
 loop → review whatever failed → repeat.** Each step is a scaffolded slash-command in this project
-(invoke bare, e.g. `/implementation-harness-capture-idea`), except the loop itself, which **you**
+(invoke bare, e.g. `/harness-capture-idea`), except the loop itself, which **you**
 start from a real terminal.
 
 ```mermaid
@@ -53,18 +53,18 @@ flowchart TD
     class A,B,C,D,F human;
 ```
 
-1. **`/implementation-harness-capture-idea <idea>`** — zero-ceremony. Appends one row to
+1. **`/harness-capture-idea <idea>`** — zero-ceremony. Appends one row to
    `tracking/IDEAS.jsonl` and stops. No interview, no `TASKS.json` write — it deliberately defers
    every question to the conversion sweep, so capture never breaks your flow.
-2. **`/implementation-harness-convert-ideas`** — once a batch has accrued. Sweeps the **whole**
+2. **`/harness-convert-ideas`** — once a batch has accrued. Sweeps the **whole**
    `tracking/IDEAS.jsonl` inbox: dedupes, shapes each idea/cluster into atomic tasks, batches genuine
    questions back to you (always confirming the definition of done), then runs the locked
    `scripts/consolidate-ideas.sh` pass — allocating real ids, writing each `tasks/TNNN.md` spec,
    appending to `tracking/TASKS.json`, and clearing the converted rows.
-3. **`/implementation-harness-pre-loop-checkin`** — before every unattended run. A strictly
+3. **`/harness-pre-loop-checkin`** — before every unattended run. A strictly
    **read-only** GO/NO-GO over `tracking/TASKS.json`: needs-human blockers, session hygiene, dependency
    short-circuits, per-task spec/scope/facet quality. It changes nothing.
-4. **(optional) `/implementation-harness-fix-scope-gaps`** — if the check-in's scope check WARNs, it
+4. **(optional) `/harness-fix-scope-gaps`** — if the check-in's scope check WARNs, it
    **offers this** right there. It judges each warning real-gap vs false-positive against the spec's
    prose and auto-applies the confident real gaps to each task's `scope` (asking only on ambiguity).
 5. **`scripts/supervise.sh`** — **you** start it, from a real terminal. It re-runs `scripts/loop.sh`
@@ -72,19 +72,19 @@ flowchart TD
    with auto-escalation, gated on green GitHub CI. `supervise.sh`/`loop.sh` hard-refuse to run from
    inside a Claude Code session, so an agent can't start an unattended git-mutating loop. Preview
    with `DRY_RUN=1 scripts/loop.sh`; see [Quick start](#quick-start) for the exact commands.
-6. **`/implementation-harness-review-failed`** — when the loop leaves tasks `failed` or `blocked`.
+6. **`/harness-review-failed`** — when the loop leaves tasks `failed` or `blocked`.
    Investigates each root cause and authors a demonstrably-better follow-up (never a blind retry);
    the follow-ups re-enter the cycle at step 3.
 
-**Or prepare the next run as one command:** `/implementation-harness-loop-prepare` chains steps
+**Or prepare the next run as one command:** `/harness-loop-prepare` chains steps
 6 → 2 → 3 → 4 in order (review-failed if anything failed, convert-ideas if the inbox has rows,
 pre-loop-checkin always, fix-scope-gaps on WARNs), running each constituent skill in full — every
 question included — and ending at the GO/NO-GO verdict. It never starts the loop (step 5 stays
 yours, from a real terminal).
 
-Off the happy path: `/implementation-harness-add-to-backlog` (author tasks directly, skipping the
-ideas inbox), `/implementation-harness-loop-recover` (clean up after a manual Ctrl-C interrupt), and
-`/implementation-harness-update-ladder` (change the difficulty tier ladder). The
+Off the happy path: `/harness-add-to-backlog` (author tasks directly, skipping the
+ideas inbox), `/harness-loop-recover` (clean up after a manual Ctrl-C interrupt), and
+`/harness-update-ladder` (change the difficulty tier ladder). The
 [ideas → tasks pipeline](#ideas--tasks-pipeline-optional) section below has the capture/convert
 detail.
 
@@ -228,9 +228,9 @@ HARNESS_DASHBOARD_PORT=5000 node dashboard/server.js   # different port
 A two-step flow for turning raw ideas into backlog tasks without interrupting whatever you're
 doing: capture now, convert later, in a batch. `tracking/IDEAS.jsonl` is a committed, zero-ceremony
 inbox — one JSON object per line, `{ "id": 1, "title": "...", "description": "...", "capturedAt":
-"..." }` — append a row any time (via the `implementation-harness-capture-idea` skill, or by hand;
+"..." }` — append a row any time (via the `harness-capture-idea` skill, or by hand;
 `id` is the next integer after the highest one currently in the file, local to the current inbox
-contents, not a permanent ledger). When you're ready, `implementation-harness-convert-ideas` sweeps
+contents, not a permanent ledger). When you're ready, `harness-convert-ideas` sweeps
 the whole inbox at once: it dedupes related ideas, converts each one (or cluster) in parallel via
 its own sub-agent, relays any genuine open question back to you in one batch, then runs
 `scripts/consolidate-ideas.sh` — the single locked pass that allocates real task ids, writes each

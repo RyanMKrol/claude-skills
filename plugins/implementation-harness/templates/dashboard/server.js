@@ -899,7 +899,7 @@ function renderIdeas(data) {
     ? esc(String(ideas.length)) + ' idea(s) in <span class="mono">.harness/tracking/IDEAS.jsonl</span> — click one to expand.'
     : '';
   if (!ideas.length) {
-    el.innerHTML = '<p class="note">No ideas captured yet — add one with <span class="mono">/implementation-harness-capture-idea</span>, then sweep them into tasks with <span class="mono">/implementation-harness-convert-ideas</span>.</p>';
+    el.innerHTML = '<p class="note">No ideas captured yet — add one with <span class="mono">/harness-capture-idea</span>, then sweep them into tasks with <span class="mono">/harness-convert-ideas</span>.</p>';
     return;
   }
   const allOpen = ideas.every(function (i) { return state.openIdeas.has('idea-' + i.id); });

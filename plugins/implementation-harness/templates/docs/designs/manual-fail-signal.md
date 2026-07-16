@@ -28,7 +28,7 @@ same checkout) takes effect on the loop's very next pass, not just at its next c
   recorded for a future human, not fed into the auditor's prompt.
 - **`reviews.json`** — `{id: {reviewed, at}}`. Purely cosmetic. The loop never reads or writes it;
   it exists only so a dashboard (or the owner) can track which tasks have actually been eyeballed —
-  now also covering failed/blocked tasks reviewed via `implementation-harness-review-failed`, and
+  now also covering failed/blocked tasks reviewed via `harness-review-failed`, and
   used to decide whether a failed task shows in the dashboard's "Failed — Pending Review" bucket or
   "Done."
 

@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-loop-recover
+name: harness-loop-recover
 description: >-
   Use to recover the autonomous build loop after it was MANUALLY interrupted (Ctrl-C / killed) and
   may have left inconsistent state behind — phrases like "the loop got interrupted", "clean up after

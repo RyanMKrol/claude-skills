@@ -1,5 +1,5 @@
 ---
-name: implementation-harness-loop-prepare
+name: harness-loop-prepare
 description: >-
   Use when the user wants to get the harness ready for the NEXT unattended loop run in ONE command —
   phrases like "prepare the loop", "set up the next run", "get the backlog ready to run",
@@ -48,7 +48,7 @@ sub-skill's behavior:
   ```
   If the lock is held (or a fresh loop heartbeat / `supervise.sh` process is evident), STOP and
   report — the owner either waits for the run to finish or investigates a stale lock via
-  `/implementation-harness-loop-recover`. Do not proceed to any stage.
+  `/harness-loop-recover`. Do not proceed to any stage.
 - Leftover `.harness/.pending-tasks/` / `.pending-questions/` drafts are fine — the first sweep
   stage's own Stage-0 recovery check adopts or clears them; just mention it.
 
@@ -68,24 +68,24 @@ the owner asked for this by invoking the command; the sub-skills ask the real qu
 ## 2. The stages, in order
 
 **Stage A — review-failed** (skip if `failed_ct` is 0): Read
-`.claude/skills/implementation-harness-review-failed/SKILL.md` and execute it in full — the
+`.claude/skills/harness-review-failed/SKILL.md` and execute it in full — the
 per-task investigation agents, its relay + questions, its consolidation, AND its close-out
 (`mark-failed.sh` / `mark-reviewed.sh` + rewires). Runs FIRST so its follow-up tasks and rewires
 are already in `TASKS.json` when later stages read the backlog.
 
 **Stage B — convert-ideas** (skip if `ideas_ct` is 0): Read
-`.claude/skills/implementation-harness-convert-ideas/SKILL.md` and execute it in full — dedup, the
+`.claude/skills/harness-convert-ideas/SKILL.md` and execute it in full — dedup, the
 per-idea agents, its relay + questions (always confirming each definition of done), its
 consolidation pass.
 
 **Stage C — pre-loop-checkin** (always): Read
-`.claude/skills/implementation-harness-pre-loop-checkin/SKILL.md` and execute it in full. It is
+`.claude/skills/harness-pre-loop-checkin/SKILL.md` and execute it in full. It is
 strictly read-only; it vets everything stages A/B just wrote plus the rest of the backlog, and ends
 in a GO / NO-GO verdict.
 
 **Stage D — fix-scope-gaps** (conditional): pre-loop-checkin itself offers this when its scope
 check WARNs — keep that behavior: offer it via `AskUserQuestion`, and if the owner says yes, Read
-`.claude/skills/implementation-harness-fix-scope-gaps/SKILL.md` and execute it, then **re-run Stage
+`.claude/skills/harness-fix-scope-gaps/SKILL.md` and execute it, then **re-run Stage
 C's scope check** (not the whole check-in) to confirm the WARNs cleared and restate the verdict.
 
 Between stages, post exactly one short status line — what the stage changed, in plain counts
@@ -101,8 +101,8 @@ End with a compact wrap-up: per-stage one-liners + the final **GO / NO-GO**.
   suggest a way around their `$CLAUDECODE` refusal** — starting the loop is a human-only action,
   by design, with no exception for this skill.
 - On **NO-GO**: list the blockers and the right tool for each (a manual edit, another sweep,
-  `/implementation-harness-loop-recover`), so the owner's next action is obvious.
+  `/harness-loop-recover`), so the owner's next action is obvious.
 - If a stage was aborted midway (owner cancel, error): say plainly which stages completed and
-  which didn't, and that re-running `/implementation-harness-loop-prepare` is safe — completed
+  which didn't, and that re-running `/harness-loop-prepare` is safe — completed
   sweeps find nothing left to do, and an interrupted sweep's drafts are adopted by its own
   recovery check.
