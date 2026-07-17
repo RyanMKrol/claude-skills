@@ -14,11 +14,12 @@
 #     • does every task's build in its OWN dedicated sibling worktree (../<repo>-loop),
 #     • integrates by fast-forwarding `main` via push — WHILE BUILDING it never checks `main` out anywhere.
 #   The only shared state it writes is the git ref db (fetch/worktree/branch) and its lock.
-#   ONCE THE BACKLOG IS DRAINED and the loop exits cleanly, it optionally leaves your PRIMARY checkout on
-#   the latest `main` — a convenience so your local copy reflects everything that just landed. This is the
-#   one time it touches the primary checkout, and it's SAFE + best-effort: it skips a dirty tree (never
-#   clobbers uncommitted work), fast-forwards only, and is non-fatal. See sync_primary_checkout(); disable
-#   with SYNC_PRIMARY_ON_DONE=0.
+#   AFTER EVERY ITERATION (and on the drain / MAX_ITERS exits) it optionally fast-forwards your PRIMARY
+#   checkout onto the latest `main`, so your local copy — and the dashboard, which reads the primary
+#   checkout's files — reflects each task as it lands, not only once the backlog drains. This is the only
+#   thing that touches the primary checkout, and it's SAFE + best-effort: it skips a dirty tree (never
+#   clobbers uncommitted work) and a non-main HEAD, fast-forwards only, and is non-fatal. See
+#   sync_primary_checkout(); disable with SYNC_PRIMARY_ON_DONE=0.
 #
 # CONCURRENCY GUARD:
 #   A lock in the shared .git ensures two `loop.sh` instances can't run at once (the
@@ -112,7 +113,7 @@ LOOP_WT="${LOOP_WT:-$(dirname "$ROOT")/${NAME}-loop}"   # the loop's own isolati
 WORK_DIR="$LOOP_WT"
 PROMPT_DIR="$LOOP_WT/.harness/worklog"
 MAIN_BRANCH="main"
-SYNC_PRIMARY_ON_DONE="${SYNC_PRIMARY_ON_DONE:-1}"   # when the loop finishes (backlog drained), leave the PRIMARY checkout on the latest main (safe/ff-only, skips a dirty tree); 0=never touch the primary checkout
+SYNC_PRIMARY_ON_DONE="${SYNC_PRIMARY_ON_DONE:-1}"   # ff the PRIMARY checkout onto the latest main after every iteration (and on exit) so it (and the dashboard, which reads its files) reflects each task as it lands (safe/ff-only, skips a dirty tree); 0=never touch the primary checkout
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 CLAUDE_FLAGS="${CLAUDE_FLAGS:---dangerously-skip-permissions}"
 PRINT_PROMPT="${PRINT_PROMPT:-1}"                # 1 = echo each prompt (the running phase only: build OR audit) to the console before invoking Claude; 0 = silence
@@ -348,16 +349,17 @@ reconcile_overlays() {
   log "reconcile: applied owner overlays to TASKS.json"
 }
 
-# sync_primary_checkout — leave the owner's PRIMARY checkout ($ROOT) on the latest main once the loop
-# has finished. The loop builds in an isolated worktree and integrates by pushing to origin/main, so the
-# primary checkout stays on whatever it was — stale relative to the work that just landed. Called ONLY at
-# the clean "backlog drained / idle" exits (never mid-run, never on a rate-limit pause), this fetches and
-# fast-forwards the primary checkout onto main. SAFE + best-effort by design: it refuses on a dirty tree
-# (never stashes or clobbers uncommitted work), fast-forwards only (never rewrites local commits), and is
-# fully non-fatal (every failure just logs and returns). It only ever fast-forwards a checkout that is
-# ALREADY on main — a checkout deliberately left on another branch (or detached) is never switched.
-# Set SYNC_PRIMARY_ON_DONE=0 to keep the worktree variant's strict "never touch the primary checkout"
-# behavior.
+# sync_primary_checkout — keep the owner's PRIMARY checkout ($ROOT) on the latest main. The loop builds
+# in an isolated worktree and integrates by pushing to origin/main, so the primary checkout would
+# otherwise stay stale relative to the work that just landed — and the dashboard reads the primary
+# checkout's files directly, so it would lag too. Called at the END of EVERY ITERATION and on the
+# drain / MAX_ITERS exits (never mid-attempt, never on a rate-limit pause), this fetches and
+# fast-forwards the primary checkout onto main so each completed task is reflected promptly. SAFE +
+# best-effort by design: it refuses on a dirty tree (never stashes or clobbers uncommitted work),
+# fast-forwards only (never rewrites local commits), and is fully non-fatal (every failure just logs and
+# returns). It only ever fast-forwards a checkout that is ALREADY on main — a checkout deliberately left
+# on another branch (or detached) is never switched. A no-op when nothing changed. Set
+# SYNC_PRIMARY_ON_DONE=0 to keep the worktree variant's strict "never touch the primary checkout" behavior.
 sync_primary_checkout() {
   [ "${SYNC_PRIMARY_ON_DONE:-1}" = 1 ] || return 0
   git -C "$ROOT" fetch origin --quiet 2>/dev/null || { log "sync: couldn't fetch origin — leaving primary checkout as-is"; return 0; }
@@ -1103,6 +1105,14 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
     *)              log "unrecognized result '$status' — backing off"; sleep "$WAIT_SECONDS" ;;
   esac
   board
+  # Keep the PRIMARY checkout current EVERY iteration, not just on the drain exit below. The loop
+  # commits status/ledger changes to origin/main through a detached worktree, so $ROOT's working tree
+  # (which the dashboard reads directly, and a human `git status`es) would otherwise lag behind until
+  # the backlog drained. Same ff-only / clean-tree / on-main guards as the drain-time call (a no-op
+  # when nothing changed, and it never disturbs a dirty or deliberately-checked-out primary tree).
+  sync_primary_checkout
 done
 
-log "reached MAX_ITERS=$MAX_ITERS — stopping"; run_hook exhausted max-iters; board; exit 4
+# MAX_ITERS backstop: sync the primary checkout here too, so the last iteration's work is reflected
+# even when the run ends on the cap rather than the drain exit (which has its own sync above).
+log "reached MAX_ITERS=$MAX_ITERS — stopping"; run_hook exhausted max-iters; board; sync_primary_checkout; exit 4

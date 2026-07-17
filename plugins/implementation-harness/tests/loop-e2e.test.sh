@@ -145,12 +145,14 @@ setup_repo() {
 # working tree stays clean (the in-place loop hard-refuses to start on a dirty tree). Echoes the dir.
 aux_dir() { local a; a="$(mktemp -d)"; TMPS+=("$a"); mkdir -p "$a/bin" "$a/fc"; write_fake_bins "$a/bin"; echo "$a"; }
 
-# run_loop <repo> <aux> [max_iters] — run the real loop hermetically (fakes on PATH, REQUIRE_CI off).
-# Echoes the loop's exit code; the combined output lands in <aux>/run.log.
-run_loop() {  # <repo> <aux> [max_iters]
-  local d="$1" a="$2" mi="${3:-3}"
+# run_loop <repo> <aux> [max_iters] [sync_primary] — run the real loop hermetically (fakes on PATH,
+# REQUIRE_CI off). Echoes the loop's exit code; combined output → <aux>/run.log. SYNC_PRIMARY_ON_DONE
+# defaults OFF here (most scenarios assert on origin/main and don't care about the primary checkout);
+# the primary-checkout-freshness scenario passes 1 to exercise the real production default.
+run_loop() {  # <repo> <aux> [max_iters] [sync_primary]
+  local d="$1" a="$2" mi="${3:-3}" spod="${4:-0}"
   ( cd "$d" && env -u CLAUDECODE PATH="$a/bin:$PATH" CLAUDE_BIN=claude FAKE_CLAUDE_DIR="$a/fc" \
-      MAX_ITERS="$mi" WAIT_SECONDS=0 REQUIRE_CI=0 PRINT_PROMPT=0 SYNC_PRIMARY_ON_DONE=0 \
+      MAX_ITERS="$mi" WAIT_SECONDS=0 REQUIRE_CI=0 PRINT_PROMPT=0 SYNC_PRIMARY_ON_DONE="$spod" \
       MODEL=claude-haiku-4-5 EFFORT="" \
       bash .harness/scripts/loop.sh >"$a/run.log" 2>&1 )
   echo $?
@@ -286,15 +288,35 @@ scenario_garbage_verdict() {  # <label> <loop-src>
     bash -c "! git -C '$bare' show main:src/app.txt >/dev/null 2>&1"
 }
 
+# ── Primary-checkout freshness: the dashboard reads the PRIMARY checkout's working-tree files, but the
+# worktree loop commits status to origin/main via a detached worktree — so the primary checkout must be
+# ff-synced to origin/main EVERY iteration (not only on the drain exit), else the dashboard lags until
+# the backlog drains. Run bounded to ONE iteration so the loop exits via MAX_ITERS (exit 4), NOT the
+# drain path (which already syncs) — then the primary checkout must ALREADY reflect the completed task.
+# (In-place has no gap — it builds directly in the primary checkout — so this holds there trivially.)
+scenario_primary_checkout_fresh() {  # <label> <loop-src>
+  local label="$1" src="$2" d bare a rc
+  read -r d bare <<<"$(setup_repo "$src")"
+  a="$(aux_dir)"
+  rc="$(run_loop "$d" "$a" 1 1)"; LAST_RUN_LOG="$a/run.log"   # MAX_ITERS=1, SYNC_PRIMARY_ON_DONE=1 (prod default)
+
+  assert "[$label] fresh: T001 integrated to origin/main (precondition)" \
+    bash -c "git -C '$bare' show main:.harness/tracking/TASKS.json 2>/dev/null | jq -e '.tasks[]|select(.id==\"T001\")|.status==\"done\"' >/dev/null"
+  assert "[$label] fresh: the loop exited via MAX_ITERS (exit 4), not the drain path" [ "$rc" -eq 4 ]
+  assert "[$label] fresh: PRIMARY checkout working tree shows T001=done WITHOUT waiting for drain (dashboard current)" \
+    bash -c "jq -e '.tasks[]|select(.id==\"T001\")|.status==\"done\"' '$d/.harness/tracking/TASKS.json' >/dev/null"
+}
+
 # run_variant_suite <label> <loop-src> — every scenario against one variant.
 run_variant_suite() {
   local label="$1" src="$2"
-  scenario_happy_path      "$label" "$src"
-  scenario_idle_reconcile  "$label" "$src"
-  scenario_failed_blocked  "$label" "$src"
-  scenario_soft_escalation "$label" "$src"
-  scenario_scope_creep     "$label" "$src"
-  scenario_garbage_verdict "$label" "$src"
+  scenario_happy_path           "$label" "$src"
+  scenario_idle_reconcile       "$label" "$src"
+  scenario_failed_blocked       "$label" "$src"
+  scenario_soft_escalation      "$label" "$src"
+  scenario_scope_creep          "$label" "$src"
+  scenario_garbage_verdict      "$label" "$src"
+  scenario_primary_checkout_fresh "$label" "$src"
 }
 
 # Plugin source tree carries both variants; an install carries exactly one (as loop.sh, by its

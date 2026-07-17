@@ -369,12 +369,14 @@ Therefore:
 - **A concurrency lock** in the shared `.git` (`<repo>-loop.lock`, PID-stamped with stale
   reclamation) ensures only one `loop.sh` runs at once — a second invocation exits immediately
   rather than racing.
-- **When the loop finishes** (backlog drained) it optionally leaves the **primary checkout on
-  the latest `main`**, so your local copy reflects everything that just landed instead of sitting
-  stale on an old commit or branch (`sync_primary_checkout`). This is the *only* time it touches the
-  primary checkout, and it's safe + best-effort: it **skips a dirty tree** (never stashes or clobbers
-  uncommitted work), **fast-forwards only** (never rewrites unpushed local commits), and is non-fatal.
-  Set `SYNC_PRIMARY_ON_DONE=0` to keep the strict never-touch-the-primary-checkout behavior.
+- **After every iteration** (and on the drain / MAX_ITERS exits) it optionally fast-forwards the
+  **primary checkout onto the latest `main`**, so your local copy — and the **dashboard**, which reads
+  the primary checkout's files directly — reflects each task *as it lands* instead of sitting stale
+  until the backlog drains (`sync_primary_checkout`). This is the *only* thing that touches the primary
+  checkout, and it's safe + best-effort: it **skips a dirty tree** (never stashes or clobbers uncommitted
+  work) and a **non-`main` HEAD**, **fast-forwards only** (never rewrites unpushed local commits), is a
+  no-op when nothing changed, and is non-fatal. Set `SYNC_PRIMARY_ON_DONE=0` to keep the strict
+  never-touch-the-primary-checkout behavior.
 
 ### In-place variant (when the build needs untracked local state)
 

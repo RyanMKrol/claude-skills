@@ -42,6 +42,30 @@ Entry format:
 
 ---
 
+## 1.96.0 → 1.97.0 — worktree loop syncs the primary checkout EVERY iteration (dashboard freshness)
+
+The worktree loop now fast-forwards the primary checkout onto `origin/main` at the END of every
+iteration (and at the MAX_ITERS exit), not only on the drain exit. The dashboard reads the primary
+checkout's working-tree files directly, so previously a completed task didn't show up there until the
+whole backlog drained; now each task is reflected as it lands. Same `sync_primary_checkout` guards as
+before (ff-only, skips a dirty tree / non-`main` HEAD, respects `SYNC_PRIMARY_ON_DONE=0`, no-op when
+nothing changed). **Worktree-only** — the in-place variant already works directly in the primary
+checkout, so it is unchanged (no parity impact).
+
+- mechanism: `scripts/loop.sh` — two new `sync_primary_checkout` calls (end of the main loop body; the
+  MAX_ITERS exit) plus reworded header/knob/function comments; `docs/HARNESS.md` — the primary-checkout
+  bullet now says "after every iteration" and calls out the dashboard-freshness reason.
+- config: `config/harness.env` — the `SYNC_PRIMARY_ON_DONE` comment was reworded to describe the new
+  per-iteration behavior. ACTION: none — the knob and its `:=1` default are UNCHANGED; nothing to
+  reconcile (an existing install keeps its value; the comment refresh reaches it only if its harness.env
+  is otherwise stale/unedited).
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none. (Opt out with `SYNC_PRIMARY_ON_DONE=0` exactly as before.)
+
+---
+
 ## 1.95.0 → 1.96.0 — default tier ladder shortened 5 rungs → 3 (Haiku, Sonnet/medium, Opus/medium)
 
 The shipped default `.tiers.ladder` is now three rungs — Haiku (no effort) → Sonnet/medium →
