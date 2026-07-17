@@ -42,6 +42,28 @@ Entry format:
 
 ---
 
+## 1.95.0 → 1.96.0 — default tier ladder shortened 5 rungs → 3 (Haiku, Sonnet/medium, Opus/medium)
+
+The shipped default `.tiers.ladder` is now three rungs — Haiku (no effort) → Sonnet/medium →
+Opus/medium — down from five (Haiku → Sonnet low/medium/high → Opus/high). Fewer, more-distinct
+rungs; a stuck task now blocks to a human after at most `3 × 2 = 6` cold attempts.
+
+- config: `config/facets.json` — ACTION: this is a DEFAULT change, not a new field. `.tiers.ladder`
+  (and its `.tiers._about` note) already exist in every install, so the additive reconciliation leaves
+  the user's `facets.json` UNTOUCHED — existing installs KEEP their current ladder. Only fresh installs
+  get the 3-rung default. To adopt it on an existing install, edit `.harness/config/facets.json`
+  `.tiers.ladder` by hand.
+- mechanism: `docs/HARNESS.md` — the "keep the ladder short on purpose" callout now describes the
+  3-tier default (`3 × 2 = 6`); the `--model`/`--effort` floor prose was corrected to `haiku` / no-effort
+  (it had drifted, describing an old `sonnet/low` floor).
+- new files: none.
+- renamed/removed: none.
+- manual attention: existing installs keep their ladder (see config ACTION).
+- breaking: none. Rung 0 is unchanged (Haiku / no-effort), so the cold-start floor and every faceted
+  calibration key still resolve; the shortened ladder only changes how far escalation can climb.
+
+---
+
 ## 1.94.0 → 1.95.0 — CI_TIMEOUT default raised 1200s → 3600s (20 min → 1 hour)
 
 The default cap on how long the loop waits for a CI run to finish (before treating it as indeterminate)

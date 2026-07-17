@@ -95,7 +95,7 @@ walks **up** this single ladder. There is **no per-task escalation ladder** any 
   task) instead of burning the whole attempt budget and poisoning the cell's calibration.
 
 ### 2.4 Key decisions & trade-offs
-- **Bias cheap.** Cold-start is the **cheapest** tier (`sonnet/low`, set in `harness.env`), not a
+- **Bias cheap.** Cold-start is the **cheapest** tier (`haiku`, no effort — set in `harness.env`), not a
   conservative default. *Reason:* with the ladder as a safety net, starting cheap is recoverable (a
   failure just escalates) and *self-teaching* (it generates the very data calibration needs). This
   reversed the older "default to the strong model" rule. *Trade-off:* more early escalation churn on

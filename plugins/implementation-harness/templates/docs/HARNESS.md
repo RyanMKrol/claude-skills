@@ -89,11 +89,12 @@ claude -p "<task prompt>" \
 ```
 
 - **`--model`** — always the FULL id (the bare alias resolves to "latest" and will drift).
-  The cold-start floor is `claude-sonnet-5` (`MODEL=` in `harness.env`) — the cheapest tier;
+  The cold-start floor is `claude-haiku-4-5` (`MODEL=` in `harness.env`) — the cheapest tier;
   the policy climbs the global ladder from there as a facet cell's history warrants.
-- **`--effort`** (`low|medium|high|xhigh|max`). Cold-start floor **`low`** (`EFFORT=` in
-  `harness.env`); the policy raises it via the ladder, whose top rungs reach `xhigh`/`max` only
-  for facet cells whose history proves they need it.
+- **`--effort`** (`low|medium|high|xhigh|max`). The floor model (Haiku) has no effort param, so
+  `EFFORT=` ships empty (`harness.env`); the policy raises model+effort via the ladder as a facet
+  cell's history warrants. The shipped ladder tops out at `opus/medium` — extend it toward
+  `high`/`xhigh`/`max` only for facet cells whose history proves they need it.
 - **`--dangerously-skip-permissions`** — deliberate. A headless loop has no human at the
   keyboard to answer permission prompts; the safety comes from the review gates and the
   bounded, reviewable per-task branches, not from per-action prompts.
@@ -116,13 +117,13 @@ there — so a backlog *tries cheap first* and automatically climbs to a stronge
 tasks that actually need it.
 
 > **Keep the ladder short on purpose.** A doomed task BLOCKS to a human after at most
-> `ladder_length × MAX_ATTEMPTS` attempts. The template ships a deliberately short **5-tier** ladder —
-> `haiku` (no effort param), then `sonnet/low → medium → high`, then `opus/high` — so that's at most
-> `5 × 2 = 10` cold attempts before a stuck task asks for help: if `opus/high` can't do it in two cold
-> passes, a human glance is far cheaper than burning `opus/xhigh`/`max`. If you extend it (adding e.g.
-> `opus/xhigh`/`max`), remember every extra rung is extra spend a *stuck* task grinds through before it
-> ever asks for help — match the top rung to the hardest task you'd want built unsupervised, not to the
-> strongest model available.
+> `ladder_length × MAX_ATTEMPTS` attempts. The template ships a deliberately short **3-tier** ladder —
+> `haiku` (no effort param), then `sonnet/medium`, then `opus/medium` — so that's at most
+> `3 × 2 = 6` cold attempts before a stuck task asks for help: if `opus/medium` can't do it in two cold
+> passes, a human glance is far cheaper than burning `opus/high`/`xhigh`/`max`. If you extend it (adding
+> e.g. `opus/high` or higher), remember every extra rung is extra spend a *stuck* task grinds through
+> before it ever asks for help — match the top rung to the hardest task you'd want built unsupervised,
+> not to the strongest model available.
 
 **Difficulty is auto-tuned (see `.harness/docs/designs/difficulty-autotune.md`).** Rather than per-task
 `escalation` ladders, the loop rides ONE global tier ladder (`facets.json → .tiers.ladder`) and a
