@@ -940,6 +940,15 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
       elif [ "$REQUIRE_CI" = "1" ]; then
         heartbeat awaiting-ci
         ci_rc=0; wait_ci_green || ci_rc=$?
+        if [ "$ci_rc" = 2 ]; then
+          # INDETERMINATE (no run appeared / cancelled / skipped / stale / neutral) isn't the same as
+          # red — give it one re-check before counting it as a failed attempt against this task's
+          # difficulty calibration, so a merely-slow/superseded CI run doesn't cost a soft failure.
+          # (Mirrors the worktree variant; the surrounding done paths differ, so it's hand-mirrored — B08.)
+          log "CI INDETERMINATE for $task — re-checking once after ${WAIT_SECONDS}s before deciding."
+          sleep "$WAIT_SECONDS"
+          ci_rc=0; wait_ci_green || ci_rc=$?
+        fi
         if [ "$ci_rc" = 0 ]; then
           mark_done "$task"; run_integrate_hook; run_hook integrated "$task" "${cur_verification:-}"; log "integrated $task → $MAIN_BRANCH (CI green)"; heartbeat_clear; cur_task=""; cur_attempts=0; cur_rung=0; cur_base=0; cur_explored=0
         elif [ "$ci_rc" = 1 ]; then

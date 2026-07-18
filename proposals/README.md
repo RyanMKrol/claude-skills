@@ -32,7 +32,7 @@ agent should be able to work from the file alone, without the original conversat
 ## Recommended order
 
 **Now (correctness/safety):** *(Q04, Q03, Q01, B09, B01, B02, B03, B05, C03, B07, B04, D01, C01 — done; B06 — abandoned, see its file)*
-**Next (high value):** F01 *(T01 — done: `tests/loop-e2e.test.sh`, the fake-claude/fake-gh e2e harness; scenarios: happy-path, idle-reconcile, failed:blocked, soft-fail escalation, scope-creep, garbage — both variants. CI/rate-limit/persist-or-shout scenarios grow with B08/B10/B12.)*
+**Next (high value):** F01 *(T01 — done: `tests/loop-e2e.test.sh`, the fake-claude/fake-gh e2e harness; scenarios: happy-path, idle-reconcile, failed:blocked, soft-fail escalation, scope-creep, garbage, primary-checkout-sync, and CI green/indeterminate-recheck/watch-bounded — both variants. B08 + B10 landed with the CI scenarios; rate-limit + persist-or-shout scenarios still grow with B12.)*
 **Then:** the rest of B/D, F02/F03, Q02 (before F14), remaining F/T by taste. *(N01, the big skill-name rename, landed in 1.94.0.)*
 
 ## Index
@@ -40,8 +40,6 @@ agent should be able to work from the file alone, without the original conversat
 | ID | Title | Type | Priority | Effort |
 |----|-------|------|----------|--------|
 | B06 | Lock granularity — owner CLIs starve for the whole run | bug | P1 | M |
-| B08 | CI-indeterminate re-check parity (in-place) | bug | P2 | S |
-| B10 | Bound the CI watch (`gh run watch`) | bug | P2 | S |
 | B12 | Loop status pushes must rebase-and-retry | bug | P2 | S |
 | B14 | Dashboard hardening batch (escaping, EADDRINUSE, readBody, spec path) | bug | P2 | S |
 | B15 | Dashboard performance (tail reads, async spawns, parse-error banner) | bug | P2 | M |

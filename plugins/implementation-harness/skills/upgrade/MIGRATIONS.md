@@ -42,6 +42,33 @@ Entry format:
 
 ---
 
+## 1.97.0 → 1.97.1 — CI wait hardening: bounded watch (B10) + in-place indeterminate re-check (B08)
+
+Two CI-gating bug fixes.
+
+**B10** — `wait_ci_green` (shared, `loop-lib.sh`) no longer calls the unbounded `gh run watch`, which
+could hang the loop forever at `awaiting-ci` on a run stuck `in_progress` (hung runner, awaiting manual
+approval, a queue/GitHub outage). It now POLLS `gh run view` until the run settles, bounded by
+`CI_TIMEOUT` — which now bounds the WHOLE wait (finding the run AND watching it finish); on timeout it
+returns indeterminate. Affects BOTH variants (one shared function).
+
+**B08** — the in-place variant's CI-indeterminate path now RE-CHECKS once (sleep `WAIT_SECONDS`, re-run
+`wait_ci_green`) before charging a soft failure, mirroring the worktree variant — so a merely slow or
+concurrency-cancelled CI run no longer costs the tier a false failure and pollutes its calibration.
+
+- mechanism: `scripts/loop-lib.sh` (`wait_ci_green` — bounded `gh run view` poll replaces `gh run watch`;
+  reaches both variants); `scripts/loop.in-place.sh` (the indeterminate re-check, hand-mirrored from the
+  worktree done path — these regions are outside the byte-parity manifest because the surrounding done
+  paths legitimately differ).
+- config: `config/harness.env` — the `CI_TIMEOUT` comment was reworded (it now bounds find + settle).
+  ACTION: none — the knob and its default are unchanged.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
+---
+
 ## 1.96.0 → 1.97.0 — worktree loop syncs the primary checkout EVERY iteration (dashboard freshness)
 
 The worktree loop now fast-forwards the primary checkout onto `origin/main` at the END of every

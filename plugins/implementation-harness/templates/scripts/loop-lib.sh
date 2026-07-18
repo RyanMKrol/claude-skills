@@ -452,9 +452,24 @@ wait_ci_green() {
     log "⚠ CI RED (run $runid): GitHub could NOT resolve the workflow's name (reported it by file path) for $sha — the .github/workflows file is almost certainly MALFORMED. Run: gh run view $runid --log-failed"
     return 1
   fi
-  # `gh run watch --exit-status`'s bare exit CONFLATES a genuine CI failure with a watch hiccup and a run
-  # CANCELLED by a newer push (concurrency cancel-in-progress). Watch to settle, then classify via ci_conclusion.
-  gh run watch "$runid" --exit-status >/dev/null 2>&1 || true
+  # BOUNDED poll for the run to SETTLE — CI_TIMEOUT bounds the WHOLE wait (finding the run AND watching
+  # it finish), continuing the $waited budget from the find-loop above. The old blocking
+  # `gh run watch --exit-status` had NO timeout, so a run stuck in_progress (hung runner, awaiting manual
+  # approval, a queue/GitHub outage) hung the loop forever at `awaiting-ci` with supervise unable to
+  # regain control (B10). Poll `gh run view` instead — the same idiom the find-loop uses — and give up as
+  # indeterminate at the cap. (Not `gh run watch`, whose bare exit also conflated a real failure with a
+  # concurrency-cancel; we classify via ci_conclusion below regardless.) The increment is floored at 1 so
+  # a WAIT_SECONDS=0 config still makes progress toward the cap rather than spinning forever.
+  local st_now
+  while :; do
+    st_now="$(gh run view "$runid" --json status,conclusion --jq '.status + "/" + (.conclusion // "")' 2>/dev/null || echo unknown)"
+    case "$st_now" in completed/*) break ;; esac
+    waited=$(( waited + (WAIT_SECONDS > 0 ? WAIT_SECONDS : 1) ))
+    if [ "$waited" -ge "$CI_TIMEOUT" ]; then
+      log "CI run $runid still not finished after ${CI_TIMEOUT}s — treating as indeterminate"; return 2
+    fi
+    sleep "$WAIT_SECONDS"
+  done
   local latest; latest="$(ci_find_run "$branch" "$sha")"; [ -n "$latest" ] && runid="$latest"
   ci_conclusion "$runid"; local st=$?
   case "$st" in

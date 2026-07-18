@@ -100,11 +100,30 @@ FAKE_CLAUDE
 
   cat >"$bin/gh" <<'FAKE_GH'
 #!/usr/bin/env bash
-# Fake `gh` for loop-e2e.test.sh. Scripted CI answers keyed by call count via $FAKE_GH_SCRIPT (one
-# token per line: found-run id list, then a conclusion). Unused by scenario 1 (REQUIRE_CI=0) — a
-# harmless stub that never touches the network, so no real gh is ever consulted.
+# Fake `gh` for the loop-e2e CI scenarios. Ignores --json/--jq entirely and prints the exact value the
+# loop consumes from stdout, driven by files under $FAKE_GH_DIR:
+#   • `gh run list …`  → prints $FAKE_GH_DIR/runid (default "100"; "NONE" = no run found yet).
+#   • `gh run view ID` → prints the Nth line of $FAKE_GH_DIR/views (a "<status>/<conclusion>" string,
+#     e.g. completed/success, completed/failure, completed/cancelled, in_progress/), advancing a global
+#     call counter; once past the last line it repeats the last (default: completed/success).
+#   • `gh run watch ID` → records the call in $FAKE_GH_DIR/watch.calls and exits 0. (B10: after the fix
+#     the loop no longer calls this — a scenario asserts watch.calls stays empty.)
 set -u
-exit 0
+GHD="${FAKE_GH_DIR:?FAKE_GH_DIR must be set}"; mkdir -p "$GHD"
+case "${1:-} ${2:-}" in
+  "run list")
+    rid="$(cat "$GHD/runid" 2>/dev/null || echo 100)"
+    [ "$rid" = NONE ] || printf '%s\n' "$rid" ;;
+  "run view")
+    c="$(cat "$GHD/view.count" 2>/dev/null || echo 0)"; c=$((c + 1)); printf '%s' "$c" >"$GHD/view.count"
+    if [ -f "$GHD/views" ]; then
+      line="$(sed -n "${c}p" "$GHD/views")"; [ -n "$line" ] || line="$(tail -1 "$GHD/views")"
+    else line="completed/success"; fi
+    printf '%s\n' "$line" ;;
+  "run watch")
+    printf 'watch %s\n' "${3:-}" >>"$GHD/watch.calls"; exit 0 ;;
+  *) exit 0 ;;
+esac
 FAKE_GH
   chmod +x "$bin/claude" "$bin/gh"
 }
@@ -143,17 +162,18 @@ setup_repo() {
 
 # aux_dir — a scratch dir OUTSIDE the repo for the fake bins / fake-plan / run log, so the repo's
 # working tree stays clean (the in-place loop hard-refuses to start on a dirty tree). Echoes the dir.
-aux_dir() { local a; a="$(mktemp -d)"; TMPS+=("$a"); mkdir -p "$a/bin" "$a/fc"; write_fake_bins "$a/bin"; echo "$a"; }
+aux_dir() { local a; a="$(mktemp -d)"; TMPS+=("$a"); mkdir -p "$a/bin" "$a/fc" "$a/gh"; write_fake_bins "$a/bin"; echo "$a"; }
 
 # run_loop <repo> <aux> [max_iters] [sync_primary] — run the real loop hermetically (fakes on PATH,
 # REQUIRE_CI off). Echoes the loop's exit code; combined output → <aux>/run.log. SYNC_PRIMARY_ON_DONE
 # defaults OFF here (most scenarios assert on origin/main and don't care about the primary checkout);
 # the primary-checkout-freshness scenario passes 1 to exercise the real production default.
-run_loop() {  # <repo> <aux> [max_iters] [sync_primary]
+run_loop() {  # <repo> <aux> [max_iters] [sync_primary] [EXTRA_ENV=val ...]
   local d="$1" a="$2" mi="${3:-3}" spod="${4:-0}"
-  ( cd "$d" && env -u CLAUDECODE PATH="$a/bin:$PATH" CLAUDE_BIN=claude FAKE_CLAUDE_DIR="$a/fc" \
+  if [ $# -ge 4 ]; then shift 4; else shift $#; fi   # remaining args = KEY=VAL env overrides (win over the defaults)
+  ( cd "$d" && env -u CLAUDECODE PATH="$a/bin:$PATH" CLAUDE_BIN=claude FAKE_CLAUDE_DIR="$a/fc" FAKE_GH_DIR="$a/gh" \
       MAX_ITERS="$mi" WAIT_SECONDS=0 REQUIRE_CI=0 PRINT_PROMPT=0 SYNC_PRIMARY_ON_DONE="$spod" \
-      MODEL=claude-haiku-4-5 EFFORT="" \
+      MODEL=claude-haiku-4-5 EFFORT="" "$@" \
       bash .harness/scripts/loop.sh >"$a/run.log" 2>&1 )
   echo $?
 }
@@ -307,16 +327,64 @@ scenario_primary_checkout_fresh() {  # <label> <loop-src>
     bash -c "jq -e '.tasks[]|select(.id==\"T001\")|.status==\"done\"' '$d/.harness/tracking/TASKS.json' >/dev/null"
 }
 
+# ── CI green (REQUIRE_CI=1): a green run → integrate, no CI failure rows ─────────────────────────────
+scenario_ci_green() {  # <label> <loop-src>
+  local label="$1" src="$2" d bare a rc
+  read -r d bare <<<"$(setup_repo "$src")"
+  a="$(aux_dir)"
+  printf 'completed/success\n' >"$a/gh/views"
+  rc="$(run_loop "$d" "$a" 3 0 REQUIRE_CI=1 CI_TIMEOUT=5)"; LAST_RUN_LOG="$a/run.log"
+  assert "[$label] ci-green: T001 integrated (status=done) on green CI" \
+    bash -c "git -C '$bare' show main:.harness/tracking/TASKS.json 2>/dev/null | jq -e '.tasks[]|select(.id==\"T001\")|.status==\"done\"' >/dev/null"
+  assert "[$label] ci-green: no CI failure rows recorded" \
+    bash -c "[ \"\$(git -C '$bare' show main:.harness/ledgers/failures.jsonl 2>/dev/null | jq -s '[.[]|select(.id==\"T001\" and (.kind|startswith(\"ci-\")))]|length')\" = 0 ]"
+}
+
+# ── B08: CI indeterminate → the loop RE-CHECKS once before charging a failure (both variants) ─────────
+# The in-place variant used to go straight to record_failure "ci-indeterminate"; the worktree variant
+# already re-checked. Script an indeterminate (cancelled) run whose RE-CHECK comes back green: the task
+# must integrate on this attempt, and (in-place) the "re-checking once" log must appear.
+scenario_ci_indeterminate_recheck() {  # <label> <loop-src>
+  local label="$1" src="$2" d bare a rc
+  read -r d bare <<<"$(setup_repo "$src")"
+  a="$(aux_dir)"
+  # wait_ci_green makes 2 `gh run view` calls per invocation (poll + classify): first invocation sees
+  # cancelled (indeterminate), the re-check invocation sees success (green).
+  printf 'completed/cancelled\ncompleted/cancelled\ncompleted/success\ncompleted/success\n' >"$a/gh/views"
+  rc="$(run_loop "$d" "$a" 1 0 REQUIRE_CI=1 CI_TIMEOUT=5)"; LAST_RUN_LOG="$a/run.log"
+  assert "[$label] ci-recheck: T001 integrated after an indeterminate→green re-check (not soft-failed)" \
+    bash -c "git -C '$bare' show main:.harness/tracking/TASKS.json 2>/dev/null | jq -e '.tasks[]|select(.id==\"T001\")|.status==\"done\"' >/dev/null"
+  assert "[$label] ci-recheck: the single re-check fired (log names it)" \
+    bash -c "grep -qi 're-check' '$a/run.log'"
+}
+
+# ── B10: a run that never completes must NOT hang on `gh run watch` — CI_TIMEOUT bounds the WHOLE wait ─
+scenario_ci_watch_bounded() {  # <label> <loop-src>
+  local label="$1" src="$2" d bare a rc
+  read -r d bare <<<"$(setup_repo "$src")"
+  a="$(aux_dir)"
+  printf 'in_progress/\n' >"$a/gh/views"   # the run is found but never settles
+  rc="$(run_loop "$d" "$a" 2 0 REQUIRE_CI=1 CI_TIMEOUT=1 WAIT_SECONDS=1)"; LAST_RUN_LOG="$a/run.log"
+  assert "[$label] ci-watch-bound: the loop returned (didn't hang) — reached MAX_ITERS" [ "$rc" -eq 4 ]
+  assert "[$label] ci-watch-bound: 'gh run watch' was never called (bounded poll replaces the unbounded watch)" \
+    [ ! -s "$a/gh/watch.calls" ]
+  assert "[$label] ci-watch-bound: the CI wait timed out via the bounded poll (log names it)" \
+    bash -c "grep -q 'still not finished after' '$a/run.log'"
+}
+
 # run_variant_suite <label> <loop-src> — every scenario against one variant.
 run_variant_suite() {
   local label="$1" src="$2"
-  scenario_happy_path           "$label" "$src"
-  scenario_idle_reconcile       "$label" "$src"
-  scenario_failed_blocked       "$label" "$src"
-  scenario_soft_escalation      "$label" "$src"
-  scenario_scope_creep          "$label" "$src"
-  scenario_garbage_verdict      "$label" "$src"
-  scenario_primary_checkout_fresh "$label" "$src"
+  scenario_happy_path               "$label" "$src"
+  scenario_idle_reconcile           "$label" "$src"
+  scenario_failed_blocked           "$label" "$src"
+  scenario_soft_escalation          "$label" "$src"
+  scenario_scope_creep              "$label" "$src"
+  scenario_garbage_verdict          "$label" "$src"
+  scenario_primary_checkout_fresh   "$label" "$src"
+  scenario_ci_green                 "$label" "$src"
+  scenario_ci_indeterminate_recheck "$label" "$src"
+  scenario_ci_watch_bounded         "$label" "$src"
 }
 
 # Plugin source tree carries both variants; an install carries exactly one (as loop.sh, by its
