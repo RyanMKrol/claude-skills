@@ -14,7 +14,7 @@ You work with it in **three steps**:
 flowchart LR
     A["💡 1 · capture an idea<br/>/harness-capture-idea"] --> P["🛠️ 2 · prepare the loop<br/>/harness-loop-prepare"]
     P --> S["▶️ 3 · run the loop<br/>scripts/supervise.sh"]
-    S -.->|"run ends → new ideas & failures"| A
+    S -.->|"loop stops → review what failed,<br/>capture new ideas, prepare again"| A
     classDef human fill:#2d333b,stroke:#adbac7,color:#adbac7;
     class A,P,S human;
 ```
@@ -70,6 +70,21 @@ The three steps, in a little more detail:
    long as you leave it running. **Only a human can start it** — the loop refuses to run from inside a
    Claude Code session, so an agent can't kick off an unattended, git-mutating run. Preview the next
    task with `DRY_RUN=1 .harness/scripts/loop.sh`.
+
+**Watch it work — the dashboard.** While the loop is running (and afterwards), open the dashboard to
+follow along and review what it's built:
+
+```
+node .harness/dashboard/server.js     # then open http://127.0.0.1:4790
+```
+
+- **What the loop is doing right now** — a live strip showing the current task, phase, and model, with
+  the builder's output streaming in as it goes.
+- **What the loop has done** — the backlog by bucket (ready / waiting / needs-you / done), each finished
+  task with the model that completed it, plus the tasks parked for you under "needs you".
+
+When a run ends, the tasks it left failed or blocked feed back into **step 2** — `loop-prepare` reviews
+them and folds in any new ideas before the next run. That's the loop.
 
 The complete operating manual — every command, the dashboard, the gates — is
 [`templates/README.md`](./templates/README.md), which is scaffolded into your project as
