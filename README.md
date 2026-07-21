@@ -27,7 +27,7 @@ claude-skills/
 ├── .claude-plugin/marketplace.json          ← the marketplace manifest (lists the plugins below)
 └── plugins/
     └── implementation-harness/              ← one plugin (its own .claude-plugin/plugin.json)
-        ├── skills/                          ← 4 global skills (create, customize, upgrade, report-issue)
+        ├── skills/                          ← 5 global skills (create, customize, evaluate-fit, upgrade, report-issue)
         └── templates/skills/                ← 9 skills scaffolded project-locally by `create`
 ```
 

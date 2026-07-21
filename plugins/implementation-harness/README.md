@@ -1,7 +1,7 @@
 # implementation-harness
 
 A personal Claude Code plugin that **scaffolds an autonomous implementation harness into any
-project**, authors its task backlog, and operates it via thirteen skills (four global, nine
+project**, authors its task backlog, and operates it via fourteen skills (five global, nine
 scaffolded per-project — see [Skills](#skills)).
 
 The harness it installs (the "Ralph Loop") is a single **sequential** shell loop that builds a
@@ -126,19 +126,23 @@ Outside the main happy path:
 - `/implementation-harness:customize` — walk the `custom/` overlay
   extension-point catalog (conventions, lifecycle hooks, secret-guard, visual-verify, dashboard
   title) and activate what you want.
+- `/implementation-harness:evaluate-fit` — deep-dive this project and
+  tune the harness to it (the `custom/` overlay, `harness.env` knobs, and `facets.json`) — useful
+  after scaffolding against a young repo, or once the project has grown.
 - `/implementation-harness:upgrade` — pull newer plugin versions into an
   existing install (also adopts legacy/hand-forked installs).
 
 ## Skills
 
-Four **global** skills (plugin-registered — invoke with the `implementation-harness:` prefix from
-any project) bootstrap and reconcile a harness install (and file bug reports upstream):
+Five **global** skills (plugin-registered — invoke with the `implementation-harness:` prefix from
+any project) bootstrap, tune, and reconcile a harness install (and file bug reports upstream):
 
 | Skill | Invoke | What it does |
 |---|---|---|
-| `implementation-harness:create` | `/implementation-harness:create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, cold-start difficulty floor, optional run/backtest check), then copy the verbatim harness files (including the eight project-local skills below) and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/scripts/supervise.sh`. |
+| `implementation-harness:create` | `/implementation-harness:create [dir]` | One-time setup. Interview (isolation mode — worktree vs in-place, name, stack, format/lint/test/build commands, CI name, cold-start difficulty floor, optional run/backtest check), then copy the verbatim harness files (including the nine project-local skills below) and write the personalized `CLAUDE.md`, `ci.yml`, `.gitignore`, `harness.env`, `README.md`, and an initial `TASKS.json`. Leaves the project ready to run `.harness/scripts/supervise.sh`. |
 | `implementation-harness:customize` | `/implementation-harness:customize` | Guided walkthrough of the `custom/` extension-point catalog (lifecycle hooks, secret-guard denylist, visual-verify snippets, build/audit preambles, dashboard title, …) — activates the opt-in file and helps draft its content for each feature the user wants. |
-| `implementation-harness:upgrade` | `/implementation-harness:upgrade [dir]` | Reconciles an installed `.harness/` (and the eight project-local skills below) against the plugin's bundled reference — refreshes plugin-owned mechanism files, adds new `harness.env` knobs additively, reports first and asks before every change. Also adopts legacy/hand-forked installs. |
+| `implementation-harness:evaluate-fit` | `/implementation-harness:evaluate-fit` | Checks whether an already-installed harness is well-tuned to *this* project and fixes mismatches. Runs a multi-agent deep-dive of the repo (stack, module structure, risk profile, deploy/notify story, secret + visual surfaces), reads the current config, then produces ranked, evidence-backed recommendations across the only customizable surfaces — the `custom/` overlay, `harness.env` knobs, and `facets.json` — and applies them on approval. Never edits harness mechanism. |
+| `implementation-harness:upgrade` | `/implementation-harness:upgrade [dir]` | Reconciles an installed `.harness/` (and the nine project-local skills below) against the plugin's bundled reference — refreshes plugin-owned mechanism files, adds new `harness.env` knobs additively, reports first and asks before every change. Also adopts legacy/hand-forked installs. |
 | `implementation-harness:report-issue` | `/implementation-harness:report-issue` | Files a bug report about the plugin itself as a GitHub issue on `RyanMKrol/claude-skills`. Auto-captures the environment (plugin version, loop variant, bash/OS, tooling), synthesises the session, pushes for logs, scrubs secrets, does a real-bug-vs-misconfig plausibility check, then shows the full draft and files it via `gh` on explicit confirmation. Works with or without a scaffolded `.harness/`. |
 
 Nine **project-local** skills (scaffolded by `create` into your project's own `.claude/skills/`,
@@ -157,8 +161,8 @@ this specific project's `.harness/` version understands) operate a harness that'
 | `harness-update-ladder` | `/harness-update-ladder [model]` | Add, swap, or remove a rung on this project's difficulty/tier ladder (`config/facets.json`) — handles effort-less models (`effort: null`) and walks the right migration path for a swap vs an insert/remove. |
 | `harness-loop-prepare` | `/harness-loop-prepare` | Prepare the next unattended run as one command: chains `review-failed` (if the last run left failed/blocked tasks) → `convert-ideas` (if the inbox has rows) → `pre-loop-checkin` → `fix-scope-gaps` (on WARNs), executing each constituent skill in full — every question preserved — and ending at the GO/NO-GO verdict. Never starts the loop. |
 
-All thirteen are also model-invocable (Claude triggers them from the descriptions when you ask in
-plain language) — the four global ones from any project, the nine project-local ones once
+All fourteen are also model-invocable (Claude triggers them from the descriptions when you ask in
+plain language) — the five global ones from any project, the nine project-local ones once
 scaffolded into that project.
 
 ## Layout
@@ -167,13 +171,16 @@ scaffolded into that project.
 implementation-harness/
 ├── .claude-plugin/plugin.json
 ├── README.md
-├── skills/                     ← global, plugin-registered (colon-invoked)
-│   ├── implementation-harness:create/SKILL.md
-│   ├── implementation-harness:customize/SKILL.md
-│   └── implementation-harness:upgrade/{SKILL.md,MIGRATIONS.md,CHECKSUMS.jsonl,gen-checksums.sh}
+├── skills/                     ← global, plugin-registered (dirs are bare; invoked colon-prefixed,
+│   │                             e.g. skills/create → /implementation-harness:create)
+│   ├── create/SKILL.md
+│   ├── customize/SKILL.md
+│   ├── evaluate-fit/SKILL.md
+│   ├── report-issue/SKILL.md
+│   └── upgrade/{SKILL.md,MIGRATIONS.md,CHECKSUMS.jsonl,gen-checksums.sh}
 └── templates/                 ← the harness itself (single source of truth), vendored here
     ├── skills/                 ← sources for the nine project-local skills (scaffolded to
-    │                             <project>/.claude/skills/implementation-harness-<name>/SKILL.md
+    │                             <project>/.claude/skills/harness-<name>/SKILL.md
     │                             by create, kept in sync by upgrade)
     │   ├── harness-add-to-backlog/SKILL.md
     │   ├── harness-capture-idea/SKILL.md
