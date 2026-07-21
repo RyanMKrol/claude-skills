@@ -42,6 +42,29 @@ Entry format:
 
 ---
 
+## 1.97.1 → 1.98.0 — README reframe: the "three moves" operating model (docs only)
+
+Documentation only — no script, config, or schema change. The consumer-facing `README.md`
+(→ `.harness/README.md`) "How you operate this harness" section is rewritten around the **three
+moves** the harness is actually driven by now — (1) capture-idea ×N → (2) `loop-prepare` (one
+command) → (3) start `supervise.sh` — with `loop-prepare`'s internal A→B→C→D chain (review-failed →
+convert-ideas → pre-loop-checkin → fix-scope-gaps) shown as an "under the hood" diagram rather than
+as four separate top-level steps. `loop-prepare` is now the single Move-2 entry point; the standalone
+skills remain available but are documented as its stages. No behavior change — the skills and the loop
+are untouched.
+
+- mechanism: `README.md` (→ `.harness/README.md`) — "How you operate this harness" section rewritten
+  to the three-move structure + two new mermaid diagrams (the three-move cycle; the `loop-prepare`
+  A→B→C→D internals). Pure prose; a consumer who customized the README did so via `custom/README.md`
+  (untouched), so this reconciles cleanly.
+- config: none.
+- new files: none.
+- renamed/removed: none.
+- manual attention: none.
+- breaking: none.
+
+---
+
 ## 1.97.0 → 1.97.1 — CI wait hardening: bounded watch (B10) + in-place indeterminate re-check (B08)
 
 Two CI-gating bug fixes.

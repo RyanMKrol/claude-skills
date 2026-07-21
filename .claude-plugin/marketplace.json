@@ -20,13 +20,6 @@
       "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" },
       "category": "workflow",
       "source": "./plugins/freshen-up"
-    },
-    {
-      "name": "jbp-lesson-deck",
-      "description": "Build a rich Anki deck for one lesson of a \"Japanese for Busy People\" textbook from a user-provided EPUB. Extracts vocabulary, Word Power sets, Key Sentences, and grammar example sentences into a two-template (recognition + production) Anki deck with kana, romaji, usage hints, and cropped textbook illustrations; reads every page (never infers from headings); and prints an audit table (English / Kana / Romaji / page / image? / audio?) for review. A second phase generates per-card audio via ElevenLabs TTS (kana to MP3, cached per voice) once content is approved. Per-user romaji fixes and cross-run learnings persist in a git-ignored state home outside the plugin cache.",
-      "author": { "name": "Ryan Krol", "email": "ryankrol.m@gmail.com" },
-      "category": "productivity",
-      "source": "./plugins/jbp-lesson-deck"
     }
   ]
 }

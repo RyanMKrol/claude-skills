@@ -15,58 +15,83 @@ reliably works. All durable state lives in the repo, so an interrupted run waste
 > Distinct from Anthropic's official **`ralph-loop`** plugin, which implements the simpler
 > "Ralph Wiggum" while-true technique. This one is the fuller task-by-task, CI-gated harness.
 
-## How you work with it
+## How you work with it — three moves
 
-After a one-time `create`, day-to-day use is a loop: **capture ideas as they occur → convert a
-batch into tasks → check the backlog is ready → run the loop → review whatever failed → repeat.**
+After a one-time `create`, running the harness is **three moves**:
+
+1. **Capture ideas** — `/harness-capture-idea <idea>`, as often as you like, whenever a thought
+   strikes.
+2. **Prepare the run** — `/harness-loop-prepare`, one command that turns your accumulated ideas
+   (and any failures from the last run) into a vetted, run-ready backlog.
+3. **Start the loop** — `.harness/scripts/supervise.sh`, which you launch yourself from a real
+   terminal and leave running.
+
+```mermaid
+flowchart LR
+    A["💡 1 · capture-idea<br/>×N — anytime an idea strikes"] --> P["🛠️ 2 · loop-prepare<br/>get the backlog run-ready"]
+    P --> S["▶️ 3 · supervise.sh<br/>you start the loop, from a terminal"]
+    S -.->|"run ends → new ideas & failures"| A
+    classDef human fill:#2d333b,stroke:#adbac7,color:#adbac7;
+    class A,P human;
+```
+
+That's the whole cycle. Everything else the harness does lives **under the hood** of those three
+moves — expanded below.
+
+### One-time — scaffold it
+
+`/implementation-harness:create` interviews you (isolation mode, stack, format/lint/test/build
+commands, CI name, cold-start difficulty floor) and writes a self-contained `.harness/` plus a
+personalized `CLAUDE.md`, `ci.yml`, `harness.env`, and starter `TASKS.json`. Do this once per repo.
+
+### Move 1 — capture ideas (zero ceremony)
+
+`/harness-capture-idea <idea>` appends one row to `.harness/tracking/IDEAS.jsonl` and stops. No
+interview, no decomposition, no `TASKS.json` write. It **deliberately defers every question** to
+`loop-prepare`'s conversion stage — which is exactly why that stage is where the questioning
+concentrates. Capture the instant the thought strikes; don't break your flow.
+
+### Move 2 — prepare the run (what `loop-prepare` does under the hood)
+
+`/harness-loop-prepare` is the single command that gets the backlog run-ready. It **chains four
+existing skills in order, running each in full — every question and guardrail preserved** (it
+streamlines nothing away; the planning stage is the only cheap place to resolve ambiguity):
 
 ```mermaid
 flowchart TD
-    S([🏗️ create<br/>one-time scaffold]) --> A
-    A[💡 capture-idea<br/>anytime an idea strikes] --> B[🔄 convert-ideas<br/>batch the inbox into tasks]
-    B --> C{✅ pre-loop-checkin<br/>GO / NO-GO}
-    C -->|scope WARNs| D[🔧 fix-scope-gaps]
+    P(["🛠️ loop-prepare"]) --> A["🩺 A · review-failed<br/>only if the last run left failed/blocked"]
+    A --> B["🔄 B · convert-ideas<br/>only if the ideas inbox has rows"]
+    B --> C{"✅ C · pre-loop-checkin<br/>always · GO / NO-GO"}
+    C -->|"scope WARNs"| D["🔧 D · fix-scope-gaps"]
     D --> C
-    C -->|GO| E[▶ scripts/supervise.sh<br/>the autonomous loop, started by a human]
-    E -->|task failed / blocked| F[🩺 review-failed<br/>author better follow-ups]
-    F --> C
-
+    C -->|"GO"| G(["👉 you run supervise.sh — Move 3"])
+    C -->|"NO-GO"| X(["blockers listed → fix & re-run prepare"])
     classDef human fill:#2d333b,stroke:#adbac7,color:#adbac7;
-    class A,B,C,D,F human;
+    class A,B,C,D human;
 ```
 
-**0. One-time — scaffold it.** `/implementation-harness:create` interviews
-you (isolation mode, stack, format/lint/test/build commands, CI name, cold-start difficulty floor)
-and writes a self-contained `.harness/` plus a personalized `CLAUDE.md`, `ci.yml`, `harness.env`,
-and starter `TASKS.json`. Do this once per repo.
+- **A · review-failed** *(skipped if nothing failed)* — investigates each `failed`/`blocked` task's
+  root cause (one sub-agent per task) and authors a demonstrably-better follow-up — **never a blind
+  retry**. Runs first, so its follow-ups are already in the backlog for the later stages.
+- **B · convert-ideas** *(skipped if the inbox is empty)* — sweeps the **whole** `IDEAS.jsonl`
+  inbox: dedupes related ideas, fans out one sub-agent per idea/cluster to shape it into atomic,
+  dependency-ordered tasks, **batches any genuine open questions back to you** (always confirming
+  the definition of done), then runs the locked `consolidate-ideas.sh` pass that allocates real
+  task ids, writes each spec, appends to `TASKS.json`, and clears the converted rows.
+- **C · pre-loop-checkin** *(always)* — a strictly **read-only** GO/NO-GO: needs-human blockers,
+  session hygiene (dirty tree, a running loop, a held lock), dependency short-circuits, and per-task
+  facet/spec/scope quality. It changes nothing — it just tells you whether the loop is safe to start.
+- **D · fix-scope-gaps** *(only when the check-in's scope check WARNs)* — offered right there; fans
+  out a cheap-model judge per warning (real-gap vs false-positive against the spec's own prose),
+  auto-applies the confident real gaps to each task's `scope`, and asks you only about the ambiguous
+  ones.
 
-**1. Capture ideas — anytime, zero ceremony.**
-`/harness-capture-idea <idea>` appends one row to `.harness/tracking/IDEAS.jsonl` and
-stops. No interview, no decomposition, no `TASKS.json` write. It **deliberately defers every
-question** to the conversion sweep — which is exactly why conversion (next step) is where the
-questioning concentrates. Capture the instant the thought strikes; don't break your flow.
+`loop-prepare` ends at the **GO / NO-GO** verdict and **never starts the loop**. You can still run
+any of A–D as its own command when you want just that step (e.g. `/harness-convert-ideas` mid-week),
+but to prepare a run, `loop-prepare` is the single entry point.
 
-**2. Convert the inbox — once a batch has accrued.**
-`/harness-convert-ideas` sweeps the **whole** `IDEAS.jsonl` inbox at once: it dedupes
-related ideas, fans out one sub-agent per idea/cluster to shape it into atomic, dependency-ordered
-tasks, **batches any genuine open questions back to you** (and always confirms the definition of
-done), then runs the locked `consolidate-ideas.sh` pass that allocates real task ids, writes each
-task's spec, appends to `TASKS.json`, and clears the converted rows from the inbox.
+### Move 3 — run the loop (you, from a real terminal)
 
-**3. Pre-flight the backlog — before every unattended run.**
-`/harness-pre-loop-checkin` is a strictly **read-only** GO/NO-GO. It surfaces
-needs-human blockers, session hygiene (dirty tree, a running loop, a held lock), dependency
-short-circuits, and per-task definition quality (facets, spec, scope). It changes nothing — it just
-tells you whether the loop is safe to start.
-
-**4. (optional) Fix scope-authoring gaps — when the check-in flags them.**
-If pre-loop-checkin's scope check finds WARNs, it **offers to run**
-`/harness-fix-scope-gaps` right there (this skill is a follow-up to the check-in, not
-something you run blind). It fans out a cheap-model judge per warning to decide real-gap vs
-false-positive against the spec's own prose, auto-applies the confident real gaps to each task's
-`scope`, and asks you only about the genuinely ambiguous ones.
-
-**5. Run the loop — you, from a real terminal.**
 `.harness/scripts/supervise.sh` is a foreground heartbeat that re-runs `.harness/scripts/loop.sh`
 on a cadence for days; `loop.sh` builds one fully-verified task at a time, cheapest-tier-first with
 auto-escalation, gated on green GitHub CI. **Only a human can start it** — `supervise.sh`/`loop.sh`
@@ -74,11 +99,19 @@ hard-refuse the moment they detect they're being invoked from inside a Claude Co
 agent can never kick off an unattended, git-mutating run on its own. Preview first with
 `DRY_RUN=1 .harness/scripts/loop.sh`.
 
-**6. Review failures — turn dead ends into better tasks.**
-When the loop leaves tasks `failed` (you overturned a false success) or `blocked` (it gave up),
-`/harness-review-failed` investigates each one's root cause (one sub-agent per task)
-and authors a demonstrably-better follow-up — **never a blind retry**. The follow-ups re-enter the
-cycle at the pre-loop-checkin step.
+Under the hood, each pass is a four-beat cycle:
+
+```
+supervise.sh (heartbeat, runs for days)
+  └─ loop.sh   ── one task at a time, in isolation:
+        SELECT  next eligible task from origin/main (deps met, not gated)
+        WORK    one `claude -p` builds it, runs the Definition of Done, pushes a branch
+        GATE    watch GitHub CI on that branch → green? fast-forward main : fix on resume
+        RECORD  refresh the zero-token status board, repeat
+```
+
+When the run ends (or you stop it), the tasks it left `failed`/`blocked` plus whatever new ideas
+you've captured feed straight back into **Move 2** — the dashed arrow in the first diagram.
 
 ### Supporting skills
 
